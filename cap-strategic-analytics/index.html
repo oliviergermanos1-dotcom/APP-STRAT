@@ -2147,26 +2147,44 @@ function applyFilters() {
   // Recalcul des agrégats clients (avec N-1 aligné sur les mêmes mois & filtres)
   APP.clientsAgg = CALC.aggregateByClient(APP.filtered, APP.data.fact, f.ANNEE);
 
-  // ========== DERNIÈRE TRANSACTION PAR CLIENT (sur TOUT l'historique) ==========
-  // Permet de répondre à "Ce client est perdu depuis quand ?".
-  // On encode (année × 100 + mois) pour comparer simplement.
+  // ========== HISTORIQUE PAR CLIENT (sur TOUT l'historique) ==========
+  // Pour chaque client, on calcule en un seul passage :
+  //   - firstKey : date de la TOUTE PREMIÈRE facture (yyyy*100+mm)
+  //   - lastKey  : date de la DERNIÈRE facture
+  //   - activeInLookback : a-t-il facturé dans la fenêtre de 12 mois
+  //     précédant le début de la période courante ?
+  //
+  // Ces flags permettent des définitions STRICTES de :
+  //   - vrai nouveau client (jamais facturé avant la période)
+  //   - client réactivé (a facturé il y a longtemps, hiatus ≥ 12 mois)
+  //   - vrai client perdu (était actif dans les 12 derniers mois)
+  // ============================================================
+  const refY = f.ANNEE;
+  const refM = f.MOIS_MAX || 12;
+  const startMonth = (f.PERIODE_MODE === 'mois') ? refM : 1;
+  // Période courante : [refY-startMonth → refY-refM]
+  const periodStartKey = refY * 100 + startMonth;
+  // Fenêtre lookback : 12 mois précédant le début de la période courante
+  const lookbackStartKey = (refY - 1) * 100 + startMonth;
+  // (lookbackStartKey inclus, periodStartKey exclu)
+
+  const firstByClient = {};
   const lastByClient = {};
+  const lookbackByClient = {};   // a facturé au moins 1 fois dans la fenêtre lookback
   for (let i = 0; i < APP.data.fact.length; i++) {
     const r = APP.data.fact[i];
     if (!r.CLIENT) continue;
     const key = r.ANNEE * 100 + r.MOIS;
-    if (!lastByClient[r.CLIENT] || key > lastByClient[r.CLIENT]) {
-      lastByClient[r.CLIENT] = key;
-    }
+    if (!firstByClient[r.CLIENT] || key < firstByClient[r.CLIENT]) firstByClient[r.CLIENT] = key;
+    if (!lastByClient[r.CLIENT] || key > lastByClient[r.CLIENT]) lastByClient[r.CLIENT] = key;
+    if (key >= lookbackStartKey && key < periodStartKey) lookbackByClient[r.CLIENT] = true;
   }
-  const refY = f.ANNEE;
-  const refM = f.MOIS_MAX || 12;
 
   // Pré-calcul percentiles + stats (une fois pour tous les clients)
   const { p80, p20 } = CALC.computePercentiles(APP.clientsAgg);
   const stats = CALC.precomputeStats(APP.clientsAgg);
 
-  // Enrichir avec score, tier, quadrant + dernière transaction
+  // Enrichir avec score, tier, quadrant + historique strict
   APP.clientsAgg.forEach(c => {
     c.score = CALC.scoreClient(c, stats);
     c.tier = CALC.tier(c.score);
@@ -2176,17 +2194,47 @@ function applyFilters() {
     c.healthScore = CALC.healthScore(c, APP.data.fact);
     c.healthStatus = CALC.healthStatus(c.healthScore);
 
-    const k = lastByClient[c.CLIENT];
-    if (k) {
-      const ly = Math.floor(k / 100);
-      const lm = k % 100;
-      c.lastYear = ly;
-      c.lastMonth = lm;
-      c.monthsSinceLastTx = (refY - ly) * 12 + (refM - lm);
+    // Dernière transaction
+    const lk = lastByClient[c.CLIENT];
+    if (lk) {
+      c.lastYear = Math.floor(lk / 100);
+      c.lastMonth = lk % 100;
+      c.monthsSinceLastTx = (refY - c.lastYear) * 12 + (refM - c.lastMonth);
     } else {
       c.lastYear = null; c.lastMonth = null; c.monthsSinceLastTx = null;
     }
+
+    // Première transaction (granularité mois)
+    const fk = firstByClient[c.CLIENT];
+    if (fk) {
+      c.firstYearMonth = fk;
+      c.firstYear = Math.floor(fk / 100);  // override la valeur année-seule de aggregateByClient
+      c.firstMonth = fk % 100;
+    } else {
+      c.firstYearMonth = null; c.firstMonth = null;
+    }
+
+    // Activité dans la fenêtre lookback (12 mois précédant la période courante)
+    c.activeInLookback = !!lookbackByClient[c.CLIENT];
+
+    // Définitions strictes :
+    //   isTrueNew     : sa TOUTE première facture est dans la période courante
+    //                   (= aucune transaction passée, de toute l'histoire)
+    //   isReactivated : a facturé avant la fenêtre lookback, RIEN sur les 12
+    //                   mois précédant la période, et facture maintenant
+    //   isTrueLost    : était actif dans la fenêtre lookback (12 derniers mois
+    //                   précédant la période) et ne facture rien sur la période
+    c.isTrueNew     = c.CA_N > 0 && c.firstYearMonth !== null && c.firstYearMonth >= periodStartKey;
+    c.isReactivated = c.CA_N > 0 && c.firstYearMonth !== null && c.firstYearMonth < lookbackStartKey && !c.activeInLookback;
+    c.isTrueLost    = c.CA_N === 0 && c.activeInLookback;
   });
+
+  // Mémoriser les bornes pour usage UI (libellés période, lookback, etc.)
+  APP.periodInfo = {
+    startMonth, endMonth: refM,
+    periodStartKey, lookbackStartKey,
+    lookbackEndKey: periodStartKey  // exclusif
+  };
 
   renderCurrentPage();
 }
@@ -2204,6 +2252,36 @@ function formatLastSeen(c) {
   const ansTxt = ans === 1 ? '1 an' : `${ans} ans`;
   const resteTxt = reste > 0 ? ` ${reste} m` : '';
   return `Perdu depuis ${ansTxt}${resteTxt} <span class="text-muted">(dernière facture : ${dateStr})</span>`;
+}
+
+// Libellé de la période actuelle filtrée (réutilisable partout)
+function periodLabel() {
+  const f = APP.filters;
+  const moisNoms = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+  const moisAbr  = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+  const m = f.MOIS_MAX || 12;
+  if (f.PERIODE_MODE === 'mois') {
+    return { courte: `${moisAbr[m-1]} ${f.ANNEE}`, longue: `${moisNoms[m-1]} ${f.ANNEE}`, ref: `${moisNoms[m-1]} ${f.ANNEE - 1}` };
+  }
+  return { courte: `${f.ANNEE} (Jan→${moisAbr[m-1]})`, longue: `Janvier → ${moisNoms[m-1]} ${f.ANNEE}`, ref: `Janvier → ${moisNoms[m-1]} ${f.ANNEE - 1}` };
+}
+
+// Libellé de la fenêtre lookback (12 mois précédant la période)
+function lookbackLabel() {
+  const f = APP.filters;
+  const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+  const m = f.MOIS_MAX || 12;
+  const startM = (f.PERIODE_MODE === 'mois') ? m : 1;
+  const startY = f.ANNEE - 1;
+  // 12 mois : [startY-startM ; startY-(startM-1+12) wrap]
+  // Plus simple : du même mois N-1 au mois précédant le début de période
+  // = [startY-startM, ..., startY-12 ou refY-(startM-1)]
+  // On affiche en bornes calendaires : "{startM} {startY} → {endM} {endY}" où endM = startM-1 (ou 12 de l'an précédent)
+  let endM = startM - 1, endY = startY;
+  if (endM <= 0) { endM = 12; endY = startY - 1; }
+  // Pour le mode 'cumul' (startM=1), la fenêtre est exactement l'année N-1 complète
+  if (startM === 1) return `Année ${startY} complète (Jan → Déc)`;
+  return `${moisAbr[startM-1]} ${startY} → ${moisAbr[endM-1]} ${endY}`;
 }
 
 function buildPages() {
@@ -2407,8 +2485,9 @@ function render_cockpit() {
     </div>
 
     ${(() => {
-      // Détail des clients perdus par ancienneté de la dernière facture
-      const lost = APP.clientsAgg.filter(c => c.CA_N === 0 && c.monthsSinceLastTx !== null && c.monthsSinceLastTx > 0);
+      // Détail des VRAIS clients perdus (actifs dans les 12 mois précédant la période)
+      // par ancienneté de la dernière facture
+      const lost = APP.clientsAgg.filter(c => c.isTrueLost);
       const buckets = {
         '1-6 mois': lost.filter(c => c.monthsSinceLastTx <= 6),
         '6-12 mois': lost.filter(c => c.monthsSinceLastTx > 6 && c.monthsSinceLastTx <= 12),
@@ -2502,13 +2581,29 @@ function render_cockpit() {
       </div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Contribution des nouveaux clients</div>
+          <div class="card-title">Contribution des vrais nouveaux clients</div>
         </div>
         <div class="card-body">
-          <div class="kpi-value gold" style="font-size:36px;">${fmt.pct(newLogo)}</div>
-          <div class="kpi-bench">part du CA réalisée par les clients qui n'existaient pas en ${y-1}</div>
-          <div class="divider"></div>
-          <div class="text-sm text-muted">${APP.clientsAgg.filter(c => c.CA_N1 === 0 && c.CA_N > 0).length} nouveaux clients identifiés sur ${y}</div>
+          ${(() => {
+            const trueNewList = APP.clientsAgg.filter(c => c.isTrueNew);
+            const reactivatedList = APP.clientsAgg.filter(c => c.isReactivated);
+            const trueNewCA = trueNewList.reduce((s,c) => s + (c.CA_N || 0), 0);
+            const reactivatedCA = reactivatedList.reduce((s,c) => s + (c.CA_N || 0), 0);
+            const totalCA = APP.clientsAgg.reduce((s,c) => s + (c.CA_N || 0), 0);
+            const pctTrueNew = totalCA > 0 ? trueNewCA / totalCA : 0;
+            const pctReact = totalCA > 0 ? reactivatedCA / totalCA : 0;
+            const lbl = periodLabel();
+            return `
+              <div class="kpi-value gold" style="font-size:36px;">${fmt.pct(pctTrueNew)}</div>
+              <div class="kpi-bench">part du CA <strong>${lbl.longue}</strong> réalisée par des clients dont c'est la <strong>toute 1ʳᵉ facture</strong> (jamais facturé avant)</div>
+              <div class="divider"></div>
+              <div class="text-sm" style="line-height:1.7;">
+                <div><strong style="color:var(--gold-700);">${trueNewList.length}</strong> vrais nouveaux clients <span class="text-muted">(1ʳᵉ facture jamais émise)</span></div>
+                <div><strong style="color:var(--evol-new);">${reactivatedList.length}</strong> clients réactivés <span class="text-muted">(${fmt.pct(pctReact)} du CA — déjà facturé avant, hiatus ≥ 12 mois)</span></div>
+              </div>
+              <div class="text-sm text-muted" style="margin-top:8px;font-style:italic;">Fenêtre de vérification : ${lookbackLabel()}</div>
+            `;
+          })()}
         </div>
       </div>
     </div>
@@ -2880,105 +2975,198 @@ function tierLabel(t) {
   return { S: 'Comptes stratégiques', A: 'Premium', B: 'Standard', C: 'Longue traîne', D: 'À arbitrer' }[t];
 }
 
-// =========== PAGE 3 — GROWTH ENGINE ===========
+// =========== PAGE 3 — MOTEUR DE CROISSANCE ===========
 function render_growth() {
   const p = PAGES[3];
   const el = document.getElementById('page-growth');
   const clients = APP.clientsAgg;
-  
-  const topGrowers = [...clients].filter(c => c.evol !== null && c.CA_N > 0).sort((a,b) => b.evol - a.evol).slice(0, 15);
-  const topDecliners = [...clients].filter(c => c.evol !== null && c.CA_N > 0).sort((a,b) => a.evol - b.evol).slice(0, 15);
-  const newClients = [...clients].filter(c => c.CA_N1 === 0 && c.CA_N > 0).sort((a,b) => b.CA_N - a.CA_N).slice(0, 15);
-  const lostClients = [...clients].filter(c => c.CA_N === 0 && c.CA_N1 > 0).sort((a,b) => b.CA_N1 - a.CA_N1).slice(0, 15);
-  
+  const lbl = periodLabel();
+  const lookback = lookbackLabel();
+
+  // Définitions STRICTES (calculées dans applyFilters) :
+  //  - isTrueNew     : 1ʳᵉ facture jamais émise → tombe dans la période courante
+  //  - isReactivated : déjà facturé avant, hiatus ≥ 12 mois, revient maintenant
+  //  - isTrueLost    : était actif dans les 12 mois précédant la période, plus rien maintenant
+  const trueNew = [...clients].filter(c => c.isTrueNew).sort((a,b) => b.CA_N - a.CA_N);
+  const reactivated = [...clients].filter(c => c.isReactivated).sort((a,b) => b.CA_N - a.CA_N);
+  const trueLost = [...clients].filter(c => c.isTrueLost).sort((a,b) => (b.CA_N1 || 0) - (a.CA_N1 || 0));
+  const growers = [...clients].filter(c => c.evol !== null && c.CA_N > 0 && c.evol > 0.05).sort((a,b) => b.evol - a.evol);
+  const decliners = [...clients].filter(c => c.evol !== null && c.CA_N > 0 && c.evol < -0.05).sort((a,b) => a.evol - b.evol);
+
+  // Bandeau d'alerte si écart entre la définition lâche et la stricte
+  const naive_new = clients.filter(c => c.CA_N1 === 0 && c.CA_N > 0).length;
+  const naive_lost = clients.filter(c => c.CA_N === 0 && c.CA_N1 > 0).length;
+
   el.innerHTML = `
     ${pageHeader(p)}
 
-    ${explain(`Cette page sert à <strong>répondre à la question commerciale du mois</strong> : qui appeler en priorité ?
-      Les 4 compteurs indiquent la photographie du portefeuille :
+    ${explain(`Cette page répond à la question : <strong>qui faut-il appeler ?</strong> Les 4 compteurs ci-dessous utilisent des <u>définitions strictes</u> :
       <ul>
-        <li><strong>Clients en croissance</strong> : ceux qui ont fait au moins +5% vs ${APP.filters.ANNEE - 1}.</li>
-        <li><strong>Clients en décroissance</strong> : ceux qui ont baissé de plus de 5%.</li>
-        <li><strong>Nouveaux clients</strong> : qui n'existaient pas en ${APP.filters.ANNEE - 1} et qui ont facturé en ${APP.filters.ANNEE}.</li>
-        <li><strong>Clients perdus</strong> : qui facturaient en ${APP.filters.ANNEE - 1} mais plus en ${APP.filters.ANNEE} → candidats à la reconquête.</li>
-      </ul>`, 'Comment lire les 4 compteurs ci-dessous')}
+        <li><strong>Clients en croissance</strong> : ont fait au moins <strong>+5%</strong> sur <em>${lbl.longue}</em> vs <em>${lbl.ref}</em>.</li>
+        <li><strong>Clients en décroissance</strong> : ont fait au moins <strong>-5%</strong> sur les mêmes périodes.</li>
+        <li><strong>Vrais nouveaux clients</strong> : leur <strong>toute première facture jamais émise</strong> tombe dans la période <em>${lbl.longue}</em>. (Pas seulement "absent en ${APP.filters.ANNEE - 1}" — un client qui a facturé en septembre ${APP.filters.ANNEE - 1} et revient en mars ${APP.filters.ANNEE} <strong>n'est PAS</strong> compté ici, c'est un client réactivé.)</li>
+        <li><strong>Vrais clients perdus</strong> : étaient actifs dans la <strong>fenêtre de 12 mois précédant la période</strong> (${lookback}) et n'ont rien facturé sur <em>${lbl.longue}</em>.</li>
+      </ul>
+      ${(naive_new !== trueNew.length || naive_lost !== trueLost.length) ? `<div style="margin-top:8px;padding:8px;background:rgba(247,127,0,0.1);border-left:3px solid var(--evol-down);font-size:11px;">
+        ⚠ <strong>Différence avec la définition lâche</strong> : la méthode lâche (juste "absent en ${APP.filters.ANNEE - 1} sur les mêmes mois") aurait donné <strong>${naive_new} "nouveaux"</strong> et <strong>${naive_lost} "perdus"</strong>. Beaucoup étaient en réalité des réactivations ou des clients saisonniers.
+      </div>` : ''}`, `Comment lire les 4 compteurs — période : ${lbl.longue}`)}
 
     <div class="grid grid-4">
       <div class="kpi kpi-good">
         <div class="kpi-label">Clients en croissance</div>
-        <div class="kpi-value">${clients.filter(c => c.evol !== null && c.evol > 0.05).length}</div>
-        <div class="kpi-bench">évolution > +5% vs N-1</div>
+        <div class="kpi-value">${growers.length}</div>
+        <div class="kpi-bench">évolution &gt; +5% — ${lbl.longue} vs ${lbl.ref}</div>
       </div>
       <div class="kpi kpi-alert">
         <div class="kpi-label">Clients en décroissance</div>
-        <div class="kpi-value">${clients.filter(c => c.evol !== null && c.evol < -0.05).length}</div>
-        <div class="kpi-bench">évolution < -5% vs N-1</div>
+        <div class="kpi-value">${decliners.length}</div>
+        <div class="kpi-bench">évolution &lt; -5% — ${lbl.longue} vs ${lbl.ref}</div>
       </div>
       <div class="kpi" style="border-top:3px solid var(--evol-new);">
-        <div class="kpi-label">Nouveaux clients</div>
-        <div class="kpi-value">${newClients.length}</div>
-        <div class="kpi-bench">premières factures en ${APP.filters.ANNEE}</div>
+        <div class="kpi-label">Vrais nouveaux clients</div>
+        <div class="kpi-value">${trueNew.length}</div>
+        <div class="kpi-bench">1ʳᵉ facture jamais émise sur ${lbl.longue}</div>
+        <div class="kpi-bench">+ ${reactivated.length} clients réactivés (hiatus ≥ 12 mois)</div>
       </div>
       <div class="kpi" style="border-top:3px solid var(--evol-lost);">
-        <div class="kpi-label">Clients perdus</div>
-        <div class="kpi-value">${lostClients.length}</div>
-        <div class="kpi-bench">à reconquérir en priorité</div>
+        <div class="kpi-label">Vrais clients perdus</div>
+        <div class="kpi-value">${trueLost.length}</div>
+        <div class="kpi-bench">actifs dans ${lookback}, plus rien sur ${lbl.longue}</div>
       </div>
     </div>
 
-    ${explain(`Les <strong>2 listes ci-dessous</strong> montrent les 15 clients les plus extrêmes :
+    ${explain(`Les <strong>2 listes ci-dessous</strong> montrent <u>tous</u> les clients en croissance / décroissance significative. Triées par variation décroissante.
       <ul>
-        <li><strong>À gauche — Top progressions</strong> : meilleurs élèves en pourcentage de croissance. À fidéliser, à comprendre, à utiliser comme référence commerciale.</li>
-        <li><strong>À droite — Top baisses</strong> : clients qui chutent le plus. <strong>Action urgente</strong> : appeler le client, comprendre la cause, proposer un plan de redressement.</li>
+        <li><strong>À gauche — Top progressions</strong> : à fidéliser, à comprendre, à utiliser comme référence commerciale.</li>
+        <li><strong>À droite — Top baisses</strong> : <strong>action urgente</strong> — appeler, comprendre la cause, proposer un plan de redressement.</li>
+      </ul>
+      Période comparée : <strong>${lbl.longue}</strong> vs <strong>${lbl.ref}</strong>.`, 'Comment lire les listes ci-dessous')}
+
+    <div class="grid grid-2 mt-3">
+      ${listCardLong('🚀 Clients en progression — à fidéliser', growers, 'evol')}
+      ${listCardLong('⚠ Clients en baisse — action urgente', decliners, 'evol')}
+    </div>
+
+    ${explain(`Les <strong>2 listes ci-dessous</strong> ciblent l'acquisition et la reconquête, avec définitions strictes :
+      <ul>
+        <li><strong>À gauche — Vrais nouveaux clients</strong> : leur 1ʳᵉ facture jamais émise tombe sur ${lbl.longue}. À on-boarder, transformer en récurrents.</li>
+        <li><strong>À droite — Vrais clients perdus</strong> : étaient actifs dans les 12 mois précédant la période (${lookback}), plus rien aujourd'hui. Colonne <strong>« Perdu depuis »</strong> indique la fraîcheur de la perte — plus c'est récent, plus c'est facile à reconquérir.</li>
       </ul>`, 'Comment lire les listes ci-dessous')}
 
     <div class="grid grid-2 mt-3">
-      ${listCard('🚀 Top progressions — à fidéliser', topGrowers, 'evol', 'evol')}
-      ${listCard('⚠ Top baisses — action urgente', topDecliners, 'evol', 'evol')}
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🆕 Vrais nouveaux clients</div>
+          <div class="text-sm text-muted">${trueNew.length} clients — 1ʳᵉ facture sur ${lbl.longue} — triés par CA décroissant</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap" style="max-height:520px;">
+            <table class="data">
+              <thead><tr><th>#</th><th>Client</th><th>Métier</th><th class="num">CA ${lbl.courte}</th><th>1ʳᵉ facture</th></tr></thead>
+              <tbody>
+                ${trueNew.length === 0 ? '<tr><td colspan=5 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNew.map((c, i) => {
+                  const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+                  return `<tr>
+                    <td class="text-muted">${i+1}</td>
+                    <td><strong>${c.CLIENT}</strong></td>
+                    <td class="text-sm">${c.METIER || '—'}</td>
+                    <td class="num">${fmt.money(c.CA_N)}</td>
+                    <td class="text-sm">${moisAbr[c.firstMonth - 1]} ${c.firstYear}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">💔 Vrais clients perdus — à reconquérir</div>
+          <div class="text-sm text-muted">${trueLost.length} clients — triés par CA perdu décroissant</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap" style="max-height:520px;">
+            <table class="data">
+              <thead><tr><th>#</th><th>Client</th><th class="num">CA perdu (${lbl.ref})</th><th>Perdu depuis</th></tr></thead>
+              <tbody>
+                ${trueLost.length === 0 ? '<tr><td colspan=4 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai client perdu</td></tr>' : trueLost.map((c, i) => {
+                  const m = c.monthsSinceLastTx || 0;
+                  const dot = m <= 6 ? 'var(--evol-down)' : m <= 12 ? 'var(--evol-strong-dn)' : m <= 24 ? '#7F7F7F' : '#B0B0B0';
+                  return `<tr>
+                    <td class="text-muted">${i+1}</td>
+                    <td><strong>${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
+                    <td class="num text-muted">${fmt.money(c.CA_N1 || 0)}</td>
+                    <td class="text-sm">
+                      <span style="display:inline-block;width:6px;height:6px;background:${dot};border-radius:50%;margin-right:6px;"></span>
+                      ${formatLastSeen(c)}
+                    </td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
 
-    ${explain(`Les <strong>2 listes ci-dessous</strong> ciblent l'acquisition et la reconquête :
-      <ul>
-        <li><strong>À gauche — Nouveaux clients</strong> : à on-boarder correctement et à transformer en clients récurrents (objectif : passer Tier C → Tier B).</li>
-        <li><strong>À droite — Clients à reconquérir</strong> : ils n'ont rien facturé en ${APP.filters.ANNEE} alors qu'ils ont déjà facturé par le passé. La colonne <strong>« Perdu depuis »</strong> indique la fraîcheur de la perte (plus c'est récent, plus c'est facile à reconquérir). La liste est triée par <strong>CA perdu décroissant</strong>.</li>
-      </ul>`, 'Comment lire les listes ci-dessous')}
+    ${reactivated.length > 0 ? `
+    ${explain(`Les <strong>clients réactivés</strong> méritent une lecture séparée : ils ont déjà été clients par le passé, ont disparu pendant au moins 12 mois, et reviennent sur ${lbl.longue}. Souvent un signal positif (leçon : qu'est-ce qui les a fait revenir ?). Ils ne sont <strong>pas</strong> comptés comme "vrais nouveaux".`, 'Comment lire la liste ci-dessous')}
 
-    <div class="grid grid-2 mt-3">
-      ${listCard('🆕 Nouveaux clients', newClients, 'CA_N', 'ca')}
-      ${(() => {
-        // Carte enrichie : Clients à reconquérir avec « Perdu depuis »
-        const list = [...lostClients].sort((a,b) => (b.CA_N1 || 0) - (a.CA_N1 || 0));
-        return `
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">💔 Clients à reconquérir</div>
-            <div class="text-sm text-muted">${list.length} clients — triés par CA perdu</div>
-          </div>
-          <div class="card-body" style="padding:0;">
-            <div class="tbl-wrap">
-              <table class="data">
-                <thead><tr><th>Client</th><th class="num">CA perdu</th><th>Perdu depuis</th></tr></thead>
-                <tbody>
-                  ${list.length === 0 ? '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun client perdu</td></tr>' : list.slice(0, 30).map(c => {
-                    const m = c.monthsSinceLastTx || 0;
-                    const dot = m <= 6 ? 'var(--evol-down)' : m <= 12 ? 'var(--evol-strong-dn)' : m <= 24 ? '#7F7F7F' : '#B0B0B0';
-                    return `<tr>
-                      <td><strong>${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
-                      <td class="num text-muted">${fmt.money(c.CA_N1 || 0)}</td>
-                      <td class="text-sm">
-                        <span style="display:inline-block;width:6px;height:6px;background:${dot};border-radius:50%;margin-right:6px;"></span>
-                        ${formatLastSeen(c)}
-                      </td>
-                    </tr>`;
-                  }).join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>`;
-      })()}
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">♻ Clients réactivés — déjà clients par le passé, reviennent</div>
+        <div class="text-sm text-muted">${reactivated.length} clients — hiatus ≥ 12 mois — triés par CA décroissant</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:400px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client</th><th>Métier</th><th class="num">CA ${lbl.courte}</th><th>Avant retour</th></tr></thead>
+            <tbody>
+              ${reactivated.map((c, i) => {
+                const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+                return `<tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong>${c.CLIENT}</strong></td>
+                  <td class="text-sm">${c.METIER || '—'}</td>
+                  <td class="num">${fmt.money(c.CA_N)}</td>
+                  <td class="text-sm text-muted">1ʳᵉ facture historique : ${moisAbr[c.firstMonth - 1]} ${c.firstYear}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
+    ` : ''}
   `;
+}
+
+// Variante de listCard sans slice — affiche TOUS les clients, scrollable
+function listCardLong(title, list, displayMode) {
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">${title}</div>
+        <div class="text-sm text-muted">${list.length} clients — défilement vertical</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:520px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client</th><th class="num">CA</th>${displayMode === 'evol' ? '<th class="num">Évol.</th>' : ''}</tr></thead>
+            <tbody>
+              ${list.length === 0 ? `<tr><td colspan=4 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun client</td></tr>` : list.map((c, i) => `
+                <tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong>${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
+                  <td class="num">${fmt.money(c.CA_N)}</td>
+                  ${displayMode === 'evol' ? `<td class="num"><span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed((c.evol || 0)*100)}</span></td>` : ''}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
 }
 
 function listCard(title, list, sortKey, displayMode) {
