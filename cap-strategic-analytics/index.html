@@ -1700,36 +1700,37 @@ CALC.quadrant9Box = (client, p80, p20) => {
   else momentum = 'Décroissance';
   
   if (taille === 'Haut' && momentum === 'Forte') return 'Champions';
-  if (taille === 'Haut' && momentum === 'Modérée') return 'Cash Generators';
-  if (taille === 'Haut') return 'Endangered Kings';
-  if (taille === 'Moyen' && momentum === 'Forte') return 'Rising Stars';
-  if (taille === 'Moyen' && momentum === 'Modérée') return 'Steady Performers';
-  if (taille === 'Moyen') return 'Fading Mid-Tier';
-  if (taille === 'Bas' && momentum === 'Forte') return 'Seeds';
-  if (taille === 'Bas' && momentum === 'Modérée') return 'Marginal';
-  return 'Dormant';
+  if (taille === 'Haut' && momentum === 'Modérée') return 'Vaches à lait';
+  if (taille === 'Haut') return 'Gros clients en danger';
+  if (taille === 'Moyen' && momentum === 'Forte') return 'Étoiles montantes';
+  if (taille === 'Moyen' && momentum === 'Modérée') return 'Cœur de portefeuille';
+  if (taille === 'Moyen') return 'Moyens en érosion';
+  if (taille === 'Bas' && momentum === 'Forte') return 'Pépites à arroser';
+  if (taille === 'Bas' && momentum === 'Modérée') return 'Petits stables';
+  return 'Petits en sommeil';
 };
 
 CALC.quadrantColor = (q) => ({
   'Champions': '#0B6E4F',
-  'Cash Generators': '#52B788',
-  'Endangered Kings': '#D62828',
-  'Rising Stars': '#52B788',
-  'Steady Performers': '#F4D35E',
-  'Fading Mid-Tier': '#F77F00',
-  'Seeds': '#F4D35E',
-  'Marginal': '#EAEAEA',
-  'Dormant': '#7F7F7F'
+  'Vaches à lait': '#52B788',
+  'Gros clients en danger': '#D62828',
+  'Étoiles montantes': '#52B788',
+  'Cœur de portefeuille': '#F4D35E',
+  'Moyens en érosion': '#F77F00',
+  'Pépites à arroser': '#F4D35E',
+  'Petits stables': '#EAEAEA',
+  'Petits en sommeil': '#7F7F7F'
 }[q] || '#FFFFFF');
 
 CALC.statutCycleVie = (client, lastDate) => {
-  if (client.CA_N === 0 && client.CA_N1 > 0) return '❌ Churned';
+  const yRef = (APP.filters && APP.filters.ANNEE) || (lastDate ? lastDate.getFullYear() : new Date().getFullYear());
+  if (client.CA_N === 0 && client.CA_N1 > 0) return '❌ Perdu';
   // Ancienneté
-  if (2026 - client.firstYear <= 1) return '🆕 New';
-  if (client.evol === null) return '⚓ Mature';
-  if (client.evol >= 0.10) return '📈 Growing';
-  if (client.evol <= -0.10) return '📉 Declining';
-  return '⚓ Mature';
+  if (yRef - client.firstYear <= 1) return '🆕 Nouveau';
+  if (client.evol === null) return '⚓ Stable';
+  if (client.evol >= 0.10) return '📈 En croissance';
+  if (client.evol <= -0.10) return '📉 En déclin';
+  return '⚓ Stable';
 };
 
 // ============= HEALTH SCORE =============
@@ -1955,6 +1956,7 @@ function buildSlicers() {
     METIER: 'Tout',
     LIBELLE: 'Tout',
     MOIS_MAX: moisMaxDefault,
+    PERIODE_MODE: 'cumul',  // 'cumul' = Janvier→mois choisi  |  'mois' = ce mois uniquement
     CLIENT_Q: ''
   };
 
@@ -1969,8 +1971,16 @@ function buildSlicers() {
     </div>
     <div class="slicer-divider"></div>
     <div class="slicer">
-      <span class="slicer-label">Mois jusqu'à</span>
-      <select id="slicer-mois" title="Toutes les comparaisons N vs N-1 utilisent les mois Janvier → mois sélectionné">
+      <span class="slicer-label">Période</span>
+      <select id="slicer-mode" title="Cumul = Janvier jusqu'au mois choisi. Mois seul = uniquement le mois choisi (vs même mois année précédente).">
+        <option value="cumul" selected>Cumul Jan → mois</option>
+        <option value="mois">Mois seul vs même mois N-1</option>
+      </select>
+    </div>
+    <div class="slicer-divider"></div>
+    <div class="slicer">
+      <span class="slicer-label">Mois</span>
+      <select id="slicer-mois" title="Mois de référence. En mode Cumul : on prend Janvier → ce mois. En mode Mois seul : uniquement ce mois (comparé au même mois de l'an dernier).">
         ${moisLabels.map((lbl, i) => `<option value="${i+1}" ${(i+1) === moisMaxDefault ? 'selected' : ''}>${lbl}</option>`).join('')}
       </select>
     </div>
@@ -2053,6 +2063,10 @@ function buildSlicers() {
     APP.filters.MOIS_MAX = parseInt(e.target.value);
     applyFilters();
   });
+  document.getElementById('slicer-mode').addEventListener('change', e => {
+    APP.filters.PERIODE_MODE = e.target.value;  // 'cumul' ou 'mois'
+    applyFilters();
+  });
   document.getElementById('slicer-site').addEventListener('change', e => {
     APP.filters.SITE = e.target.value;
     applyFilters();
@@ -2091,9 +2105,10 @@ function buildSlicers() {
     }, 200);
   });
   document.getElementById('btn-reset').addEventListener('click', () => {
-    APP.filters = { ANNEE: yMax, SITE: 'Tout', METIER: 'Tout', LIBELLE: 'Tout', MOIS_MAX: moisMaxDefault, CLIENT_Q: '' };
+    APP.filters = { ANNEE: yMax, SITE: 'Tout', METIER: 'Tout', LIBELLE: 'Tout', MOIS_MAX: moisMaxDefault, PERIODE_MODE: 'cumul', CLIENT_Q: '' };
     document.getElementById('slicer-annee').value = yMax;
     document.getElementById('slicer-mois').value = moisMaxDefault;
+    document.getElementById('slicer-mode').value = 'cumul';
     document.getElementById('slicer-site').value = 'Tout';
     if (metiers.length) document.getElementById('slicer-metier').value = 'Tout';
     if (libelles.length) refreshLibelleOptions('Tout');
@@ -2105,24 +2120,29 @@ function buildSlicers() {
 function applyFilters() {
   const f = APP.filters;
   const moisMax = f.MOIS_MAX || 12;
+  const mode = f.PERIODE_MODE || 'cumul';
   const clientQ = (f.CLIENT_Q || '').toLowerCase();
+
+  // Set de mois actifs déterminé par le mode :
+  //  - 'cumul' : Janvier → mois choisi (1, 2, ..., moisMax)
+  //  - 'mois'  : uniquement le mois choisi (vs même mois année précédente)
+  // Cette source unique pilote TOUTES les comparaisons N vs N-1.
+  APP.periodMonths = new Set();
+  if (mode === 'mois') {
+    APP.periodMonths.add(moisMax);
+  } else {
+    for (let m = 1; m <= moisMax; m++) APP.periodMonths.add(m);
+  }
 
   APP.filtered = APP.data.fact.filter(r => {
     if (r.ANNEE !== f.ANNEE) return false;
-    if (r.MOIS > moisMax) return false;
+    if (!APP.periodMonths.has(r.MOIS)) return false;
     if (f.SITE && f.SITE !== 'Tout' && r.SITE !== f.SITE) return false;
     if (f.METIER && f.METIER !== 'Tout' && r.METIER !== f.METIER) return false;
     if (f.LIBELLE && f.LIBELLE !== 'Tout' && r.LIBELLE !== f.LIBELLE) return false;
     if (clientQ && (!r.CLIENT || !r.CLIENT.toLowerCase().includes(clientQ))) return false;
     return true;
   });
-
-  // Mémorise le set de mois courants pour comparaison N vs N-1 sur les MÊMES MOIS partout
-  APP.periodMonths = new Set(APP.filtered.map(r => r.MOIS));
-  if (APP.periodMonths.size === 0) {
-    // Garde-fou : si filtres très restrictifs vidant la sélection, on garde Jan → MOIS_MAX pour les comparaisons
-    for (let m = 1; m <= moisMax; m++) APP.periodMonths.add(m);
-  }
 
   // Recalcul des agrégats clients (avec N-1 aligné sur les mêmes mois & filtres)
   APP.clientsAgg = CALC.aggregateByClient(APP.filtered, APP.data.fact, f.ANNEE);
@@ -2179,8 +2199,11 @@ function attachEvents() {
 function pageHeader(p) {
   const f = APP.filters;
   const moisLbl = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][(f.MOIS_MAX || 12) - 1];
+  const periodeTxt = (f.PERIODE_MODE === 'mois')
+    ? `${moisLbl} ${f.ANNEE} (vs ${moisLbl} ${f.ANNEE - 1})`
+    : `${f.ANNEE} — Janvier → ${moisLbl} (vs même période ${f.ANNEE - 1})`;
   const meta = [];
-  meta.push(`<span class="page-meta-item">Période : ${f.ANNEE} (Janvier → ${moisLbl})</span>`);
+  meta.push(`<span class="page-meta-item">Période : ${periodeTxt}</span>`);
   if (f.SITE !== 'Tout') meta.push(`<span class="page-meta-item">Site : ${f.SITE}</span>`);
   if (f.METIER && f.METIER !== 'Tout') meta.push(`<span class="page-meta-item">Métier : ${f.METIER}</span>`);
   if (f.LIBELLE && f.LIBELLE !== 'Tout') meta.push(`<span class="page-meta-item">Département : ${f.LIBELLE}</span>`);
@@ -2349,7 +2372,7 @@ function render_cockpit() {
     <div class="grid grid-2-1 mt-3">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Évolution mensuelle du CAP — ${y} vs ${y-1} (mêmes mois)</div>
+          <div class="card-title">${APP.filters.PERIODE_MODE === 'mois' ? `CAP ${['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][APP.filters.MOIS_MAX-1]} ${y} vs ${y-1}` : `Évolution mensuelle du CAP — ${y} vs ${y-1} (mêmes mois)`}</div>
         </div>
         <div class="card-body">
           <div class="chart-container"><canvas id="chart-monthly"></canvas></div>
@@ -2429,29 +2452,38 @@ function renderMonthlyChart(rows, all, y) {
   if (!ctx) return;
   const c = chartColors();
 
-  // On compare strictement Janvier → MOIS_MAX entre N et N-1 (mêmes filtres déjà appliqués sur rows / N-1 via APP.periodMonths côté capN_1)
+  // En mode 'cumul' : Jan → MOIS_MAX. En mode 'mois' : uniquement le mois MOIS_MAX.
+  // Mêmes filtres appliqués au N-1 pour comparaison à périmètre identique.
   const moisMax = (APP.filters && APP.filters.MOIS_MAX) || 12;
+  const mode = (APP.filters && APP.filters.PERIODE_MODE) || 'cumul';
   const f = APP.filters || {};
   const siteSet = f.SITE && f.SITE !== 'Tout' ? new Set([f.SITE]) : null;
   const metierSet = f.METIER && f.METIER !== 'Tout' ? new Set([f.METIER]) : null;
   const libelleSet = f.LIBELLE && f.LIBELLE !== 'Tout' ? new Set([f.LIBELLE]) : null;
   const clientQ = (f.CLIENT_Q || '').toLowerCase();
 
-  const monthsN = Array(moisMax).fill(0);
-  const monthsN1 = Array(moisMax).fill(0);
-  rows.forEach(r => { if (r.MOIS >= 1 && r.MOIS <= moisMax) monthsN[r.MOIS - 1] += r.MONTANT || 0; });
+  const monthsLabelsAll = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
+  const startM = (mode === 'mois') ? moisMax : 1;
+  const endM = moisMax;
+  const span = endM - startM + 1;
+
+  const monthsN = Array(span).fill(0);
+  const monthsN1 = Array(span).fill(0);
+  rows.forEach(r => {
+    if (r.MOIS >= startM && r.MOIS <= endM) monthsN[r.MOIS - startM] += r.MONTANT || 0;
+  });
   for (let i = 0; i < all.length; i++) {
     const r = all[i];
     if (r.ANNEE !== y - 1) continue;
-    if (r.MOIS < 1 || r.MOIS > moisMax) continue;
+    if (r.MOIS < startM || r.MOIS > endM) continue;
     if (siteSet && !siteSet.has(r.SITE)) continue;
     if (metierSet && !metierSet.has(r.METIER)) continue;
     if (libelleSet && !libelleSet.has(r.LIBELLE)) continue;
     if (clientQ && (!r.CLIENT || !r.CLIENT.toLowerCase().includes(clientQ))) continue;
-    monthsN1[r.MOIS - 1] += r.MONTANT || 0;
+    monthsN1[r.MOIS - startM] += r.MONTANT || 0;
   }
 
-  const labels = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'].slice(0, moisMax);
+  const labels = monthsLabelsAll.slice(startM - 1, endM);
 
   APP.charts.monthly = new Chart(ctx, {
     type: 'bar',
@@ -2488,8 +2520,8 @@ function render_portfolio() {
   });
   const totalCA = clients.reduce((s,c) => s + c.CA_N, 0);
   
-  const quadrantOrder = ['Champions','Cash Generators','Endangered Kings','Rising Stars','Steady Performers','Fading Mid-Tier','Seeds','Marginal','Dormant'];
-  
+  const quadrantOrder = ['Champions','Vaches à lait','Gros clients en danger','Étoiles montantes','Cœur de portefeuille','Moyens en érosion','Pépites à arroser','Petits stables','Petits en sommeil'];
+
   el.innerHTML = `
     ${pageHeader(p)}
 
@@ -2498,17 +2530,17 @@ function render_portfolio() {
         <li><strong>Sa taille</strong> (axe horizontal) — Gros / Moyen / Petit, selon son CA.</li>
         <li><strong>Sa dynamique</strong> (axe vertical) — En croissance / Stable / En baisse, selon son évolution vs ${APP.filters.ANNEE - 1}.</li>
       </ul>
-      Ça donne 9 cases stratégiques (un classique des cabinets de conseil). Les noms de cases sont en anglais par convention métier mais voici la traduction :
+      Ça donne 9 cases stratégiques (matrice classique des cabinets de conseil) :
       <ul>
-        <li><strong>Champions</strong> = gros clients en forte croissance (à protéger absolument)</li>
-        <li><strong>Cash Generators</strong> = gros clients stables (vache à lait)</li>
-        <li><strong>Endangered Kings</strong> = gros clients en baisse (URGENCE — visite KAM senior)</li>
-        <li><strong>Rising Stars</strong> = clients moyens en forte croissance (à investir)</li>
-        <li><strong>Steady Performers</strong> = clients moyens stables (cœur du portefeuille)</li>
-        <li><strong>Fading Mid-Tier</strong> = clients moyens qui s'effritent (à relancer)</li>
-        <li><strong>Seeds</strong> = petits clients en forte croissance (graines à arroser)</li>
-        <li><strong>Marginal</strong> = petits clients stables (à laisser, faible priorité)</li>
-        <li><strong>Dormant</strong> = petits clients en baisse (à arbitrer ou à laisser partir)</li>
+        <li><strong>Champions</strong> — gros clients en forte croissance (à protéger absolument)</li>
+        <li><strong>Vaches à lait</strong> — gros clients stables (génèrent du cash sans effort)</li>
+        <li><strong>Gros clients en danger</strong> — gros clients en baisse (URGENCE : visite KAM senior)</li>
+        <li><strong>Étoiles montantes</strong> — clients moyens en forte croissance (à investir, futurs Champions)</li>
+        <li><strong>Cœur de portefeuille</strong> — clients moyens stables (à entretenir)</li>
+        <li><strong>Moyens en érosion</strong> — clients moyens qui s'effritent (à relancer commercialement)</li>
+        <li><strong>Pépites à arroser</strong> — petits clients en forte croissance (graines à faire grandir)</li>
+        <li><strong>Petits stables</strong> — petits clients stables (faible priorité, à servir efficacement)</li>
+        <li><strong>Petits en sommeil</strong> — petits clients en baisse (à arbitrer ou laisser partir)</li>
       </ul>`, 'Comment lire la matrice ci-dessous')}
 
     <div class="grid grid-2-1">
