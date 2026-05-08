@@ -371,6 +371,7 @@ html, body {
 }
 .grid-4 { grid-template-columns: repeat(4, 1fr); }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-5 { grid-template-columns: repeat(5, 1fr); }
 .grid-2 { grid-template-columns: repeat(2, 1fr); }
 .grid-2-1 { grid-template-columns: 2fr 1fr; }
 .grid-1-2 { grid-template-columns: 1fr 2fr; }
@@ -925,6 +926,7 @@ table.data tr.highlight { background: var(--gold-50); }
 @media (max-width: 1100px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
+  .grid-5 { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 768px) {
   .grid-4, .grid-3, .grid-2, .grid-2-1, .grid-1-2 { grid-template-columns: 1fr; }
@@ -2229,6 +2231,44 @@ function applyFilters() {
     c.isTrueLost    = c.CA_N === 0 && c.activeInLookback;
   });
 
+  // ========== TIERS PAR PERCENTILE (calibration relative au portefeuille AGL) ==========
+  // Au lieu de seuils absolus 90/75/50/25 (qui ne s'adaptent pas à la réalité
+  // d'AGL), on classe les clients ACTIFS sur la période par score décroissant
+  // et on assigne :
+  //   - top  5%  → S (comptes stratégiques)
+  //   - 5-20%    → A (premium)
+  //   - 20-50%   → B (cœur de portefeuille)
+  //   - 50-80%   → C (longue traîne)
+  //   - 80-100%  → D (à arbitrer)
+  // Avec cette logique, S et A sont TOUJOURS peuplés (sauf portefeuille vide).
+  const ranked = [...APP.clientsAgg].filter(c => c.CA_N > 0).sort((a,b) => b.score - a.score);
+  const N = ranked.length;
+  ranked.forEach((c, i) => {
+    const r = (i + 1) / N;
+    if (r <= 0.05) c.tier = 'S';
+    else if (r <= 0.20) c.tier = 'A';
+    else if (r <= 0.50) c.tier = 'B';
+    else if (r <= 0.80) c.tier = 'C';
+    else c.tier = 'D';
+  });
+  // Clients sans CA sur la période → tier D par défaut (incl. perdus)
+  APP.clientsAgg.filter(c => c.CA_N === 0).forEach(c => c.tier = 'D');
+
+  // ========== TAUX DE CROSS-SELLING ==========
+  // Plus un client utilise de services AGL distincts (libellés), mieux il est noté.
+  // Périmètre : nombre total de services présents dans le périmètre filtré actuel.
+  const totalLibInScope = new Set(APP.filtered.map(r => r.LIBELLE).filter(Boolean)).size;
+  APP.clientsAgg.forEach(c => {
+    c.crossSellRate = totalLibInScope > 0 ? (c.nbLibelles || 0) / totalLibInScope : 0;
+    // 5 niveaux d'étoiles (basés sur le % de services consommés vs total dispo)
+    if (c.crossSellRate >= 0.40) c.crossSellLvl = 5;       // ★★★★★  Excellent (≥ 40%)
+    else if (c.crossSellRate >= 0.20) c.crossSellLvl = 4;  // ★★★★    Très bon (20-40%)
+    else if (c.crossSellRate >= 0.10) c.crossSellLvl = 3;  // ★★★     Bon (10-20%)
+    else if (c.crossSellRate >= 0.05) c.crossSellLvl = 2;  // ★★      Moyen (5-10%)
+    else c.crossSellLvl = 1;                                // ★       Mono / Faible (<5%)
+  });
+  APP.totalLibInScope = totalLibInScope;
+
   // Mémoriser les bornes pour usage UI (libellés période, lookback, etc.)
   APP.periodInfo = {
     startMonth, endMonth: refM,
@@ -2237,6 +2277,16 @@ function applyFilters() {
   };
 
   renderCurrentPage();
+}
+
+// Affichage des étoiles cross-sell + libellé
+function crossSellStars(c) {
+  const lvl = c.crossSellLvl || 1;
+  const labels = { 5:'Excellent', 4:'Très bon', 3:'Bon', 2:'Moyen', 1:'Faible' };
+  const colors = { 5:'#0B6E4F', 4:'#52B788', 3:'#F4D35E', 2:'#F77F00', 1:'#D62828' };
+  const stars = '★'.repeat(lvl) + '<span style="color:#D4D4D4;">' + '★'.repeat(5 - lvl) + '</span>';
+  return `<span style="color:${colors[lvl]};font-size:13px;letter-spacing:1px;">${stars}</span>
+    <div class="text-sm text-muted" style="margin-top:2px;">${c.nbLibelles || 0} services <span style="color:${colors[lvl]};font-weight:600;">— ${labels[lvl]}</span></div>`;
 }
 
 // Formate une date "perdu depuis" en libellé lisible
@@ -2895,6 +2945,9 @@ function render_customers() {
   const byTier = { S: 0, A: 0, B: 0, C: 0, D: 0 };
   clients.forEach(c => byTier[c.tier]++);
   
+  // Top cross-sell pour la section dédiée
+  const topCrossSell = [...clients].filter(c => c.CA_N > 0).sort((a,b) => (b.crossSellRate - a.crossSellRate) || (b.CA_N - a.CA_N)).slice(0, 30);
+
   el.innerHTML = `
     ${pageHeader(p)}
 
@@ -2906,17 +2959,17 @@ function render_customers() {
         <li><strong>Diversité</strong> : nombre de services AGL différents qu'il consomme (plus c'est varié, plus la relation est ancrée).</li>
         <li><strong>Ancienneté</strong> : depuis combien d'années il est client.</li>
       </ul>
-      Selon le score, le client tombe dans un <strong>tier</strong> :
+      Les <strong>tiers sont calibrés en percentile</strong> sur le portefeuille AGL — pas sur des seuils absolus arbitraires. Cela garantit qu'il y a <em>toujours</em> de vrais clients premium :
       <ul>
-        <li><strong>S</strong> (≥ 90) — comptes stratégiques (à protéger)</li>
-        <li><strong>A</strong> (75-89) — premium (KAM dédié)</li>
-        <li><strong>B</strong> (50-74) — standard</li>
-        <li><strong>C</strong> (25-49) — longue traîne</li>
-        <li><strong>D</strong> (&lt; 25) — à arbitrer</li>
-      </ul>`, 'Comment lire les compteurs ci-dessous')}
+        <li><strong>S</strong> — top 5% du portefeuille (comptes stratégiques, à protéger absolument)</li>
+        <li><strong>A</strong> — top 5 à 20% (premium, KAM dédié)</li>
+        <li><strong>B</strong> — top 20 à 50% (cœur de portefeuille)</li>
+        <li><strong>C</strong> — top 50 à 80% (longue traîne)</li>
+        <li><strong>D</strong> — bottom 20% + clients perdus (à arbitrer)</li>
+      </ul>`, 'Comment lire la segmentation ci-dessous')}
 
-    <div class="grid grid-4">
-      ${['S','A','B','C','D'].slice(0,4).map(t => `
+    <div class="grid grid-5">
+      ${['S','A','B','C','D'].map(t => `
         <div class="kpi">
           <div class="kpi-label">Tier ${t}</div>
           <div class="kpi-value"><span class="tier-${t}">${t}</span> ${byTier[t]}</div>
@@ -2925,19 +2978,62 @@ function render_customers() {
       `).join('')}
     </div>
 
+    ${explain(`Le <strong>taux de cross-selling</strong> mesure combien de services AGL différents un client utilise par rapport au total disponible dans le périmètre filtré (<strong>${APP.totalLibInScope} services distincts</strong>). Plus un client utilise de services différents, mieux il est noté.
+      <ul>
+        <li><strong>★★★★★ Excellent</strong> — ≥ 40% des services AGL utilisés (très ancré, peu de risque de churn)</li>
+        <li><strong>★★★★ Très bon</strong> — 20-40% (relation solide, gisement à exploiter)</li>
+        <li><strong>★★★ Bon</strong> — 10-20% (à pousser sur le cross-sell)</li>
+        <li><strong>★★ Moyen</strong> — 5-10% (relation peu installée)</li>
+        <li><strong>★ Faible / Mono-service</strong> — &lt; 5% (relation très fragile)</li>
+      </ul>
+      Le tableau ci-dessous classe les <strong>30 plus gros cross-selleurs</strong>.`, 'Comment lire le classement cross-sell ci-dessous')}
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">🌟 Classement cross-sell — Top 30</div>
+        <div class="text-sm text-muted">Triés par % de services consommés, puis par CA. ${APP.totalLibInScope} services AGL disponibles dans le périmètre.</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:520px;">
+          <table class="data">
+            <thead><tr>
+              <th>#</th><th>Client</th><th>Tier</th><th>Métier</th>
+              <th class="num">CAP ${APP.filters.ANNEE}</th>
+              <th>Cross-sell ★</th>
+              <th class="num">% services</th>
+            </tr></thead>
+            <tbody>
+              ${topCrossSell.map((c, i) => `
+                <tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                  <td class="text-sm">${c.METIER || '—'}</td>
+                  <td class="num">${fmt.money(c.CA_N)}</td>
+                  <td>${crossSellStars(c)}</td>
+                  <td class="num">${fmt.pct(c.crossSellRate)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     ${explain(`Le tableau liste les <strong>${clients.length} clients du périmètre filtré</strong>, classés du score le plus élevé au plus faible. Colonnes :
       <ul>
         <li><strong>CAP ${APP.filters.ANNEE}</strong> et <strong>CAP ${APP.filters.ANNEE - 1}</strong> : CA des deux périodes, calculés sur les <em>mêmes mois</em> pour une comparaison juste.</li>
         <li><strong>Évol.</strong> : variation en %, colorée (vert = hausse, rouge = baisse).</li>
-        <li><strong>Score</strong> : note 0-100 calculée comme expliqué ci-dessus.</li>
-        <li><strong>Case stratégique</strong> : où il se trouve dans la matrice 9-cases (Champion, Star, Endangered King…).</li>
-        <li><strong>Statut cycle de vie</strong> : nouveau, en croissance, mature, en déclin, dormant ou perdu.</li>
-      </ul>`, 'Comment lire le tableau ci-dessous')}
+        <li><strong>Score</strong> : note 0-100 sur les 5 dimensions.</li>
+        <li><strong>Cross-sell</strong> : étoiles (1 à 5) selon le taux d'utilisation des services AGL — plus il y a d'étoiles, plus le client est ancré.</li>
+        <li><strong>Case stratégique</strong> : où il se trouve dans la matrice 9-cases.</li>
+        <li><strong>Statut</strong> : nouveau, en croissance, stable, en déclin, perdu.</li>
+      </ul>`, 'Comment lire le tableau détaillé ci-dessous')}
 
     <div class="card mt-3">
       <div class="card-header">
         <div class="card-title">Liste détaillée des clients — ${clients.length} clients</div>
-        <div class="text-sm text-muted">Classés par score décroissant. 200 premiers visibles, le reste accessible en scrollant dans le tableau.</div>
+        <div class="text-sm text-muted">Classés par score décroissant. 200 premiers visibles, le reste accessible en scrollant.</div>
       </div>
       <div class="card-body" style="padding:0;">
         <div class="tbl-wrap" style="max-height:600px;">
@@ -2945,7 +3041,8 @@ function render_customers() {
             <thead><tr>
               <th>#</th><th>Client</th><th>Tier</th><th>Métier</th>
               <th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">CAP ${APP.filters.ANNEE-1}</th>
-              <th class="num">Évol.</th><th class="num">Score</th><th>Case stratégique</th><th>Statut</th>
+              <th class="num">Évol.</th><th class="num">Score</th>
+              <th>Cross-sell</th><th>Case stratégique</th><th>Statut</th>
             </tr></thead>
             <tbody>
               ${clients.slice(0, 200).map((c, i) => `
@@ -2958,6 +3055,7 @@ function render_customers() {
                   <td class="num text-muted">${fmt.money(c.CA_N1)}</td>
                   <td class="num">${c.evol === null ? '—' : `<span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed(c.evol*100)}</span>`}</td>
                   <td class="num"><strong>${c.score}</strong>/100</td>
+                  <td>${crossSellStars(c)}</td>
                   <td class="text-sm"><span style="display:inline-block;width:6px;height:6px;background:${c.quadrantColor};border-radius:50%;margin-right:4px;"></span>${c.quadrant}</td>
                   <td class="text-sm">${c.statut}</td>
                 </tr>
