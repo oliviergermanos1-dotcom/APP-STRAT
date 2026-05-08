@@ -1,0 +1,3339 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="CAP Strategic Analytics - AGL Marketing & Strategy Intelligence Platform">
+<meta name="theme-color" content="#0A2540">
+<title>CAP Strategic Analytics — AGL</title>
+
+<!-- Manifest PWA -->
+<link rel="manifest" href='data:application/manifest+json,{"name":"CAP Strategic Analytics","short_name":"CAP-AGL","start_url":".","display":"standalone","background_color":"%230A2540","theme_color":"%230A2540","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 192 192%22%3E%3Crect width=%22192%22 height=%22192%22 fill=%22%230A2540%22/%3E%3Ctext x=%2250%25%22 y=%2255%25%22 text-anchor=%22middle%22 fill=%22%23D4A24E%22 font-size=%2272%22 font-family=%22serif%22 font-weight=%22bold%22%3ECAP%3C/text%3E%3C/svg%3E","sizes":"192x192","type":"image/svg+xml"}]}'>
+
+<!-- Librairies CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<style>
+/* ============================================================
+   CAP STRATEGIC ANALYTICS - AGL CHARTE
+   Design : Executive Luxury / Data Refined
+   ============================================================ */
+
+:root {
+  /* Couleurs AGL */
+  --navy-900: #0A2540;
+  --navy-800: #112B49;
+  --navy-700: #1B3A5C;
+  --navy-600: #284A6E;
+  --navy-500: #3B5C82;
+  --navy-100: #E5EAF1;
+  --navy-50:  #F4F6FA;
+  
+  --gold-900: #8B6B2D;
+  --gold-700: #B8893E;
+  --gold-500: #D4A24E;
+  --gold-300: #E5BD78;
+  --gold-100: #F4D894;
+  --gold-50:  #FBF2DC;
+  
+  /* Sémantique évolution */
+  --evol-strong-up:  #0B6E4F;
+  --evol-up:         #52B788;
+  --evol-stable:     #F4D35E;
+  --evol-down:       #F77F00;
+  --evol-strong-dn:  #D62828;
+  --evol-new:        #1F77B4;
+  --evol-lost:       #7F7F7F;
+  
+  /* Neutres */
+  --white:    #FFFFFF;
+  --grey-50:  #FAFAFA;
+  --grey-100: #F5F5F5;
+  --grey-200: #EAEAEA;
+  --grey-300: #D4D4D4;
+  --grey-400: #A3A3A3;
+  --grey-500: #737373;
+  --grey-700: #404040;
+  --grey-900: #171717;
+  
+  /* Typographie */
+  --font-display: 'Playfair Display', 'Times New Roman', serif;
+  --font-body: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+  
+  /* Layout */
+  --header-h: 64px;
+  --sidebar-w: 240px;
+  --slicer-h: 56px;
+  --gap: 16px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 3px rgba(10, 37, 64, 0.06);
+  --shadow:    0 4px 12px rgba(10, 37, 64, 0.08);
+  --shadow-lg: 0 12px 32px rgba(10, 37, 64, 0.12);
+  
+  /* Transitions */
+  --t-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --t:      250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --t-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--grey-900);
+  background: var(--grey-50);
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
+  overflow: hidden;
+}
+
+#app {
+  display: grid;
+  grid-template-rows: var(--header-h) auto 1fr;
+  height: 100vh;
+}
+
+/* =========================================
+   HEADER
+   ========================================= */
+.app-header {
+  background: linear-gradient(135deg, var(--navy-900) 0%, var(--navy-700) 100%);
+  color: var(--white);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  box-shadow: var(--shadow);
+  position: relative;
+  z-index: 100;
+}
+.app-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--gold-500) 30%, var(--gold-500) 70%, transparent 100%);
+}
+.app-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+}
+.app-logo-mark {
+  width: 32px; height: 32px;
+  background: var(--gold-500);
+  color: var(--navy-900);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: -0.5px;
+}
+.app-title {
+  margin-left: 28px;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.app-title-main {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--gold-300);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.app-title-sub {
+  font-size: 11px;
+  color: var(--navy-100);
+  font-weight: 300;
+  letter-spacing: 0.5px;
+}
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.btn-header {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--white);
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  transition: var(--t);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-header:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--gold-500);
+}
+.btn-header.gold {
+  background: var(--gold-500);
+  color: var(--navy-900);
+  border-color: var(--gold-500);
+  font-weight: 600;
+}
+.btn-header.gold:hover {
+  background: var(--gold-300);
+}
+
+/* =========================================
+   SLICER BAR (filtres globaux)
+   ========================================= */
+.slicer-bar {
+  background: var(--white);
+  border-bottom: 1px solid var(--grey-200);
+  padding: 0 24px;
+  height: var(--slicer-h);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  overflow-x: auto;
+  z-index: 50;
+}
+.slicer-bar.hidden { display: none; }
+.slicer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+.slicer-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--grey-500);
+  font-weight: 600;
+}
+.slicer select {
+  background: var(--grey-50);
+  border: 1px solid var(--grey-200);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  color: var(--navy-900);
+  cursor: pointer;
+  font-weight: 500;
+  min-width: 100px;
+}
+.slicer select:focus {
+  outline: none;
+  border-color: var(--gold-500);
+  background: var(--white);
+}
+.slicer-divider {
+  width: 1px;
+  height: 32px;
+  background: var(--grey-200);
+}
+.btn-reset-filters {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--grey-300);
+  color: var(--grey-700);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: var(--t-fast);
+}
+.btn-reset-filters:hover {
+  border-color: var(--navy-700);
+  color: var(--navy-700);
+}
+
+/* =========================================
+   MAIN LAYOUT
+   ========================================= */
+.app-main {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  overflow: hidden;
+}
+.app-sidebar {
+  background: var(--white);
+  border-right: 1px solid var(--grey-200);
+  overflow-y: auto;
+  padding: 16px 0;
+}
+.app-sidebar.hidden { display: none; }
+.nav-section-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--grey-500);
+  font-weight: 700;
+  padding: 8px 20px;
+  margin-top: 8px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: var(--t-fast);
+  font-size: 13px;
+  color: var(--grey-700);
+  border-left: 3px solid transparent;
+  font-weight: 500;
+}
+.nav-item:hover {
+  background: var(--navy-50);
+  color: var(--navy-900);
+}
+.nav-item.active {
+  background: var(--navy-50);
+  color: var(--navy-900);
+  border-left-color: var(--gold-500);
+  font-weight: 600;
+}
+.nav-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--grey-400);
+  font-weight: 500;
+  width: 18px;
+}
+.nav-item.active .nav-num { color: var(--gold-700); }
+
+/* =========================================
+   CONTENT AREA
+   ========================================= */
+.app-content {
+  overflow-y: auto;
+  padding: 24px;
+  background: var(--grey-50);
+}
+.page { display: none; }
+.page.active { display: block; animation: pageIn 400ms ease-out; }
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.page-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--grey-200);
+}
+.page-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--navy-900);
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+.page-subtitle {
+  font-size: 13px;
+  color: var(--grey-500);
+  font-weight: 400;
+}
+.page-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--grey-500);
+}
+.page-meta-item::before { content: '— '; color: var(--gold-500); font-weight: 600; }
+
+/* =========================================
+   GRID & CARDS
+   ========================================= */
+.grid {
+  display: grid;
+  gap: var(--gap);
+}
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-2-1 { grid-template-columns: 2fr 1fr; }
+.grid-1-2 { grid-template-columns: 1fr 2fr; }
+
+.card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--grey-200);
+  overflow: hidden;
+  transition: var(--t);
+}
+.card:hover { border-color: var(--grey-300); }
+.card-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--grey-100);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.card-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: var(--navy-900);
+}
+.card-action {
+  font-size: 11px;
+  color: var(--grey-500);
+  cursor: pointer;
+}
+.card-action:hover { color: var(--navy-700); }
+.card-body { padding: 18px; }
+
+/* KPI Card */
+.kpi {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--grey-200);
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--gold-500);
+}
+.kpi.kpi-strong::before { background: linear-gradient(90deg, var(--gold-700), var(--gold-300)); }
+.kpi.kpi-alert::before { background: var(--evol-strong-dn); }
+.kpi.kpi-good::before { background: var(--evol-strong-up); }
+.kpi-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--grey-500);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.kpi-value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--navy-900);
+  letter-spacing: -1px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+.kpi-value.gold { color: var(--gold-700); }
+.kpi-value.small { font-size: 22px; }
+.kpi-unit {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--grey-500);
+  font-weight: 400;
+  margin-left: 4px;
+}
+.kpi-evol {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--grey-100);
+  color: var(--grey-700);
+}
+.kpi-evol.up { background: rgba(11, 110, 79, 0.1); color: var(--evol-strong-up); }
+.kpi-evol.down { background: rgba(214, 40, 40, 0.1); color: var(--evol-strong-dn); }
+.kpi-bench {
+  font-size: 10px;
+  color: var(--grey-400);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* =========================================
+   TABLES
+   ========================================= */
+.tbl-wrap { overflow-x: auto; max-height: 480px; overflow-y: auto; }
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+table.data th {
+  background: var(--navy-900);
+  color: var(--white);
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+table.data th.num { text-align: right; }
+table.data td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--grey-100);
+  white-space: nowrap;
+}
+table.data td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+table.data tbody tr:hover { background: var(--navy-50); }
+table.data tr.highlight { background: var(--gold-50); }
+.evol-cell {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 50px;
+  text-align: center;
+}
+
+/* Tier badges */
+.tier-S { background: var(--gold-500); color: var(--navy-900); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px; }
+.tier-A { background: var(--navy-700); color: var(--white); padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 10px; }
+.tier-B { background: var(--navy-100); color: var(--navy-700); padding: 2px 8px; border-radius: 4px; font-weight: 500; font-size: 10px; }
+.tier-C { background: var(--grey-200); color: var(--grey-700); padding: 2px 8px; border-radius: 4px; font-weight: 500; font-size: 10px; }
+.tier-D { background: rgba(214, 40, 40, 0.15); color: var(--evol-strong-dn); padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 10px; }
+
+/* =========================================
+   UPLOAD SCREEN
+   ========================================= */
+.upload-screen {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(135deg, var(--navy-900) 0%, var(--navy-700) 50%, var(--navy-800) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 40px;
+}
+.upload-screen.hidden { display: none; }
+.upload-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: 
+    radial-gradient(circle at 20% 30%, rgba(212, 162, 78, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(212, 162, 78, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+}
+.upload-card {
+  background: var(--white);
+  border-radius: 20px;
+  padding: 48px;
+  max-width: 720px;
+  width: 100%;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 1;
+}
+.upload-brand {
+  text-align: center;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--grey-200);
+}
+.upload-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.upload-brand-logo {
+  width: 56px; height: 56px;
+  background: var(--navy-900);
+  color: var(--gold-500);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: -1px;
+  box-shadow: 0 4px 16px rgba(10, 37, 64, 0.2);
+}
+.upload-brand-text {
+  text-align: left;
+}
+.upload-brand-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--gold-700);
+  font-weight: 700;
+}
+.upload-brand-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--navy-900);
+  letter-spacing: -1px;
+  line-height: 1.1;
+}
+.upload-brand-sub {
+  font-size: 12px;
+  color: var(--grey-500);
+  margin-top: 6px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+}
+.upload-zone {
+  border: 2px dashed var(--grey-300);
+  border-radius: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: var(--t);
+  background: var(--grey-50);
+  position: relative;
+  overflow: hidden;
+}
+.upload-zone:hover {
+  border-color: var(--gold-500);
+  background: var(--gold-50);
+}
+.upload-zone.dragging {
+  border-color: var(--gold-500);
+  background: var(--gold-50);
+  transform: scale(1.01);
+}
+.upload-icon {
+  font-size: 48px;
+  color: var(--gold-500);
+  margin-bottom: 16px;
+}
+.upload-text-main {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--navy-900);
+  margin-bottom: 6px;
+}
+.upload-text-sub {
+  font-size: 12px;
+  color: var(--grey-500);
+}
+.upload-options {
+  margin-top: 24px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.upload-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--grey-700);
+  cursor: pointer;
+}
+.upload-checkbox input { cursor: pointer; }
+.upload-demo-btn {
+  background: transparent;
+  border: 1px solid var(--navy-700);
+  color: var(--navy-700);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--t);
+}
+.upload-demo-btn:hover {
+  background: var(--navy-700);
+  color: var(--white);
+}
+.upload-format {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--grey-200);
+  font-size: 11px;
+  color: var(--grey-500);
+  line-height: 1.7;
+}
+.upload-format strong { color: var(--navy-700); }
+.upload-format-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 24px;
+  margin-top: 8px;
+}
+.upload-format code {
+  background: var(--navy-50);
+  color: var(--navy-700);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Validation report */
+.validation {
+  margin-top: 24px;
+  padding: 20px;
+  background: var(--navy-50);
+  border-radius: 8px;
+  border-left: 4px solid var(--gold-500);
+}
+.validation.error { border-left-color: var(--evol-strong-dn); background: rgba(214, 40, 40, 0.05); }
+.validation-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--navy-900);
+  margin-bottom: 8px;
+}
+.validation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.validation-row.ok { color: var(--evol-strong-up); }
+.validation-row.warn { color: var(--evol-down); }
+.validation-row.err { color: var(--evol-strong-dn); }
+.validation-row .icon { font-weight: 700; width: 16px; }
+.validation-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+}
+.btn-primary {
+  background: var(--navy-900);
+  color: var(--white);
+  border: none;
+  padding: 10px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  font-family: var(--font-body);
+  transition: var(--t);
+}
+.btn-primary:hover { background: var(--navy-700); }
+.btn-primary.gold { background: var(--gold-500); color: var(--navy-900); }
+.btn-primary.gold:hover { background: var(--gold-300); }
+.btn-secondary {
+  background: transparent;
+  color: var(--navy-700);
+  border: 1px solid var(--grey-300);
+  padding: 10px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 13px;
+  transition: var(--t);
+}
+.btn-secondary:hover { border-color: var(--navy-700); }
+
+/* =========================================
+   ALERTS BANNER
+   ========================================= */
+.alert-banner {
+  background: linear-gradient(90deg, rgba(214, 40, 40, 0.08) 0%, transparent 100%);
+  border-left: 3px solid var(--evol-strong-dn);
+  padding: 12px 18px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+.alert-banner.info {
+  background: linear-gradient(90deg, rgba(31, 119, 180, 0.08) 0%, transparent 100%);
+  border-left-color: var(--evol-new);
+}
+.alert-banner-title {
+  font-weight: 700;
+  color: var(--navy-900);
+  margin-bottom: 4px;
+}
+
+/* =========================================
+   CHARTS
+   ========================================= */
+.chart-container {
+  position: relative;
+  height: 280px;
+  width: 100%;
+}
+.chart-container.tall { height: 380px; }
+.chart-container.short { height: 200px; }
+
+/* =========================================
+   WHAT-IF SLIDERS
+   ========================================= */
+.whatif-card {
+  background: linear-gradient(135deg, var(--navy-900), var(--navy-700));
+  color: var(--white);
+  padding: 24px;
+  border-radius: var(--radius-lg);
+}
+.whatif-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gold-300);
+  margin-bottom: 16px;
+}
+.whatif-slider {
+  margin-bottom: 20px;
+}
+.whatif-slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--navy-100);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.whatif-slider-value {
+  color: var(--gold-300);
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+.whatif-slider input[type=range] {
+  width: 100%;
+  height: 4px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+  appearance: none;
+  cursor: pointer;
+}
+.whatif-slider input[type=range]::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px; height: 16px;
+  background: var(--gold-500);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--navy-900);
+}
+.whatif-slider input[type=range]::-moz-range-thumb {
+  width: 16px; height: 16px;
+  background: var(--gold-500);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--navy-900);
+}
+
+/* =========================================
+   UTILITIES
+   ========================================= */
+.text-right { text-align: right; }
+.text-mono { font-family: var(--font-mono); }
+.text-sm { font-size: 11px; }
+.text-muted { color: var(--grey-500); }
+.text-gold { color: var(--gold-700); }
+.text-navy { color: var(--navy-900); }
+.flex { display: flex; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.gap-1 { gap: 8px; }
+.gap-2 { gap: 16px; }
+.mt-1 { margin-top: 8px; }
+.mt-2 { margin-top: 16px; }
+.mt-3 { margin-top: 24px; }
+
+.divider {
+  height: 1px;
+  background: var(--grey-200);
+  margin: 16px 0;
+}
+
+/* Loading */
+.loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  color: var(--grey-500);
+}
+.loader-spinner {
+  width: 32px; height: 32px;
+  border: 3px solid var(--grey-200);
+  border-top-color: var(--gold-500);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+  margin-right: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .grid-4, .grid-3, .grid-2, .grid-2-1, .grid-1-2 { grid-template-columns: 1fr; }
+  .app-main { grid-template-columns: 1fr; }
+  .app-sidebar { display: none; }
+}
+
+/* Print */
+@media print {
+  .app-header, .slicer-bar, .app-sidebar { display: none; }
+  .app-content { padding: 0; }
+  .page { page-break-after: always; }
+  .card { break-inside: avoid; }
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--grey-100); }
+::-webkit-scrollbar-thumb { background: var(--grey-300); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--grey-400); }
+
+/* 9-box matrix grid */
+.matrix-9 {
+  display: grid;
+  grid-template-columns: 100px repeat(3, 1fr);
+  grid-template-rows: 32px repeat(3, 1fr);
+  gap: 4px;
+  height: 380px;
+  font-size: 11px;
+}
+.matrix-cell {
+  padding: 8px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: var(--t);
+  position: relative;
+  overflow: hidden;
+}
+.matrix-cell:hover { transform: scale(1.02); box-shadow: var(--shadow); z-index: 5; }
+.matrix-cell-name {
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.matrix-cell-stats {
+  font-size: 10px;
+  opacity: 0.9;
+  font-family: var(--font-mono);
+}
+.matrix-axis {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--grey-500);
+  font-weight: 700;
+  text-align: center;
+}
+.matrix-axis-y {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Le contenu sera injecté par JavaScript -->
+</div>
+
+<!-- Upload Screen (visible au démarrage) -->
+<div id="upload-screen" class="upload-screen">
+  <div class="upload-card">
+    <div class="upload-brand">
+      <div class="upload-brand-mark">
+        <div class="upload-brand-logo">CAP</div>
+        <div class="upload-brand-text">
+          <div class="upload-brand-tag">AGL Strategy Division</div>
+          <div class="upload-brand-title">Strategic Analytics</div>
+          <div class="upload-brand-sub">Customer Intelligence Platform · Marketing & Commercial</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="upload-zone" class="upload-zone">
+      <div class="upload-icon">⬆</div>
+      <div class="upload-text-main">Glisser-déposer votre fichier</div>
+      <div class="upload-text-sub">Excel (.xlsx) ou CSV — base de données IRIS</div>
+      <input type="file" id="file-input" accept=".xlsx,.xls,.csv" style="display:none">
+    </div>
+
+    <div class="upload-options">
+      <label class="upload-checkbox">
+        <input type="checkbox" id="remember-data">
+        <span>Mémoriser les données pour la prochaine ouverture</span>
+      </label>
+      <button class="upload-demo-btn" id="btn-demo">Tester avec données de démo</button>
+    </div>
+
+    <div id="validation-zone"></div>
+
+    <div class="upload-format">
+      <strong>Colonnes attendues (auto-détection flexible) :</strong>
+      <div class="upload-format-grid">
+        <div><code>MONTANT</code> ou <code>MONTAN</code> — Montant en XOF</div>
+        <div><code>CLIENTS</code> ou <code>CLIENT</code> — Nom du client</div>
+        <div><code>ANNEE</code> — Année (ex: 2024)</div>
+        <div><code>MOIS</code> — Mois (1-12)</div>
+        <div><code>SITE</code> — Implantation (ABJ, SPY...)</div>
+        <div><code>DEPAR</code> ou <code>RUBRQ</code> — Code département</div>
+        <div><code>METIER</code> — Business Unit (recommandé)</div>
+        <div><code>COMMERCIAL</code> — Commercial (recommandé)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="js-engine">
+// ============================================================
+// CAP STRATEGIC ANALYTICS - ENGINE
+// Module 1/5 : Upload, Parsing, Mapping, Validation
+// ============================================================
+
+const APP = {
+  data: { fact: [], dimClients: [], dimLibelles: [] },
+  schema: {},
+  filtered: [],
+  filters: {},
+  currentPage: 'cockpit',
+  whatif: { croissance: 0, top10: 0, saison: 1 },
+  charts: {}
+};
+
+// =================== MAPPING DICTIONARY ===================
+const COLUMN_MAP = {
+  MONTANT:    ["MONTANT", "MONTAN", "MONTANT_XOF", "CA", "Somme de MONTAN", "Somme de MONTANT", "MONTANT XOF"],
+  CLIENT:     ["CLIENT", "CLIENTS", "CODE_CLIENT", "RAISON_SOCIALE", "NOM_CLIENT"],
+  ANNEE:      ["ANNEE", "ANNÉE", "AN", "YEAR", "Annee", "Année"],
+  MOIS:       ["MOIS", "MONTH", "MM", "Mois"],
+  LIBELLE:    ["LIBELLE", "LIBELLÉ", "DPT", "DEPARTEMENT", "Libellé", "LIBELLES", "Libelle"],
+  CODE_DEPAR: ["DEPAR", "RUBRQ", "CODE_DEPAR", "DEPARTEMENT_CODE", "DEPART"],
+  SITE:       ["SITE", "SITES", "AGENCE", "BUREAU", "Site"],
+  METIER:     ["METIER", "MÉTIER", "SECTEUR", "BU", "Metier", "Métier"],
+  COMMERCIAL: ["COMMERCIAL", "VENDEUR", "ACCOUNT_MANAGER", "KAM", "Commercial"]
+};
+
+// =================== UTILS ===================
+const fmt = {
+  money: (v) => {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    if (Math.abs(v) >= 1e9) return (v/1e9).toFixed(1) + ' Md';
+    if (Math.abs(v) >= 1e6) return (v/1e6).toFixed(1) + ' M';
+    if (Math.abs(v) >= 1e3) return Math.round(v/1e3) + ' k';
+    return Math.round(v).toLocaleString('fr-FR');
+  },
+  moneyFull: (v) => {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return Math.round(v).toLocaleString('fr-FR') + ' XOF';
+  },
+  pct: (v, decimals = 1) => {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return (v * 100).toFixed(decimals) + '%';
+  },
+  num: (v) => {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return Math.round(v).toLocaleString('fr-FR');
+  },
+  signed: (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
+};
+
+function findColumn(headers, possibleNames) {
+  const normalized = headers.map(h => (h || '').toString().trim());
+  for (const name of possibleNames) {
+    const idx = normalized.findIndex(h => h.toUpperCase() === name.toUpperCase());
+    if (idx !== -1) return normalized[idx];
+  }
+  // Soft match
+  for (const name of possibleNames) {
+    const idx = normalized.findIndex(h => h.toUpperCase().includes(name.toUpperCase()));
+    if (idx !== -1) return normalized[idx];
+  }
+  return null;
+}
+
+function detectSchema(headers) {
+  const schema = {};
+  for (const [key, candidates] of Object.entries(COLUMN_MAP)) {
+    schema[key] = findColumn(headers, candidates);
+  }
+  return schema;
+}
+
+function cleanRow(row, schema) {
+  const out = {};
+  for (const [key, col] of Object.entries(schema)) {
+    if (!col) { out[key] = null; continue; }
+    let v = row[col];
+    if (v === undefined || v === null || v === '') { out[key] = null; continue; }
+    
+    if (key === 'MONTANT' || key === 'ANNEE' || key === 'MOIS') {
+      // Parse number
+      if (typeof v === 'string') {
+        v = v.replace(/\s/g, '').replace(',', '.');
+      }
+      v = parseFloat(v);
+      if (isNaN(v)) v = null;
+    } else {
+      v = String(v).trim();
+    }
+    out[key] = v;
+  }
+  // Calculer Date
+  if (out.ANNEE && out.MOIS) {
+    out.DATE = new Date(out.ANNEE, out.MOIS - 1, 1);
+    out.YEAR_MONTH = `${out.ANNEE}-${String(out.MOIS).padStart(2, '0')}`;
+  }
+  return out;
+}
+
+// =================== FILE PROCESSING ===================
+async function processFile(file) {
+  const validationZone = document.getElementById('validation-zone');
+  validationZone.innerHTML = '<div class="loader"><div class="loader-spinner"></div>Analyse du fichier en cours...</div>';
+  
+  try {
+    const buffer = await file.arrayBuffer();
+    const ext = file.name.split('.').pop().toLowerCase();
+    
+    let workbook;
+    if (ext === 'csv') {
+      const text = new TextDecoder('utf-8').decode(buffer);
+      workbook = XLSX.read(text, { type: 'string' });
+    } else {
+      workbook = XLSX.read(buffer, { type: 'array' });
+    }
+    
+    // Find sheets
+    let factSheet = null, clientSheet = null, libelleSheet = null;
+    const sheets = workbook.SheetNames;
+    
+    for (const name of sheets) {
+      const u = name.toUpperCase();
+      if (u.includes('FACT') || u.includes('IRIS') || u.includes('BASE') || u.includes('CAP')) {
+        factSheet = name;
+      } else if (u.includes('CLIENT') || u.includes('REF')) {
+        if (u.includes('LIBELLE') || u.includes('METIER') && u.includes('LIBELLE')) {
+          libelleSheet = name;
+        } else {
+          clientSheet = name;
+        }
+      } else if (u.includes('LIBELLE') || u.includes('DPT') || u.includes('DEPAR')) {
+        libelleSheet = name;
+      }
+    }
+    
+    // Fallback: si une seule feuille, c'est le FACT
+    if (!factSheet && sheets.length > 0) {
+      factSheet = sheets[0];
+    }
+    
+    // Parser FACT_CAP
+    const factData = XLSX.utils.sheet_to_json(workbook.Sheets[factSheet], { defval: null });
+    if (!factData || factData.length === 0) {
+      throw new Error('La feuille principale est vide');
+    }
+    
+    const headers = Object.keys(factData[0]);
+    const schema = detectSchema(headers);
+    
+    APP.schema = schema;
+    APP.data.fact = factData.map(r => cleanRow(r, schema)).filter(r => r.MONTANT !== null && r.CLIENT);
+    
+    // Parser DIM_CLIENTS si présente
+    if (clientSheet) {
+      const clientData = XLSX.utils.sheet_to_json(workbook.Sheets[clientSheet], { defval: null });
+      const clientHeaders = clientData.length ? Object.keys(clientData[0]) : [];
+      const clientSchema = detectSchema(clientHeaders);
+      APP.data.dimClients = clientData.map(r => {
+        const o = {};
+        if (clientSchema.CLIENT) o.CLIENT = String(r[clientSchema.CLIENT] || '').trim();
+        if (clientSchema.METIER) o.METIER = String(r[clientSchema.METIER] || '').trim();
+        if (clientSchema.COMMERCIAL) o.COMMERCIAL = String(r[clientSchema.COMMERCIAL] || '').trim();
+        return o;
+      });
+    }
+    
+    // Parser DIM_LIBELLES si présente
+    if (libelleSheet) {
+      const libData = XLSX.utils.sheet_to_json(workbook.Sheets[libelleSheet], { defval: null });
+      APP.data.dimLibelles = libData;
+    }
+    
+    // Enrichir FACT_CAP avec METIER et COMMERCIAL si disponible
+    if (APP.data.dimClients.length) {
+      const cmap = new Map(APP.data.dimClients.map(c => [c.CLIENT, c]));
+      APP.data.fact.forEach(r => {
+        const c = cmap.get(r.CLIENT);
+        if (c) {
+          if (!r.METIER && c.METIER) r.METIER = c.METIER;
+          if (!r.COMMERCIAL && c.COMMERCIAL) r.COMMERCIAL = c.COMMERCIAL;
+        }
+      });
+    }
+    
+    // Render validation report
+    renderValidation(headers, schema, factData.length, APP.data.fact.length, factSheet, clientSheet, libelleSheet);
+    
+    // Save to localStorage if asked
+    if (document.getElementById('remember-data').checked) {
+      try {
+        localStorage.setItem('cap_data', JSON.stringify({
+          fact: APP.data.fact.slice(0, 50000), // safety cap
+          dimClients: APP.data.dimClients,
+          schema: APP.schema,
+          ts: Date.now()
+        }));
+      } catch (e) { console.warn('LocalStorage limit', e); }
+    }
+    
+  } catch (err) {
+    console.error(err);
+    validationZone.innerHTML = `
+      <div class="validation error">
+        <div class="validation-title">⚠ Erreur lors de la lecture du fichier</div>
+        <div class="validation-row err"><span class="icon">✗</span>${err.message}</div>
+      </div>`;
+  }
+}
+
+function renderValidation(headers, schema, totalRows, validRows, factSheet, clientSheet, libelleSheet) {
+  const validationZone = document.getElementById('validation-zone');
+  const required = ['MONTANT', 'CLIENT', 'ANNEE', 'MOIS'];
+  const recommended = ['SITE', 'METIER', 'LIBELLE'];
+  
+  let html = '<div class="validation"><div class="validation-title">📋 Rapport de validation</div>';
+  
+  html += `<div class="validation-row ok"><span class="icon">✓</span>Feuille principale détectée : <strong>${factSheet}</strong> (${totalRows.toLocaleString('fr-FR')} lignes)</div>`;
+  
+  if (clientSheet) html += `<div class="validation-row ok"><span class="icon">✓</span>Dimension clients : <strong>${clientSheet}</strong> (${APP.data.dimClients.length} lignes)</div>`;
+  if (libelleSheet) html += `<div class="validation-row ok"><span class="icon">✓</span>Dimension libellés : <strong>${libelleSheet}</strong></div>`;
+  
+  html += '<div style="margin: 12px 0; height: 1px; background: var(--grey-200);"></div>';
+  
+  let canProceed = true;
+  for (const key of required) {
+    if (schema[key]) {
+      html += `<div class="validation-row ok"><span class="icon">✓</span>${key} → <code style="background:var(--navy-100);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:11px;">${schema[key]}</code></div>`;
+    } else {
+      html += `<div class="validation-row err"><span class="icon">✗</span>${key} → COLONNE MANQUANTE (obligatoire)</div>`;
+      canProceed = false;
+    }
+  }
+  for (const key of recommended) {
+    if (schema[key]) {
+      html += `<div class="validation-row ok"><span class="icon">✓</span>${key} → <code style="background:var(--navy-100);padding:1px 6px;border-radius:3px;font-family:var(--font-mono);font-size:11px;">${schema[key]}</code></div>`;
+    } else {
+      html += `<div class="validation-row warn"><span class="icon">⚠</span>${key} → manquant (analyse réduite)</div>`;
+    }
+  }
+  
+  html += `<div style="margin: 12px 0; height: 1px; background: var(--grey-200);"></div>`;
+  html += `<div class="validation-row ok"><span class="icon">✓</span>${validRows.toLocaleString('fr-FR')} lignes valides chargées</div>`;
+  
+  if (canProceed) {
+    const years = [...new Set(APP.data.fact.map(r => r.ANNEE).filter(Boolean))].sort();
+    html += `<div class="validation-row ok"><span class="icon">✓</span>Période couverte : ${years[0]} → ${years[years.length-1]}</div>`;
+    const clients = new Set(APP.data.fact.map(r => r.CLIENT)).size;
+    html += `<div class="validation-row ok"><span class="icon">✓</span>${clients} clients distincts</div>`;
+  }
+  
+  html += '<div class="validation-actions">';
+  if (canProceed) {
+    html += '<button class="btn-primary gold" id="btn-launch">🚀 Lancer l\'analyse stratégique</button>';
+  }
+  html += '<button class="btn-secondary" id="btn-cancel">Annuler</button>';
+  html += '</div></div>';
+  
+  validationZone.innerHTML = html;
+  
+  if (canProceed) {
+    document.getElementById('btn-launch').addEventListener('click', launchAnalysis);
+  }
+  document.getElementById('btn-cancel').addEventListener('click', () => {
+    validationZone.innerHTML = '';
+  });
+}
+
+// Demo data generator
+function generateDemoData() {
+  const sites = ['ABJ', 'SPY', 'BYK', 'DLA'];
+  const metiers = ['Maritime', 'Aérien', 'Terrestre', 'Logistique', 'Services'];
+  const libelles = ['ENTREPOSAGE','MANUTENTION','LIVRAISON TC','TIM','TEM CAFE CACAO','CONSIGNATION LR','GEMACIE','EVA AEROHUB','HINTERLAND','XPRESS','LEVAGE','TEM REEFERS'];
+  const clientNames = ['CARGILL','NESTLÉ','SOCIETE GENERALE LOG','GIE-GEMACI','SITAB','MTN','ORANGE','BARRY CALLEBAUT','FOXTROT INTL','CMDT','COTON IVOIRE','PACOCI','SOFITEX','CIE PALMERAIES','SAPH','OLAM','BOLLORÉ AFRICA','AGL TEMA','MAERSK','DHL','BARRY','IVOIRE COTON','CYRIAN','PACKING SERVICE','KINEDEN','ECOOKIM','SCHLUMBERGER','HALLIBURTON','CNEK','SEI SPA'];
+  
+  const data = [];
+  for (let y = 2022; y <= 2026; y++) {
+    const monthMax = (y === 2026) ? 4 : 12;
+    for (let m = 1; m <= monthMax; m++) {
+      clientNames.forEach((name, ci) => {
+        // 80% des clients ont des transactions
+        if (Math.random() > 0.85) return;
+        const nbTrans = Math.floor(Math.random() * 4) + 1;
+        for (let t = 0; t < nbTrans; t++) {
+          const baseAmount = (50 - ci) * 100000 + Math.random() * 5000000;
+          const seasonality = 1 + 0.3 * Math.sin((m - 1) / 12 * 2 * Math.PI);
+          const growth = 1 + (y - 2022) * 0.08;
+          data.push({
+            CLIENT: name,
+            ANNEE: y,
+            MOIS: m,
+            DATE: new Date(y, m-1, 1),
+            YEAR_MONTH: `${y}-${String(m).padStart(2,'0')}`,
+            MONTANT: Math.round(baseAmount * seasonality * growth * (0.7 + Math.random() * 0.6)),
+            SITE: sites[Math.floor(Math.random() * sites.length)],
+            METIER: metiers[ci % metiers.length],
+            LIBELLE: libelles[Math.floor(Math.random() * libelles.length)],
+            CODE_DEPAR: '20F00',
+            COMMERCIAL: 'Comm. ' + ((ci % 5) + 1)
+          });
+        }
+      });
+    }
+  }
+  return data;
+}
+
+function loadDemoData() {
+  APP.data.fact = generateDemoData();
+  APP.schema = {
+    MONTANT: 'MONTANT', CLIENT: 'CLIENT', ANNEE: 'ANNEE', MOIS: 'MOIS',
+    SITE: 'SITE', METIER: 'METIER', LIBELLE: 'LIBELLE', COMMERCIAL: 'COMMERCIAL', CODE_DEPAR: 'CODE_DEPAR'
+  };
+  document.getElementById('validation-zone').innerHTML = `
+    <div class="validation">
+      <div class="validation-title">🎲 Données de démo générées</div>
+      <div class="validation-row ok"><span class="icon">✓</span>${APP.data.fact.length.toLocaleString('fr-FR')} lignes simulées (2022-2026)</div>
+      <div class="validation-row ok"><span class="icon">✓</span>30 clients fictifs avec saisonnalité réaliste</div>
+      <div class="validation-actions">
+        <button class="btn-primary gold" onclick="launchAnalysis()">🚀 Lancer l'analyse stratégique</button>
+      </div>
+    </div>`;
+}
+
+function launchAnalysis() {
+  document.getElementById('upload-screen').classList.add('hidden');
+  buildApp();
+  applyFilters();
+}
+
+// =================== EVENT LISTENERS ===================
+document.addEventListener('DOMContentLoaded', () => {
+  const uploadZone = document.getElementById('upload-zone');
+  const fileInput = document.getElementById('file-input');
+  
+  uploadZone.addEventListener('click', () => fileInput.click());
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragging'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragging'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragging');
+    if (e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e => {
+    if (e.target.files.length) processFile(e.target.files[0]);
+  });
+  
+  document.getElementById('btn-demo').addEventListener('click', loadDemoData);
+  
+  // Restore from localStorage
+  const saved = localStorage.getItem('cap_data');
+  if (saved) {
+    try {
+      const obj = JSON.parse(saved);
+      const ageH = (Date.now() - obj.ts) / 3600000;
+      if (ageH < 24 * 7) {
+        const validationZone = document.getElementById('validation-zone');
+        validationZone.innerHTML = `
+          <div class="validation">
+            <div class="validation-title">💾 Données précédentes disponibles</div>
+            <div class="validation-row ok"><span class="icon">✓</span>${obj.fact.length.toLocaleString('fr-FR')} lignes (sauvegarde il y a ${Math.round(ageH)}h)</div>
+            <div class="validation-actions">
+              <button class="btn-primary gold" id="btn-restore">Restaurer & analyser</button>
+              <button class="btn-secondary" id="btn-clear">Effacer la sauvegarde</button>
+            </div>
+          </div>`;
+        document.getElementById('btn-restore').addEventListener('click', () => {
+          APP.data.fact = obj.fact.map(r => ({ ...r, DATE: new Date(r.ANNEE, r.MOIS - 1, 1) }));
+          APP.data.dimClients = obj.dimClients || [];
+          APP.schema = obj.schema || {};
+          launchAnalysis();
+        });
+        document.getElementById('btn-clear').addEventListener('click', () => {
+          localStorage.removeItem('cap_data');
+          validationZone.innerHTML = '';
+        });
+      }
+    } catch (e) { console.warn(e); }
+  }
+});
+</script>
+
+<script id="js-calculator">
+// ============================================================
+// MODULE 2 : CALCULATOR — 48 mesures DAX traduites en JS
+// ============================================================
+
+const CALC = {};
+
+// ============= MESURES DE BASE =============
+CALC.cap = (rows) => rows.reduce((s, r) => s + (r.MONTANT || 0), 0);
+
+CALC.capN_1 = (rows, allRows, currentYear) => {
+  if (!currentYear) return null;
+  // N-1 strictement aligné sur les MÊMES MOIS et MÊMES FILTRES (site, métier, département, recherche client) que N
+  const monthSet = APP.periodMonths && APP.periodMonths.size ? APP.periodMonths : new Set(rows.map(r => r.MOIS));
+  const f = APP.filters || {};
+  const siteSet = f.SITE && f.SITE !== 'Tout' ? new Set([f.SITE]) : null;
+  const metierSet = f.METIER && f.METIER !== 'Tout' ? new Set([f.METIER]) : null;
+  const libelleSet = f.LIBELLE && f.LIBELLE !== 'Tout' ? new Set([f.LIBELLE]) : null;
+  const clientQ = (f.CLIENT_Q || '').toLowerCase();
+
+  let total = 0;
+  for (let i = 0; i < allRows.length; i++) {
+    const r = allRows[i];
+    if (r.ANNEE !== currentYear - 1) continue;
+    if (!monthSet.has(r.MOIS)) continue;
+    if (siteSet && !siteSet.has(r.SITE)) continue;
+    if (metierSet && !metierSet.has(r.METIER)) continue;
+    if (libelleSet && !libelleSet.has(r.LIBELLE)) continue;
+    if (clientQ && (!r.CLIENT || !r.CLIENT.toLowerCase().includes(clientQ))) continue;
+    total += r.MONTANT || 0;
+  }
+  return total;
+};
+
+CALC.evolutionAbs = (capN, capN1) => {
+  if (capN1 === null || capN1 === undefined) return null;
+  return capN - capN1;
+};
+
+CALC.evolutionPct = (capN, capN1) => {
+  if (!capN1 || capN1 === 0) return null;
+  return (capN - capN1) / capN1;
+};
+
+CALC.couleurEvolution = (capN, capN1, evol) => {
+  if ((capN1 == null || capN1 === 0) && capN > 0) return '#1F77B4';
+  if ((capN == null || capN === 0) && capN1 > 0) return '#7F7F7F';
+  if (evol === null) return '#FFFFFF';
+  if (evol >= 0.20) return '#0B6E4F';
+  if (evol >= 0.05) return '#52B788';
+  if (evol > -0.05) return '#F4D35E';
+  if (evol > -0.20) return '#F77F00';
+  return '#D62828';
+};
+
+CALC.nbClients = (rows) => new Set(rows.map(r => r.CLIENT).filter(Boolean)).size;
+
+CALC.capMoyenClient = (rows) => {
+  const nc = CALC.nbClients(rows);
+  return nc > 0 ? CALC.cap(rows) / nc : 0;
+};
+
+// ============= KPI MACRO =============
+CALC.HHI = (rows) => {
+  const total = CALC.cap(rows);
+  if (total === 0) return 0;
+  const byClient = {};
+  rows.forEach(r => {
+    if (!r.CLIENT) return;
+    byClient[r.CLIENT] = (byClient[r.CLIENT] || 0) + (r.MONTANT || 0);
+  });
+  let hhi = 0;
+  for (const ca of Object.values(byClient)) {
+    const part = ca / total;
+    hhi += part * part;
+  }
+  return hhi * 10000;
+};
+
+CALC.top10Dependency = (rows) => {
+  const total = CALC.cap(rows);
+  if (total === 0) return 0;
+  const byClient = {};
+  rows.forEach(r => {
+    if (!r.CLIENT) return;
+    byClient[r.CLIENT] = (byClient[r.CLIENT] || 0) + (r.MONTANT || 0);
+  });
+  const sorted = Object.values(byClient).sort((a,b) => b - a);
+  const top10Sum = sorted.slice(0, 10).reduce((s, v) => s + v, 0);
+  return top10Sum / total;
+};
+
+CALC.NRR = (rows, allRows, currentYear) => {
+  if (!currentYear) return null;
+  const clientsN1 = new Set(allRows.filter(r => r.ANNEE === currentYear - 1).map(r => r.CLIENT));
+  if (clientsN1.size === 0) return null;
+  const capN_clientsN1 = rows.filter(r => clientsN1.has(r.CLIENT)).reduce((s, r) => s + (r.MONTANT || 0), 0);
+  const capN1Total = allRows.filter(r => r.ANNEE === currentYear - 1).reduce((s, r) => s + (r.MONTANT || 0), 0);
+  return capN1Total > 0 ? capN_clientsN1 / capN1Total : null;
+};
+
+CALC.GRR = (rows, allRows, currentYear) => {
+  if (!currentYear) return null;
+  const clientsN = new Set(rows.map(r => r.CLIENT));
+  const clientsN1Rows = allRows.filter(r => r.ANNEE === currentYear - 1);
+  const clientsN1 = new Set(clientsN1Rows.map(r => r.CLIENT));
+  const commun = [...clientsN].filter(c => clientsN1.has(c));
+  if (commun.length === 0) return 0;
+  const capCommunN = rows.filter(r => commun.includes(r.CLIENT)).reduce((s, r) => s + (r.MONTANT || 0), 0);
+  const capCommunN1 = clientsN1Rows.filter(r => commun.includes(r.CLIENT)).reduce((s, r) => s + (r.MONTANT || 0), 0);
+  const capN1Total = clientsN1Rows.reduce((s, r) => s + (r.MONTANT || 0), 0);
+  return capN1Total > 0 ? Math.min(capCommunN, capCommunN1) / capN1Total : null;
+};
+
+CALC.churnRate = (rows, allRows, currentYear) => {
+  if (!currentYear) return null;
+  const clientsN = new Set(rows.map(r => r.CLIENT));
+  const clientsN1 = new Set(allRows.filter(r => r.ANNEE === currentYear - 1).map(r => r.CLIENT));
+  if (clientsN1.size === 0) return null;
+  const churned = [...clientsN1].filter(c => !clientsN.has(c));
+  return churned.length / clientsN1.size;
+};
+
+CALC.newLogoContribution = (rows, allRows, currentYear) => {
+  if (!currentYear) return null;
+  const clientsN = new Set(rows.map(r => r.CLIENT));
+  const clientsN1 = new Set(allRows.filter(r => r.ANNEE === currentYear - 1).map(r => r.CLIENT));
+  const newLogos = [...clientsN].filter(c => !clientsN1.has(c));
+  const capNewLogos = rows.filter(r => newLogos.includes(r.CLIENT)).reduce((s, r) => s + (r.MONTANT || 0), 0);
+  const total = CALC.cap(rows);
+  return total > 0 ? capNewLogos / total : 0;
+};
+
+// ============= AGRÉGATION PAR CLIENT =============
+CALC.aggregateByClient = (rows, allRows, currentYear) => {
+  const map = new Map();
+  rows.forEach(r => {
+    if (!r.CLIENT) return;
+    if (!map.has(r.CLIENT)) {
+      map.set(r.CLIENT, { CLIENT: r.CLIENT, CA_N: 0, CA_N1: 0, libelles: new Set(), sites: new Set(), months: new Set(), firstYear: r.ANNEE, METIER: r.METIER, COMMERCIAL: r.COMMERCIAL });
+    }
+    const agg = map.get(r.CLIENT);
+    agg.CA_N += r.MONTANT || 0;
+    if (r.LIBELLE) agg.libelles.add(r.LIBELLE);
+    if (r.SITE) agg.sites.add(r.SITE);
+    if (r.YEAR_MONTH) agg.months.add(r.YEAR_MONTH);
+    if (r.ANNEE < agg.firstYear) agg.firstYear = r.ANNEE;
+  });
+  
+  // Calculer CA_N-1 — strictement aligné sur les MÊMES MOIS et MÊMES FILTRES que la période N courante
+  if (currentYear) {
+    const monthSet = APP.periodMonths && APP.periodMonths.size ? APP.periodMonths : new Set(rows.map(r => r.MOIS));
+    const f = APP.filters || {};
+    const siteSet = f.SITE && f.SITE !== 'Tout' ? new Set([f.SITE]) : null;
+    const metierSet = f.METIER && f.METIER !== 'Tout' ? new Set([f.METIER]) : null;
+    const libelleSet = f.LIBELLE && f.LIBELLE !== 'Tout' ? new Set([f.LIBELLE]) : null;
+    const clientQ = (f.CLIENT_Q || '').toLowerCase();
+
+    for (let i = 0; i < allRows.length; i++) {
+      const r = allRows[i];
+      if (r.ANNEE !== currentYear - 1) continue;
+      if (!monthSet.has(r.MOIS)) continue;
+      if (siteSet && !siteSet.has(r.SITE)) continue;
+      if (metierSet && !metierSet.has(r.METIER)) continue;
+      if (libelleSet && !libelleSet.has(r.LIBELLE)) continue;
+      if (clientQ && (!r.CLIENT || !r.CLIENT.toLowerCase().includes(clientQ))) continue;
+      if (!map.has(r.CLIENT)) {
+        map.set(r.CLIENT, { CLIENT: r.CLIENT, CA_N: 0, CA_N1: 0, libelles: new Set(), sites: new Set(), months: new Set(), firstYear: r.ANNEE, METIER: r.METIER, COMMERCIAL: r.COMMERCIAL });
+      }
+      map.get(r.CLIENT).CA_N1 += r.MONTANT || 0;
+    }
+  }
+  
+  // Annee première transaction (sur tout l'historique)
+  const firstYearByClient = {};
+  allRows.forEach(r => {
+    if (!firstYearByClient[r.CLIENT] || r.ANNEE < firstYearByClient[r.CLIENT]) {
+      firstYearByClient[r.CLIENT] = r.ANNEE;
+    }
+  });
+  
+  for (const c of map.values()) {
+    c.firstYear = firstYearByClient[c.CLIENT] || c.firstYear;
+    c.evol = c.CA_N1 > 0 ? (c.CA_N - c.CA_N1) / c.CA_N1 : null;
+    c.evolAbs = c.CA_N - c.CA_N1;
+    c.color = CALC.couleurEvolution(c.CA_N, c.CA_N1, c.evol);
+    c.nbLibelles = c.libelles.size;
+    c.nbSites = c.sites.size;
+    c.nbMois = c.months.size;
+  }
+  
+  return [...map.values()];
+};
+
+// ============= SEGMENTATION =============
+CALC.precomputeStats = (all) => {
+  let maxCA = 0, maxLib = 0, maxAnc = 0;
+  all.forEach(c => {
+    if (c.CA_N > maxCA) maxCA = c.CA_N;
+    if (c.nbLibelles > maxLib) maxLib = c.nbLibelles;
+    const anc = 2026 - c.firstYear + 1;
+    if (anc > maxAnc) maxAnc = anc;
+  });
+  return { maxCA, maxLib: Math.max(maxLib, 1), maxAnc: Math.max(maxAnc, 1) };
+};
+
+CALC.scoreClient = (client, stats) => {
+  const { maxCA, maxLib, maxAnc } = stats;
+  
+  // Score Taille (log-normalisé)
+  const sTaille = client.CA_N > 0 && maxCA > 0
+    ? Math.log(client.CA_N + 1) / Math.log(maxCA + 1) * 20
+    : 0;
+  
+  // Score Croissance
+  let sCroissance = 10;
+  if (client.evol !== null) {
+    if (client.evol >= 0.50) sCroissance = 20;
+    else if (client.evol >= 0.20) sCroissance = 17;
+    else if (client.evol >= 0.10) sCroissance = 14;
+    else if (client.evol >= 0.00) sCroissance = 11;
+    else if (client.evol >= -0.10) sCroissance = 7;
+    else if (client.evol >= -0.20) sCroissance = 4;
+    else sCroissance = 1;
+  }
+  
+  // Score Régularité (mois actifs sur 12 max)
+  const sRegularite = Math.min(client.nbMois, 12) / 12 * 20;
+  
+  // Score Diversité
+  const sDiversite = client.nbLibelles / maxLib * 20;
+  
+  // Score Ancienneté
+  const ancienneteClient = 2026 - client.firstYear + 1;
+  const sAnciennete = Math.min(ancienneteClient / maxAnc, 1) * 20;
+  
+  // Composite (sur 100)
+  const score = sTaille * 1.25 + sCroissance * 1.25 + sRegularite * 1.0 + sDiversite * 0.75 + sAnciennete * 0.75;
+  return Math.round(score);
+};
+
+CALC.tier = (score) => {
+  if (score >= 90) return 'S';
+  if (score >= 75) return 'A';
+  if (score >= 50) return 'B';
+  if (score >= 25) return 'C';
+  return 'D';
+};
+
+CALC.computePercentiles = (all) => {
+  const sortedCA = [...all].sort((a,b) => b.CA_N - a.CA_N).map(c => c.CA_N);
+  return {
+    p80: sortedCA[Math.floor(sortedCA.length * 0.20)] || 0,
+    p20: sortedCA[Math.floor(sortedCA.length * 0.80)] || 0
+  };
+};
+
+CALC.quadrant9Box = (client, p80, p20) => {
+  let taille;
+  if (client.CA_N >= p80) taille = 'Haut';
+  else if (client.CA_N >= p20) taille = 'Moyen';
+  else taille = 'Bas';
+  
+  let momentum;
+  if (client.evol === null) momentum = 'Modérée';
+  else if (client.evol >= 0.15) momentum = 'Forte';
+  else if (client.evol >= -0.05) momentum = 'Modérée';
+  else momentum = 'Décroissance';
+  
+  if (taille === 'Haut' && momentum === 'Forte') return 'Champions';
+  if (taille === 'Haut' && momentum === 'Modérée') return 'Cash Generators';
+  if (taille === 'Haut') return 'Endangered Kings';
+  if (taille === 'Moyen' && momentum === 'Forte') return 'Rising Stars';
+  if (taille === 'Moyen' && momentum === 'Modérée') return 'Steady Performers';
+  if (taille === 'Moyen') return 'Fading Mid-Tier';
+  if (taille === 'Bas' && momentum === 'Forte') return 'Seeds';
+  if (taille === 'Bas' && momentum === 'Modérée') return 'Marginal';
+  return 'Dormant';
+};
+
+CALC.quadrantColor = (q) => ({
+  'Champions': '#0B6E4F',
+  'Cash Generators': '#52B788',
+  'Endangered Kings': '#D62828',
+  'Rising Stars': '#52B788',
+  'Steady Performers': '#F4D35E',
+  'Fading Mid-Tier': '#F77F00',
+  'Seeds': '#F4D35E',
+  'Marginal': '#EAEAEA',
+  'Dormant': '#7F7F7F'
+}[q] || '#FFFFFF');
+
+CALC.statutCycleVie = (client, lastDate) => {
+  if (client.CA_N === 0 && client.CA_N1 > 0) return '❌ Churned';
+  // Ancienneté
+  if (2026 - client.firstYear <= 1) return '🆕 New';
+  if (client.evol === null) return '⚓ Mature';
+  if (client.evol >= 0.10) return '📈 Growing';
+  if (client.evol <= -0.10) return '📉 Declining';
+  return '⚓ Mature';
+};
+
+// ============= HEALTH SCORE =============
+CALC.healthScore = (client, allRows) => {
+  let score = 0;
+  
+  // Signal 1 : Décroissance (-2 si évol < -15%)
+  if (client.evol !== null && client.evol < -0.15) score -= 2;
+  
+  // Signal 2 : Inactivité (-2 si > 3 mois sans transaction sur 12 derniers)
+  if (client.nbMois < 6) score -= 2;
+  else if (client.nbMois < 9) score -= 1;
+  
+  // Signal 3 : Diminution diversité libellés (-1)
+  // (approximation via nbLibelles vs moyenne)
+  
+  // Signal 4 : Volatilité (mesurée approximativement)
+  
+  // Signal 5 : Concentration sur 1 site (-1)
+  if (client.nbSites === 1) score -= 1;
+  
+  return score;
+};
+
+CALC.healthStatus = (score) => {
+  if (score >= 0) return '🟢 Sain';
+  if (score >= -2) return '🟡 À surveiller';
+  if (score >= -4) return '🟠 À risque';
+  return '🔴 Critique';
+};
+
+// ============= FORECAST =============
+CALC.cagr = (rows, years) => {
+  if (years.length < 2) return 0;
+  const yearMin = years.reduce((m, y) => y < m ? y : m, Infinity);
+  const yearMax = years.reduce((m, y) => y > m ? y : m, -Infinity);
+  const span = yearMax - yearMin;
+  if (span < 1) return 0;
+  
+  const capStart = rows.filter(r => r.ANNEE === yearMin).reduce((s,r) => s + (r.MONTANT||0), 0);
+  const capEnd = rows.filter(r => r.ANNEE === yearMax).reduce((s,r) => s + (r.MONTANT||0), 0);
+  
+  if (capStart <= 0) return 0;
+  return Math.pow(capEnd / capStart, 1/span) - 1;
+};
+
+CALC.coefSaisonniers = (rows) => {
+  // Coef par mois = CAP moyen mensuel / CAP moyen annuel/12
+  const byMonth = {};
+  const yearsSet = new Set();
+  rows.forEach(r => {
+    if (!r.ANNEE || !r.MOIS) return;
+    yearsSet.add(r.ANNEE);
+    if (!byMonth[r.MOIS]) byMonth[r.MOIS] = {};
+    byMonth[r.MOIS][r.ANNEE] = (byMonth[r.MOIS][r.ANNEE] || 0) + (r.MONTANT || 0);
+  });
+  
+  const totalAnnees = [...yearsSet];
+  const moyAnnuelle = totalAnnees.length > 0
+    ? rows.reduce((s,r) => s + (r.MONTANT||0), 0) / totalAnnees.length
+    : 0;
+  const moyMensuelle = moyAnnuelle / 12;
+  
+  const coefs = {};
+  for (let m = 1; m <= 12; m++) {
+    if (!byMonth[m]) { coefs[m] = 1; continue; }
+    const moisValues = Object.values(byMonth[m]);
+    const moyMois = moisValues.reduce((s,v) => s + v, 0) / moisValues.length;
+    coefs[m] = moyMensuelle > 0 ? moyMois / moyMensuelle : 1;
+  }
+  return coefs;
+};
+
+CALC.forecast = (rows, horizonMonths, lastDate, whatif) => {
+  const years = [...new Set(rows.map(r => r.ANNEE).filter(Boolean))];
+  const cagr = CALC.cagr(rows, years);
+  const coefs = CALC.coefSaisonniers(rows);
+  
+  const forecast = [];
+  let cur = new Date(lastDate);
+  
+  for (let i = 1; i <= horizonMonths; i++) {
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    const m = cur.getMonth() + 1;
+    const y = cur.getFullYear();
+    
+    // CAP référence : même mois année précédente
+    const refYear = y - 1;
+    const refMonth = m;
+    const capRef = rows.filter(r => r.ANNEE === refYear && r.MOIS === refMonth).reduce((s,r) => s + (r.MONTANT||0), 0);
+    
+    const adjGrowth = (1 + cagr) * (1 + (whatif?.croissance || 0));
+    const adjSaison = coefs[m] * (whatif?.saison || 1);
+    
+    const baseForecast = capRef * adjGrowth * adjSaison;
+    
+    forecast.push({
+      date: new Date(cur),
+      year: y, month: m,
+      yearMonth: `${y}-${String(m).padStart(2,'0')}`,
+      base: Math.round(baseForecast),
+      optimist: Math.round(baseForecast * 1.15),
+      pessimist: Math.round(baseForecast * 0.85)
+    });
+  }
+  return forecast;
+};
+</script>
+
+<script id="js-ui-core">
+// ============================================================
+// MODULE 3 : UI CORE — Layout, navigation, slicers
+// ============================================================
+
+const PAGES = [
+  { id: 'cockpit', num: '00', title: 'Cockpit COMEX', subtitle: 'Vue exécutive synthétique', section: 'Pilotage',
+    explanation: "Synthèse exécutive : CAP de la période sélectionnée, comparaison vs N-1 alignée sur les <strong>mêmes mois</strong>, KPI macro de concentration (HHI, Top 10) et de rétention (NRR, GRR, Churn), et liste courte des clients en alerte ou en forte croissance." },
+  { id: 'portfolio', num: '01', title: 'Cartographie stratégique du portefeuille', subtitle: 'Matrice 9-box (BCG / McKinsey)', section: 'Pilotage',
+    explanation: "Matrice 9-box croisant le CA (Top 20% / Mid 60% / Bottom 20%) et la croissance vs N-1 (≥+15% / -5%↔+15% / ≤-5%), <strong>sur les mêmes mois</strong>. La courbe de Pareto montre la concentration cumulée du CA sur les 30 premiers clients." },
+  { id: 'customers', num: '02', title: 'Vue 360° clients', subtitle: 'Score 0-100 + Tiers S / A / B / C / D', section: 'Clients',
+    explanation: "Liste des clients filtrés, scorés sur 100 (taille, croissance, régularité, diversité, ancienneté) et classés en Tier S / A / B / C / D. Les colonnes CAP N et CAP N-1 sont comparées <strong>sur les mêmes mois</strong>." },
+  { id: 'growth', num: '03', title: 'Moteur de croissance', subtitle: 'Top progressions, baisses, nouveaux clients, reconquête', section: 'Clients',
+    explanation: "Quatre listes activables côté commercial : meilleures progressions, plus fortes baisses, nouveaux clients de la période N, clients perdus à reconquérir. Évolutions calculées <strong>à périmètre de mois identique</strong> N vs N-1." },
+  { id: 'crosssell', num: '04', title: 'Radar ventes croisées', subtitle: 'Pénétration des libellés & whitespace', section: 'Clients',
+    explanation: "Pénétration des services AGL par client (nombre de libellés consommés / libellés disponibles dans le périmètre filtré). Le whitespace = CA × (1 − pénétration) : potentiel résiduel monétisé pour prioriser les leviers de cross-sell." },
+  { id: 'geo', num: '05', title: 'Performance géographique', subtitle: 'Détail par site (ABJ, SPY, BYK, DLA)', section: 'Périmètre',
+    explanation: "Performance par site : CAP de la période, CAP N-1 <strong>recalculé sur les mêmes mois</strong>, évolution, nombre de clients et part dans le total. Les filtres haut de page (métier, département) s'appliquent aux deux périodes." },
+  { id: 'cohorts', num: '06', title: 'Cohortes & cycle de vie', subtitle: 'Matrice cohortes & statut clients', section: 'Périmètre',
+    explanation: "Matrice de cohortes : ligne = année d'acquisition, colonne = CA généré l'année observée. Lecture diagonale = rétention, lecture horizontale = montée en valeur d'une cohorte au fil du temps. Vue historique complète (toutes années)." },
+  { id: 'risk', num: '07', title: 'Tour de contrôle risques', subtitle: 'Health Score & alertes churn', section: 'Risques',
+    explanation: "Health Score consolidé (-7 à +5) à partir de signaux faibles : décroissance, inactivité récente, mono-site, mono-libellé, baisse de diversité. Identifie les clients critiques (≤ -4) et à surveiller (-3 à -2) pour action commerciale prioritaire." },
+  { id: 'forecast', num: '08', title: 'Prévisions & projections', subtitle: 'Forecast multi-horizon + What-If', section: 'Prospective',
+    explanation: "Projection 3 / 6 / 12 / 24 mois basée sur le CAGR historique et la saisonnalité mensuelle, avec bandes optimiste/pessimiste ±15%. Le module What-If recalcule en temps réel l'impact de 3 leviers : croissance, variation Top 10, effet saisonnier." }
+];
+
+function buildApp() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <header class="app-header">
+      <div class="app-logo">
+        <div class="app-logo-mark">CAP</div>
+        <span style="font-family:var(--font-display);font-weight:900;letter-spacing:2px;">AGL</span>
+      </div>
+      <div class="app-title">
+        <div class="app-title-main">Strategic Analytics</div>
+        <div class="app-title-sub">Customer Intelligence Platform · Marketing & Commercial</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-header" id="btn-print" title="Imprimer / Exporter PDF">📄 Export PDF</button>
+        <button class="btn-header" id="btn-reload" title="Recharger un fichier">↻ Nouveau fichier</button>
+      </div>
+    </header>
+    <div class="slicer-bar" id="slicer-bar"></div>
+    <div class="app-main">
+      <aside class="app-sidebar" id="sidebar"></aside>
+      <main class="app-content" id="content"></main>
+    </div>
+  `;
+  
+  buildSidebar();
+  buildSlicers();
+  buildPages();
+  attachEvents();
+  
+  // Ouvrir Cockpit par défaut
+  switchPage('cockpit');
+}
+
+function buildSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  let html = '';
+  let lastSection = null;
+  PAGES.forEach(p => {
+    if (p.section !== lastSection) {
+      html += `<div class="nav-section-title">${p.section}</div>`;
+      lastSection = p.section;
+    }
+    html += `<div class="nav-item" data-page="${p.id}">
+      <span class="nav-num">${p.num}</span>
+      <span>${p.title}</span>
+    </div>`;
+  });
+  sidebar.innerHTML = html;
+  sidebar.querySelectorAll('.nav-item').forEach(it => {
+    it.addEventListener('click', () => switchPage(it.dataset.page));
+  });
+}
+
+function buildSlicers() {
+  const bar = document.getElementById('slicer-bar');
+  const fact = APP.data.fact;
+
+  const annees = [...new Set(fact.map(r => r.ANNEE).filter(Boolean))].sort((a,b) => b - a);
+  const sites = [...new Set(fact.map(r => r.SITE).filter(Boolean))].sort();
+  const metiers = [...new Set(fact.map(r => r.METIER).filter(Boolean))].sort();
+  const libelles = [...new Set(fact.map(r => r.LIBELLE).filter(Boolean))].sort();
+
+  const yMax = annees[0] || new Date().getFullYear();
+  // Borne de mois par défaut = dernier mois disponible sur l'année courante (pour comparer "à périmètre identique")
+  const moisDispoYMax = [...new Set(fact.filter(r => r.ANNEE === yMax).map(r => r.MOIS).filter(Boolean))];
+  const moisMaxDefault = moisDispoYMax.length ? Math.max(...moisDispoYMax.reduce((a,m) => (a.push(m), a), [])) : 12;
+
+  APP.filters = {
+    ANNEE: yMax,
+    SITE: 'Tout',
+    METIER: 'Tout',
+    LIBELLE: 'Tout',
+    MOIS_MAX: moisMaxDefault,   // borne de mois pour comparaison N vs N-1 sur les mêmes mois
+    CLIENT_Q: ''                // recherche client (sous-chaîne, insensible à la casse)
+  };
+
+  const moisLabels = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+  let html = `
+    <div class="slicer">
+      <span class="slicer-label">Année</span>
+      <select id="slicer-annee">
+        ${annees.map(y => `<option value="${y}" ${y === yMax ? 'selected' : ''}>${y}</option>`).join('')}
+      </select>
+    </div>
+    <div class="slicer-divider"></div>
+    <div class="slicer">
+      <span class="slicer-label">Mois jusqu'à</span>
+      <select id="slicer-mois" title="Toutes les comparaisons N vs N-1 utilisent les mois Janvier → mois sélectionné">
+        ${moisLabels.map((lbl, i) => `<option value="${i+1}" ${(i+1) === moisMaxDefault ? 'selected' : ''}>${lbl}</option>`).join('')}
+      </select>
+    </div>
+    <div class="slicer-divider"></div>
+    <div class="slicer">
+      <span class="slicer-label">Site</span>
+      <select id="slicer-site">
+        <option>Tout</option>
+        ${sites.map(s => `<option>${s}</option>`).join('')}
+      </select>
+    </div>`;
+
+  if (metiers.length) {
+    html += `
+    <div class="slicer-divider"></div>
+    <div class="slicer">
+      <span class="slicer-label">Métier</span>
+      <select id="slicer-metier">
+        <option>Tout</option>
+        ${metiers.map(m => `<option>${m}</option>`).join('')}
+      </select>
+    </div>`;
+  }
+
+  if (libelles.length) {
+    html += `
+    <div class="slicer-divider"></div>
+    <div class="slicer">
+      <span class="slicer-label">Département</span>
+      <select id="slicer-libelle" title="Libellé département IRIS (ex : ENTREPOSAGE, TIM, MANUTENTION...)">
+        <option>Tout</option>
+        ${libelles.map(l => `<option>${l}</option>`).join('')}
+      </select>
+    </div>`;
+  }
+
+  html += `
+    <div class="slicer-divider"></div>
+    <div class="slicer">
+      <span class="slicer-label">Client</span>
+      <input type="search" id="slicer-client" placeholder="Rechercher…" autocomplete="off"
+             style="background:var(--white);border:1px solid var(--grey-200);border-radius:6px;padding:6px 10px;font-family:var(--font-body);font-size:12px;color:var(--grey-900);min-width:140px;outline:none;" />
+    </div>`;
+
+  html += `<button class="btn-reset-filters" id="btn-reset">Réinitialiser</button>`;
+  bar.innerHTML = html;
+
+  document.getElementById('slicer-annee').addEventListener('change', e => {
+    APP.filters.ANNEE = parseInt(e.target.value);
+    // Recaler la borne de mois au dernier mois dispo pour la nouvelle année (pour conserver la cohérence "même périmètre")
+    const moisDispo = [...new Set(APP.data.fact.filter(r => r.ANNEE === APP.filters.ANNEE).map(r => r.MOIS).filter(Boolean))];
+    if (moisDispo.length) {
+      APP.filters.MOIS_MAX = moisDispo.reduce((m,v) => v > m ? v : m, 0);
+      const sel = document.getElementById('slicer-mois');
+      if (sel) sel.value = APP.filters.MOIS_MAX;
+    }
+    applyFilters();
+  });
+  document.getElementById('slicer-mois').addEventListener('change', e => {
+    APP.filters.MOIS_MAX = parseInt(e.target.value);
+    applyFilters();
+  });
+  document.getElementById('slicer-site').addEventListener('change', e => {
+    APP.filters.SITE = e.target.value;
+    applyFilters();
+  });
+  if (metiers.length) {
+    document.getElementById('slicer-metier').addEventListener('change', e => {
+      APP.filters.METIER = e.target.value;
+      applyFilters();
+    });
+  }
+  if (libelles.length) {
+    document.getElementById('slicer-libelle').addEventListener('change', e => {
+      APP.filters.LIBELLE = e.target.value;
+      applyFilters();
+    });
+  }
+  // Recherche client : debounce léger pour éviter de relancer applyFilters à chaque touche
+  let qTimer = null;
+  document.getElementById('slicer-client').addEventListener('input', e => {
+    clearTimeout(qTimer);
+    const v = e.target.value;
+    qTimer = setTimeout(() => {
+      APP.filters.CLIENT_Q = v.trim();
+      applyFilters();
+    }, 200);
+  });
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    APP.filters = { ANNEE: yMax, SITE: 'Tout', METIER: 'Tout', LIBELLE: 'Tout', MOIS_MAX: moisMaxDefault, CLIENT_Q: '' };
+    document.getElementById('slicer-annee').value = yMax;
+    document.getElementById('slicer-mois').value = moisMaxDefault;
+    document.getElementById('slicer-site').value = 'Tout';
+    if (metiers.length) document.getElementById('slicer-metier').value = 'Tout';
+    if (libelles.length) document.getElementById('slicer-libelle').value = 'Tout';
+    document.getElementById('slicer-client').value = '';
+    applyFilters();
+  });
+}
+
+function applyFilters() {
+  const f = APP.filters;
+  const moisMax = f.MOIS_MAX || 12;
+  const clientQ = (f.CLIENT_Q || '').toLowerCase();
+
+  APP.filtered = APP.data.fact.filter(r => {
+    if (r.ANNEE !== f.ANNEE) return false;
+    if (r.MOIS > moisMax) return false;
+    if (f.SITE && f.SITE !== 'Tout' && r.SITE !== f.SITE) return false;
+    if (f.METIER && f.METIER !== 'Tout' && r.METIER !== f.METIER) return false;
+    if (f.LIBELLE && f.LIBELLE !== 'Tout' && r.LIBELLE !== f.LIBELLE) return false;
+    if (clientQ && (!r.CLIENT || !r.CLIENT.toLowerCase().includes(clientQ))) return false;
+    return true;
+  });
+
+  // Mémorise le set de mois courants pour comparaison N vs N-1 sur les MÊMES MOIS partout
+  APP.periodMonths = new Set(APP.filtered.map(r => r.MOIS));
+  if (APP.periodMonths.size === 0) {
+    // Garde-fou : si filtres très restrictifs vidant la sélection, on garde Jan → MOIS_MAX pour les comparaisons
+    for (let m = 1; m <= moisMax; m++) APP.periodMonths.add(m);
+  }
+
+  // Recalcul des agrégats clients (avec N-1 aligné sur les mêmes mois & filtres)
+  APP.clientsAgg = CALC.aggregateByClient(APP.filtered, APP.data.fact, f.ANNEE);
+  
+  // Pré-calcul percentiles + stats (une fois pour tous les clients)
+  const { p80, p20 } = CALC.computePercentiles(APP.clientsAgg);
+  const stats = CALC.precomputeStats(APP.clientsAgg);
+  
+  // Enrichir avec score, tier, quadrant
+  APP.clientsAgg.forEach(c => {
+    c.score = CALC.scoreClient(c, stats);
+    c.tier = CALC.tier(c.score);
+    c.quadrant = CALC.quadrant9Box(c, p80, p20);
+    c.quadrantColor = CALC.quadrantColor(c.quadrant);
+    c.statut = CALC.statutCycleVie(c);
+    c.healthScore = CALC.healthScore(c, APP.data.fact);
+    c.healthStatus = CALC.healthStatus(c.healthScore);
+  });
+  
+  renderCurrentPage();
+}
+
+function buildPages() {
+  const c = document.getElementById('content');
+  c.innerHTML = PAGES.map(p => `<div class="page" id="page-${p.id}"></div>`).join('');
+}
+
+function switchPage(id) {
+  APP.currentPage = id;
+  document.querySelectorAll('.nav-item').forEach(i => i.classList.toggle('active', i.dataset.page === id));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${id}`));
+  renderCurrentPage();
+}
+
+function renderCurrentPage() {
+  const id = APP.currentPage;
+  const fn = window['render_' + id];
+  if (typeof fn === 'function') fn();
+}
+
+function attachEvents() {
+  document.getElementById('btn-print').addEventListener('click', () => window.print());
+  document.getElementById('btn-reload').addEventListener('click', () => {
+    if (confirm('Recharger un nouveau fichier ? Les données actuelles seront effacées.')) {
+      location.reload();
+    }
+  });
+}
+
+// ============================================================
+// HELPERS RENDER
+// ============================================================
+
+function pageHeader(p) {
+  const f = APP.filters;
+  const moisLbl = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][(f.MOIS_MAX || 12) - 1];
+  const meta = [];
+  meta.push(`<span class="page-meta-item">Période : ${f.ANNEE} (Janvier → ${moisLbl})</span>`);
+  if (f.SITE !== 'Tout') meta.push(`<span class="page-meta-item">Site : ${f.SITE}</span>`);
+  if (f.METIER && f.METIER !== 'Tout') meta.push(`<span class="page-meta-item">Métier : ${f.METIER}</span>`);
+  if (f.LIBELLE && f.LIBELLE !== 'Tout') meta.push(`<span class="page-meta-item">Département : ${f.LIBELLE}</span>`);
+  if (f.CLIENT_Q) meta.push(`<span class="page-meta-item">Client ≈ « ${escapeHtml(f.CLIENT_Q)} »</span>`);
+  meta.push(`<span class="page-meta-item">${APP.filtered.length.toLocaleString('fr-FR')} transactions</span>`);
+  const expl = p.explanation
+    ? `<div class="alert-banner info" style="margin-top:14px;">
+         <div class="alert-banner-title">Lecture de cette feuille</div>
+         ${p.explanation}
+       </div>`
+    : '';
+  return `
+    <div class="page-header">
+      <div class="page-title">${p.title}</div>
+      <div class="page-subtitle">${p.subtitle}</div>
+      <div class="page-meta">${meta.join('')}</div>
+    </div>
+    ${expl}`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+function destroyChart(key) {
+  if (APP.charts[key]) {
+    try { APP.charts[key].destroy(); } catch(e) {}
+    delete APP.charts[key];
+  }
+}
+
+function chartColors() {
+  return {
+    primary: '#0A2540',
+    gold: '#D4A24E',
+    success: '#0B6E4F',
+    warning: '#F77F00',
+    danger: '#D62828',
+    info: '#1F77B4',
+    grid: '#EAEAEA',
+    text: '#404040'
+  };
+}
+
+function evolHTML(evol) {
+  if (evol === null || evol === undefined || isNaN(evol)) return '<span class="text-muted">—</span>';
+  const cls = evol >= 0 ? 'up' : 'down';
+  const sign = evol >= 0 ? '↑' : '↓';
+  return `<span class="kpi-evol ${cls}">${sign} ${(evol * 100).toFixed(1)}%</span>`;
+}
+</script>
+
+<script id="js-pages-1">
+// ============================================================
+// MODULE 4a : PAGES 0-3 (Cockpit, Portfolio, Customers, Growth)
+// ============================================================
+
+// =========== PAGE 0 — COCKPIT COMEX ===========
+function render_cockpit() {
+  const p = PAGES[0];
+  const rows = APP.filtered;
+  const all = APP.data.fact;
+  const y = APP.filters.ANNEE;
+  
+  const capN = CALC.cap(rows);
+  const capN1 = CALC.capN_1(rows, all, y);
+  const evol = CALC.evolutionPct(capN, capN1);
+  const nbClients = CALC.nbClients(rows);
+  const arpu = CALC.capMoyenClient(rows);
+  const hhi = CALC.HHI(rows);
+  const top10 = CALC.top10Dependency(rows);
+  const nrr = CALC.NRR(rows, all, y);
+  const grr = CALC.GRR(rows, all, y);
+  const churn = CALC.churnRate(rows, all, y);
+  const newLogo = CALC.newLogoContribution(rows, all, y);
+  
+  const hhiClass = hhi < 1500 ? 'kpi-good' : hhi < 2500 ? '' : 'kpi-alert';
+  const top10Class = top10 < 0.5 ? 'kpi-good' : top10 < 0.7 ? '' : 'kpi-alert';
+  const nrrClass = nrr > 1.05 ? 'kpi-good' : '';
+  const churnClass = churn < 0.10 ? 'kpi-good' : churn < 0.20 ? '' : 'kpi-alert';
+  
+  // Top 5 alertes & Top 5 stars
+  const sortedDecline = [...APP.clientsAgg].filter(c => c.evol !== null && c.evol < -0.15 && c.CA_N > 0).sort((a,b) => a.evol - b.evol).slice(0, 5);
+  const sortedGrowth = [...APP.clientsAgg].filter(c => c.evol !== null && c.evol > 0.20 && c.CA_N > 0).sort((a,b) => b.evol - a.evol).slice(0, 5);
+  
+  const el = document.getElementById('page-cockpit');
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="grid grid-4 mt-2">
+      <div class="kpi kpi-strong">
+        <div class="kpi-label">CAP ${y}</div>
+        <div class="kpi-value gold">${fmt.money(capN)}<span class="kpi-unit">XOF</span></div>
+        ${evolHTML(evol)}
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Clients actifs</div>
+        <div class="kpi-value">${nbClients}</div>
+        <div class="kpi-bench">distinct sur la période</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">CAP moyen / client (ARPU)</div>
+        <div class="kpi-value small">${fmt.money(arpu)}<span class="kpi-unit">XOF</span></div>
+      </div>
+      <div class="kpi ${hhiClass}">
+        <div class="kpi-label">HHI Concentration</div>
+        <div class="kpi-value small">${Math.round(hhi)}</div>
+        <div class="kpi-bench">${hhi < 1500 ? 'Sain (<1500)' : hhi < 2500 ? 'Modéré' : 'Risque (>2500)'}</div>
+      </div>
+    </div>
+    
+    <div class="grid grid-4 mt-2">
+      <div class="kpi ${top10Class}">
+        <div class="kpi-label">Top 10 Dependency</div>
+        <div class="kpi-value small">${fmt.pct(top10)}</div>
+        <div class="kpi-bench">${top10 < 0.5 ? '✓ Diversifié' : top10 < 0.7 ? '~ À surveiller' : '⚠ Trop concentré'}</div>
+      </div>
+      <div class="kpi ${nrrClass}">
+        <div class="kpi-label">NRR — Net Revenue Retention</div>
+        <div class="kpi-value small">${fmt.pct(nrr)}</div>
+        <div class="kpi-bench">Cible > 100%</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">GRR — Gross Revenue Retention</div>
+        <div class="kpi-value small">${fmt.pct(grr)}</div>
+        <div class="kpi-bench">Cible > 90%</div>
+      </div>
+      <div class="kpi ${churnClass}">
+        <div class="kpi-label">Taux de Churn</div>
+        <div class="kpi-value small">${fmt.pct(churn)}</div>
+        <div class="kpi-bench">Cible < 10%</div>
+      </div>
+    </div>
+    
+    <div class="grid grid-2-1 mt-3">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Évolution mensuelle du CAP — ${y} vs ${y-1} (mêmes mois)</div>
+        </div>
+        <div class="card-body">
+          <div class="chart-container"><canvas id="chart-monthly"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Contribution nouveaux clients</div>
+        </div>
+        <div class="card-body">
+          <div class="kpi-value gold" style="font-size:36px;">${fmt.pct(newLogo)}</div>
+          <div class="kpi-bench">part du CA réalisée par les nouveaux clients ${y}</div>
+          <div class="divider"></div>
+          <div class="text-sm text-muted">${APP.clientsAgg.filter(c => c.CA_N1 === 0 && c.CA_N > 0).length} nouveaux clients identifiés sur ${y}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-2 mt-3">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title" style="color:var(--evol-strong-dn);">⚠ Top 5 alertes — clients en décrochage</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Client</th><th class="num">CAP ${y}</th><th class="num">Évolution</th></tr></thead>
+              <tbody>
+                ${sortedDecline.length ? sortedDecline.map(c => `
+                  <tr>
+                    <td><strong>${c.CLIENT}</strong></td>
+                    <td class="num">${fmt.money(c.CA_N)}</td>
+                    <td class="num"><span class="evol-cell" style="background:${c.color};color:white;">${fmt.signed(c.evol*100)}</span></td>
+                  </tr>`).join('') : '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:24px;">Aucune alerte critique</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title" style="color:var(--evol-strong-up);">⭐ Top 5 stars — forte croissance</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Client</th><th class="num">CAP ${y}</th><th class="num">Évolution</th></tr></thead>
+              <tbody>
+                ${sortedGrowth.length ? sortedGrowth.map(c => `
+                  <tr>
+                    <td><strong>${c.CLIENT}</strong></td>
+                    <td class="num">${fmt.money(c.CA_N)}</td>
+                    <td class="num"><span class="evol-cell" style="background:${c.color};color:white;">${fmt.signed(c.evol*100)}</span></td>
+                  </tr>`).join('') : '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:24px;">Aucune star détectée</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Graphique mensuel
+  setTimeout(() => renderMonthlyChart(rows, all, y), 50);
+}
+
+function renderMonthlyChart(rows, all, y) {
+  destroyChart('monthly');
+  const ctx = document.getElementById('chart-monthly');
+  if (!ctx) return;
+  const c = chartColors();
+
+  // On compare strictement Janvier → MOIS_MAX entre N et N-1 (mêmes filtres déjà appliqués sur rows / N-1 via APP.periodMonths côté capN_1)
+  const moisMax = (APP.filters && APP.filters.MOIS_MAX) || 12;
+  const f = APP.filters || {};
+  const siteSet = f.SITE && f.SITE !== 'Tout' ? new Set([f.SITE]) : null;
+  const metierSet = f.METIER && f.METIER !== 'Tout' ? new Set([f.METIER]) : null;
+  const libelleSet = f.LIBELLE && f.LIBELLE !== 'Tout' ? new Set([f.LIBELLE]) : null;
+  const clientQ = (f.CLIENT_Q || '').toLowerCase();
+
+  const monthsN = Array(moisMax).fill(0);
+  const monthsN1 = Array(moisMax).fill(0);
+  rows.forEach(r => { if (r.MOIS >= 1 && r.MOIS <= moisMax) monthsN[r.MOIS - 1] += r.MONTANT || 0; });
+  for (let i = 0; i < all.length; i++) {
+    const r = all[i];
+    if (r.ANNEE !== y - 1) continue;
+    if (r.MOIS < 1 || r.MOIS > moisMax) continue;
+    if (siteSet && !siteSet.has(r.SITE)) continue;
+    if (metierSet && !metierSet.has(r.METIER)) continue;
+    if (libelleSet && !libelleSet.has(r.LIBELLE)) continue;
+    if (clientQ && (!r.CLIENT || !r.CLIENT.toLowerCase().includes(clientQ))) continue;
+    monthsN1[r.MOIS - 1] += r.MONTANT || 0;
+  }
+
+  const labels = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'].slice(0, moisMax);
+
+  APP.charts.monthly = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: `${y-1}`, data: monthsN1, backgroundColor: c.grid, borderColor: c.text, borderWidth: 0, order: 2 },
+        { label: `${y}`, data: monthsN, backgroundColor: c.gold, borderRadius: 4, order: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Inter' }, color: c.text } } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: c.grid }, ticks: { font: { size: 10, family: 'JetBrains Mono' }, callback: v => fmt.money(v) } },
+        x: { grid: { display: false }, ticks: { font: { size: 11, family: 'Inter' } } }
+      }
+    }
+  });
+}
+
+// =========== PAGE 1 — PORTFOLIO STRATEGIC MAP ===========
+function render_portfolio() {
+  const p = PAGES[1];
+  const el = document.getElementById('page-portfolio');
+  const clients = APP.clientsAgg.filter(c => c.CA_N > 0);
+  
+  // Calcul répartition par quadrant
+  const byQuad = {};
+  clients.forEach(c => {
+    if (!byQuad[c.quadrant]) byQuad[c.quadrant] = { count: 0, ca: 0 };
+    byQuad[c.quadrant].count++;
+    byQuad[c.quadrant].ca += c.CA_N;
+  });
+  const totalCA = clients.reduce((s,c) => s + c.CA_N, 0);
+  
+  const quadrantOrder = ['Champions','Cash Generators','Endangered Kings','Rising Stars','Steady Performers','Fading Mid-Tier','Seeds','Marginal','Dormant'];
+  
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="alert-banner info">
+      <div class="alert-banner-title">Méthodologie</div>
+      Matrice 9-box croisant CA (Top 20% / Mid 60% / Bottom 20%) × Croissance (≥+15% / -5%↔+15% / ≤-5%). Référence cabinet international (BCG/McKinsey 9-cell).
+    </div>
+    
+    <div class="grid grid-2-1">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Matrice 9-box stratégique</div>
+          <div class="text-sm text-muted">${clients.length} clients positionnés</div>
+        </div>
+        <div class="card-body">
+          <div class="chart-container tall"><div id="chart-scatter" style="width:100%;height:100%;"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Répartition par quadrant</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap" style="max-height:none;">
+            <table class="data">
+              <thead><tr><th>Quadrant</th><th class="num">N</th><th class="num">% CA</th></tr></thead>
+              <tbody>
+                ${quadrantOrder.map(q => {
+                  const d = byQuad[q] || { count: 0, ca: 0 };
+                  const pct = totalCA > 0 ? d.ca / totalCA : 0;
+                  return `<tr>
+                    <td><span style="display:inline-block;width:8px;height:8px;background:${CALC.quadrantColor(q)};border-radius:2px;margin-right:6px;"></span>${q}</td>
+                    <td class="num">${d.count}</td>
+                    <td class="num">${fmt.pct(pct)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Pareto 80/20 — concentration cumulée du CA</div>
+      </div>
+      <div class="card-body">
+        <div class="chart-container tall"><canvas id="chart-pareto"></canvas></div>
+      </div>
+    </div>
+  `;
+  
+  setTimeout(() => {
+    renderScatter(clients);
+    renderPareto(clients);
+  }, 50);
+}
+
+function renderScatter(clients) {
+  const c = chartColors();
+  const traces = {};
+  clients.forEach(cli => {
+    if (!traces[cli.quadrant]) {
+      traces[cli.quadrant] = { x: [], y: [], text: [], size: [], color: cli.quadrantColor };
+    }
+    traces[cli.quadrant].x.push(cli.CA_N);
+    traces[cli.quadrant].y.push(cli.evol === null ? 0 : cli.evol * 100);
+    traces[cli.quadrant].text.push(`<b>${cli.CLIENT}</b><br>CA: ${fmt.moneyFull(cli.CA_N)}<br>Évol: ${cli.evol === null ? 'N/A' : fmt.signed(cli.evol*100)}<br>Quadrant: ${cli.quadrant}`);
+    traces[cli.quadrant].size.push(Math.max(8, Math.min(40, Math.sqrt(cli.nbMois) * 5)));
+  });
+  
+  const data = Object.keys(traces).map(q => ({
+    type: 'scatter', mode: 'markers', name: q,
+    x: traces[q].x, y: traces[q].y,
+    text: traces[q].text, hoverinfo: 'text',
+    marker: { color: traces[q].color, size: traces[q].size, opacity: 0.75, line: { color: 'white', width: 1 } }
+  }));
+  
+  const layout = {
+    showlegend: true,
+    legend: { orientation: 'h', y: -0.2, font: { size: 10, family: 'Inter' } },
+    margin: { l: 60, r: 20, t: 20, b: 60 },
+    xaxis: { title: { text: 'CA (XOF, échelle log)', font: { size: 11, family: 'Inter' } }, type: 'log', gridcolor: c.grid, tickfont: { size: 10, family: 'JetBrains Mono' } },
+    yaxis: { title: { text: 'Croissance % vs N-1', font: { size: 11, family: 'Inter' } }, gridcolor: c.grid, zeroline: true, zerolinecolor: c.text, zerolinewidth: 2, tickfont: { size: 10, family: 'JetBrains Mono' }, ticksuffix: '%' },
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    font: { family: 'Inter', size: 11 }
+  };
+  
+  Plotly.newPlot('chart-scatter', data, layout, { responsive: true, displayModeBar: false });
+}
+
+function renderPareto(clients) {
+  destroyChart('pareto');
+  const ctx = document.getElementById('chart-pareto');
+  if (!ctx) return;
+  const c = chartColors();
+  
+  const sorted = [...clients].sort((a,b) => b.CA_N - a.CA_N).slice(0, 30);
+  const total = clients.reduce((s,c) => s + c.CA_N, 0);
+  let cumul = 0;
+  const cumulData = sorted.map(cl => { cumul += cl.CA_N; return cumul / total * 100; });
+  
+  APP.charts.pareto = new Chart(ctx, {
+    data: {
+      labels: sorted.map(cl => cl.CLIENT.slice(0, 18)),
+      datasets: [
+        { type: 'bar', label: 'CA (XOF)', data: sorted.map(cl => cl.CA_N), backgroundColor: c.primary, yAxisID: 'y', borderRadius: 2 },
+        { type: 'line', label: 'Cumul %', data: cumulData, borderColor: c.gold, backgroundColor: c.gold, yAxisID: 'y1', tension: 0.3, pointRadius: 3, pointBackgroundColor: c.gold }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Inter' } } } },
+      scales: {
+        y: { beginAtZero: true, position: 'left', grid: { color: c.grid }, ticks: { callback: v => fmt.money(v), font: { size: 10, family: 'JetBrains Mono' } } },
+        y1: { beginAtZero: true, max: 100, position: 'right', grid: { display: false }, ticks: { callback: v => v + '%', font: { size: 10, family: 'JetBrains Mono' } } },
+        x: { grid: { display: false }, ticks: { font: { size: 9, family: 'Inter' }, maxRotation: 60, minRotation: 60 } }
+      }
+    }
+  });
+}
+
+// =========== PAGE 2 — CUSTOMER DEEP DIVE ===========
+function render_customers() {
+  const p = PAGES[2];
+  const el = document.getElementById('page-customers');
+  const clients = [...APP.clientsAgg].sort((a,b) => b.score - a.score);
+  
+  // Comptage par tier
+  const byTier = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  clients.forEach(c => byTier[c.tier]++);
+  
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="grid grid-4">
+      ${['S','A','B','C','D'].slice(0,4).map(t => `
+        <div class="kpi">
+          <div class="kpi-label">Tier ${t}</div>
+          <div class="kpi-value"><span class="tier-${t}">${t}</span> ${byTier[t]}</div>
+          <div class="kpi-bench">${tierLabel(t)}</div>
+        </div>
+      `).join('')}
+    </div>
+    
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Vue 360° — ${clients.length} clients</div>
+        <div class="text-sm text-muted">Trié par Score Client (0-100)</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:600px;">
+          <table class="data">
+            <thead><tr>
+              <th>#</th><th>Client</th><th>Tier</th><th>Métier</th>
+              <th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">CAP ${APP.filters.ANNEE-1}</th>
+              <th class="num">Évol.</th><th class="num">Score</th><th>Quadrant</th><th>Statut</th>
+            </tr></thead>
+            <tbody>
+              ${clients.slice(0, 200).map((c, i) => `
+                <tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                  <td class="text-sm">${c.METIER || '—'}</td>
+                  <td class="num">${fmt.money(c.CA_N)}</td>
+                  <td class="num text-muted">${fmt.money(c.CA_N1)}</td>
+                  <td class="num">${c.evol === null ? '—' : `<span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed(c.evol*100)}</span>`}</td>
+                  <td class="num"><strong>${c.score}</strong>/100</td>
+                  <td class="text-sm"><span style="display:inline-block;width:6px;height:6px;background:${c.quadrantColor};border-radius:50%;margin-right:4px;"></span>${c.quadrant}</td>
+                  <td class="text-sm">${c.statut}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${clients.length > 200 ? `<div style="padding:12px;text-align:center;color:var(--grey-500);font-size:11px;">${clients.length - 200} clients supplémentaires non affichés (scroll dans le tableau)</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function tierLabel(t) {
+  return { S: 'Comptes stratégiques', A: 'Premium', B: 'Standard', C: 'Longue traîne', D: 'À arbitrer' }[t];
+}
+
+// =========== PAGE 3 — GROWTH ENGINE ===========
+function render_growth() {
+  const p = PAGES[3];
+  const el = document.getElementById('page-growth');
+  const clients = APP.clientsAgg;
+  
+  const topGrowers = [...clients].filter(c => c.evol !== null && c.CA_N > 0).sort((a,b) => b.evol - a.evol).slice(0, 15);
+  const topDecliners = [...clients].filter(c => c.evol !== null && c.CA_N > 0).sort((a,b) => a.evol - b.evol).slice(0, 15);
+  const newClients = [...clients].filter(c => c.CA_N1 === 0 && c.CA_N > 0).sort((a,b) => b.CA_N - a.CA_N).slice(0, 15);
+  const lostClients = [...clients].filter(c => c.CA_N === 0 && c.CA_N1 > 0).sort((a,b) => b.CA_N1 - a.CA_N1).slice(0, 15);
+  
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="grid grid-4">
+      <div class="kpi kpi-good">
+        <div class="kpi-label">Clients en croissance</div>
+        <div class="kpi-value">${clients.filter(c => c.evol !== null && c.evol > 0.05).length}</div>
+        <div class="kpi-bench">évol > +5%</div>
+      </div>
+      <div class="kpi kpi-alert">
+        <div class="kpi-label">Clients en décroissance</div>
+        <div class="kpi-value">${clients.filter(c => c.evol !== null && c.evol < -0.05).length}</div>
+        <div class="kpi-bench">évol < -5%</div>
+      </div>
+      <div class="kpi" style="border-top:3px solid var(--evol-new);">
+        <div class="kpi-label">Nouveaux clients</div>
+        <div class="kpi-value">${newClients.length}</div>
+        <div class="kpi-bench">premières transactions ${APP.filters.ANNEE}</div>
+      </div>
+      <div class="kpi" style="border-top:3px solid var(--evol-lost);">
+        <div class="kpi-label">Clients perdus</div>
+        <div class="kpi-value">${lostClients.length}</div>
+        <div class="kpi-bench">candidats win-back</div>
+      </div>
+    </div>
+    
+    <div class="grid grid-2 mt-3">
+      ${listCard('🚀 Top progressions — à fidéliser', topGrowers, 'evol', 'evol')}
+      ${listCard('⚠ Top baisses — action urgente', topDecliners, 'evol', 'evol')}
+    </div>
+
+    <div class="grid grid-2 mt-3">
+      ${listCard('🆕 Nouveaux clients', newClients, 'CA_N', 'ca')}
+      ${listCard('💔 Clients à reconquérir', lostClients, 'CA_N1', 'caN1')}
+    </div>
+  `;
+}
+
+function listCard(title, list, sortKey, displayMode) {
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">${title}</div>
+        <div class="text-sm text-muted">${list.length} clients</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap">
+          <table class="data">
+            <thead><tr><th>Client</th>${displayMode === 'evol' ? '<th class="num">CA</th><th class="num">Évol.</th>' : displayMode === 'ca' ? '<th class="num">CA</th>' : '<th class="num">CA N-1</th>'}</tr></thead>
+            <tbody>
+              ${list.length === 0 ? '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:24px;">Aucune donnée</td></tr>' : list.map(c => `
+                <tr>
+                  <td><strong>${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
+                  ${displayMode === 'evol' ? `<td class="num">${fmt.money(c.CA_N)}</td><td class="num"><span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed(c.evol*100)}</span></td>` : displayMode === 'ca' ? `<td class="num">${fmt.money(c.CA_N)}</td>` : `<td class="num text-muted">${fmt.money(c.CA_N1)}</td>`}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+</script>
+
+<script id="js-pages-2">
+// ============================================================
+// MODULE 4b : PAGES 4-7 (Cross-sell, Geo, Cohorts, Risk)
+// ============================================================
+
+// =========== PAGE 4 — CROSS-SELL RADAR ===========
+function render_crosssell() {
+  const p = PAGES[4];
+  const el = document.getElementById('page-crosssell');
+  const clients = APP.clientsAgg.filter(c => c.CA_N > 0);
+  
+  const allLibelles = [...new Set(APP.filtered.map(r => r.LIBELLE).filter(Boolean))];
+  const totalLib = allLibelles.length;
+  
+  // Calcul whitespace
+  clients.forEach(c => {
+    c.penetrationRate = totalLib > 0 ? c.nbLibelles / totalLib : 0;
+    c.whitespace = c.CA_N * (1 - c.penetrationRate);
+  });
+  
+  const topWhitespace = [...clients].filter(c => c.nbLibelles > 0 && c.nbLibelles < totalLib).sort((a,b) => b.whitespace - a.whitespace).slice(0, 20);
+  const monoLibelle = clients.filter(c => c.nbLibelles === 1);
+  
+  // Calcul pénétration moyenne par tier
+  const penetByTier = {};
+  ['S','A','B','C','D'].forEach(t => {
+    const list = clients.filter(c => c.tier === t);
+    penetByTier[t] = {
+      n: list.length,
+      avgPenet: list.length ? list.reduce((s,c) => s + c.penetrationRate, 0) / list.length : 0,
+      avgLib: list.length ? list.reduce((s,c) => s + c.nbLibelles, 0) / list.length : 0
+    };
+  });
+  
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="alert-banner info">
+      <div class="alert-banner-title">Logique cross-sell</div>
+      Un client à fort CA et faible pénétration libellés = forte opportunité de cross-sell. Le whitespace mesure cette opportunité monétisée.
+    </div>
+    
+    <div class="grid grid-3">
+      <div class="kpi">
+        <div class="kpi-label">Libellés disponibles</div>
+        <div class="kpi-value">${totalLib}</div>
+        <div class="kpi-bench">services AGL distincts</div>
+      </div>
+      <div class="kpi kpi-strong">
+        <div class="kpi-label">Pénétration moyenne</div>
+        <div class="kpi-value gold small">${fmt.pct(clients.length ? clients.reduce((s,c) => s + c.penetrationRate, 0) / clients.length : 0)}</div>
+        <div class="kpi-bench">% libellés consommés / client</div>
+      </div>
+      <div class="kpi kpi-alert">
+        <div class="kpi-label">Mono-libellé</div>
+        <div class="kpi-value">${monoLibelle.length}</div>
+        <div class="kpi-bench">clients sur 1 seul service (LTV faible)</div>
+      </div>
+    </div>
+    
+    <div class="grid grid-2 mt-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Top 20 Whitespace — opportunités cross-sell</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Client</th><th>Tier</th><th class="num">CA</th><th class="num">Lib.</th><th class="num">Pénétration</th><th class="num">Potentiel</th></tr></thead>
+              <tbody>
+                ${topWhitespace.map(c => `
+                  <tr>
+                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                    <td class="num">${fmt.money(c.CA_N)}</td>
+                    <td class="num">${c.nbLibelles}/${totalLib}</td>
+                    <td class="num">${fmt.pct(c.penetrationRate)}</td>
+                    <td class="num"><strong style="color:var(--gold-700);">${fmt.money(c.whitespace)}</strong></td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Pénétration moyenne par Tier</div></div>
+        <div class="card-body">
+          <div class="chart-container"><canvas id="chart-penet-tier"></canvas></div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  setTimeout(() => renderPenetByTier(penetByTier, totalLib), 50);
+}
+
+function renderPenetByTier(data, totalLib) {
+  destroyChart('penetTier');
+  const ctx = document.getElementById('chart-penet-tier');
+  if (!ctx) return;
+  const c = chartColors();
+  
+  APP.charts.penetTier = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['Tier S','Tier A','Tier B','Tier C','Tier D'],
+      datasets: [{
+        label: 'Pénétration moyenne (%)',
+        data: ['S','A','B','C','D'].map(t => data[t].avgPenet * 100),
+        backgroundColor: [c.gold, c.primary, '#3B5C82', '#A3A3A3', c.danger],
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, max: 100, grid: { color: c.grid }, ticks: { callback: v => v + '%', font: { size: 10, family: 'JetBrains Mono' } } },
+        x: { grid: { display: false }, ticks: { font: { size: 11, family: 'Inter', weight: 600 } } }
+      }
+    }
+  });
+}
+
+// =========== PAGE 5 — GEOGRAPHIC PERFORMANCE ===========
+function render_geo() {
+  const p = PAGES[5];
+  const el = document.getElementById('page-geo');
+  const rows = APP.filtered;
+  const all = APP.data.fact;
+  const y = APP.filters.ANNEE;
+  
+  const sites = [...new Set(rows.map(r => r.SITE).filter(Boolean))];
+  // N-1 aligné sur les MÊMES mois et MÊMES filtres (métier / département / recherche client)
+  const monthSet = APP.periodMonths || new Set(rows.map(r => r.MOIS));
+  const f = APP.filters || {};
+  const metierSet = f.METIER && f.METIER !== 'Tout' ? new Set([f.METIER]) : null;
+  const libelleSet = f.LIBELLE && f.LIBELLE !== 'Tout' ? new Set([f.LIBELLE]) : null;
+  const clientQ = (f.CLIENT_Q || '').toLowerCase();
+
+  const siteData = sites.map(site => {
+    const sRows = rows.filter(r => r.SITE === site);
+    let caN1 = 0;
+    for (let i = 0; i < all.length; i++) {
+      const r = all[i];
+      if (r.ANNEE !== y - 1) continue;
+      if (r.SITE !== site) continue;
+      if (!monthSet.has(r.MOIS)) continue;
+      if (metierSet && !metierSet.has(r.METIER)) continue;
+      if (libelleSet && !libelleSet.has(r.LIBELLE)) continue;
+      if (clientQ && (!r.CLIENT || !r.CLIENT.toLowerCase().includes(clientQ))) continue;
+      caN1 += r.MONTANT || 0;
+    }
+    const ca = sRows.reduce((s,r) => s + (r.MONTANT||0), 0);
+    const evol = caN1 > 0 ? (ca - caN1)/caN1 : null;
+    return {
+      site, ca, caN1, evol,
+      nbClients: new Set(sRows.map(r => r.CLIENT)).size,
+      color: CALC.couleurEvolution(ca, caN1, evol)
+    };
+  }).sort((a,b) => b.ca - a.ca);
+  
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="grid grid-${Math.min(sites.length,4)}">
+      ${siteData.slice(0,4).map(s => `
+        <div class="kpi" style="border-top:3px solid ${s.color};">
+          <div class="kpi-label">Site ${s.site}</div>
+          <div class="kpi-value small">${fmt.money(s.ca)}<span class="kpi-unit">XOF</span></div>
+          ${evolHTML(s.evol)}
+          <div class="kpi-bench mt-1">${s.nbClients} clients</div>
+        </div>
+      `).join('')}
+    </div>
+    
+    <div class="grid grid-2 mt-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">CAP par site</div></div>
+        <div class="card-body"><div class="chart-container tall"><canvas id="chart-site"></canvas></div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Évolution % par site</div></div>
+        <div class="card-body"><div class="chart-container tall"><canvas id="chart-site-evol"></canvas></div></div>
+      </div>
+    </div>
+    
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">Détail par site × métier</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap">
+          <table class="data">
+            <thead><tr><th>Site</th><th class="num">CAP ${y}</th><th class="num">CAP ${y-1}</th><th class="num">Évolution</th><th class="num">Clients</th><th class="num">Part %</th></tr></thead>
+            <tbody>
+              ${siteData.map(s => {
+                const total = siteData.reduce((sum,d) => sum + d.ca, 0);
+                return `<tr>
+                  <td><strong>${s.site}</strong></td>
+                  <td class="num">${fmt.money(s.ca)}</td>
+                  <td class="num text-muted">${fmt.money(s.caN1)}</td>
+                  <td class="num">${s.evol === null ? '—' : `<span class="evol-cell" style="background:${s.color};color:${['#F4D35E'].includes(s.color)?'#000':'white'};">${fmt.signed(s.evol*100)}</span>`}</td>
+                  <td class="num">${s.nbClients}</td>
+                  <td class="num">${fmt.pct(total > 0 ? s.ca/total : 0)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  setTimeout(() => {
+    renderSiteChart(siteData);
+    renderSiteEvolChart(siteData);
+  }, 50);
+}
+
+function renderSiteChart(siteData) {
+  destroyChart('site');
+  const ctx = document.getElementById('chart-site');
+  if (!ctx) return;
+  const c = chartColors();
+  APP.charts.site = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: siteData.map(s => s.site),
+      datasets: [
+        { label: `${APP.filters.ANNEE - 1}`, data: siteData.map(s => s.caN1), backgroundColor: c.grid, borderRadius: 4 },
+        { label: `${APP.filters.ANNEE}`, data: siteData.map(s => s.ca), backgroundColor: c.primary, borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Inter' } } } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: c.grid }, ticks: { callback: v => fmt.money(v), font: { size: 10, family: 'JetBrains Mono' } } },
+        x: { grid: { display: false }, ticks: { font: { size: 12, family: 'Inter', weight: 600 } } }
+      }
+    }
+  });
+}
+
+function renderSiteEvolChart(siteData) {
+  destroyChart('siteEvol');
+  const ctx = document.getElementById('chart-site-evol');
+  if (!ctx) return;
+  const c = chartColors();
+  APP.charts.siteEvol = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: siteData.map(s => s.site),
+      datasets: [{
+        data: siteData.map(s => s.evol === null ? 0 : s.evol * 100),
+        backgroundColor: siteData.map(s => s.color),
+        borderRadius: 4
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: c.grid }, ticks: { callback: v => v + '%', font: { size: 10, family: 'JetBrains Mono' } } },
+        y: { grid: { display: false }, ticks: { font: { size: 12, family: 'Inter', weight: 600 } } }
+      }
+    }
+  });
+}
+
+// =========== PAGE 6 — COHORT & LIFECYCLE ===========
+function render_cohorts() {
+  const p = PAGES[6];
+  const el = document.getElementById('page-cohorts');
+  const clients = APP.clientsAgg;
+  
+  // Statut cycle de vie
+  const byStatut = {};
+  clients.forEach(c => {
+    byStatut[c.statut] = (byStatut[c.statut] || 0) + 1;
+  });
+  
+  // Cohortes : optimisation - calcul direct sans O(n²)
+  // Construction matrice cohortes : par année d'acquisition × année observée
+  const allYears = [...new Set(APP.data.fact.map(r => r.ANNEE))].sort();
+  const firstYearByClient = {};
+  APP.data.fact.forEach(r => {
+    if (!firstYearByClient[r.CLIENT] || r.ANNEE < firstYearByClient[r.CLIENT]) {
+      firstYearByClient[r.CLIENT] = r.ANNEE;
+    }
+  });
+  
+  const cohortMatrix = {};
+  allYears.forEach(cy => {
+    cohortMatrix[cy] = {};
+    allYears.forEach(oy => { cohortMatrix[cy][oy] = 0; });
+  });
+  
+  APP.data.fact.forEach(r => {
+    const fy = firstYearByClient[r.CLIENT];
+    if (fy && r.ANNEE >= fy) cohortMatrix[fy][r.ANNEE] += r.MONTANT || 0;
+  });
+  
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="grid grid-3">
+      ${Object.entries(byStatut).map(([s,n]) => `
+        <div class="kpi">
+          <div class="kpi-label">${s}</div>
+          <div class="kpi-value">${n}</div>
+          <div class="kpi-bench">${fmt.pct(clients.length > 0 ? n / clients.length : 0)}</div>
+        </div>
+      `).join('')}
+    </div>
+    
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Matrice de cohortes — CA par année d'acquisition × année observée</div>
+        <div class="text-sm text-muted">Vue historique complète, indépendante des filtres haut de page (lecture cycle de vie)</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:none;">
+          <table class="data">
+            <thead><tr><th>Cohorte</th>${allYears.map(y => `<th class="num">${y}</th>`).join('')}</tr></thead>
+            <tbody>
+              ${allYears.map(cy => {
+                const initial = cohortMatrix[cy][cy];
+                return `<tr>
+                  <td><strong>${cy}</strong><br><span class="text-sm text-muted">${[...Object.values(firstYearByClient)].filter(y => y === cy).length} clients</span></td>
+                  ${allYears.map(oy => {
+                    if (oy < cy) return '<td class="num text-muted">—</td>';
+                    const v = cohortMatrix[cy][oy];
+                    const ret = initial > 0 ? v / initial : 0;
+                    const intensity = Math.min(1, ret);
+                    const bg = v > 0 ? `rgba(11, 110, 79, ${0.1 + intensity * 0.5})` : 'transparent';
+                    return `<td class="num" style="background:${bg};">${v > 0 ? fmt.money(v) : '—'}<br><span class="text-sm text-muted">${oy === cy ? '100%' : (initial > 0 ? fmt.pct(ret) : '—')}</span></td>`;
+                  }).join('')}
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// =========== PAGE 7 — RISK WATCH TOWER ===========
+function render_risk() {
+  const p = PAGES[7];
+  const el = document.getElementById('page-risk');
+  const clients = APP.clientsAgg;
+  
+  const byStatus = { '🟢 Sain': 0, '🟡 À surveiller': 0, '🟠 À risque': 0, '🔴 Critique': 0 };
+  clients.forEach(c => byStatus[c.healthStatus]++);
+  
+  const critical = [...clients].filter(c => c.healthScore <= -4).sort((a,b) => b.CA_N - a.CA_N);
+  const atRisk = [...clients].filter(c => c.healthScore === -3 || c.healthScore === -2).sort((a,b) => b.CA_N - a.CA_N);
+  
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="grid grid-4">
+      ${Object.entries(byStatus).map(([s,n]) => {
+        const k = s.includes('Sain') ? 'good' : s.includes('Critique') ? 'alert' : s.includes('risque') ? 'alert' : '';
+        return `<div class="kpi ${k ? 'kpi-' + k : ''}">
+          <div class="kpi-label">${s}</div>
+          <div class="kpi-value">${n}</div>
+          <div class="kpi-bench">${fmt.pct(clients.length > 0 ? n / clients.length : 0)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    
+    ${critical.length > 0 ? `
+    <div class="alert-banner mt-3">
+      <div class="alert-banner-title">🚨 ${critical.length} client${critical.length > 1 ? 's' : ''} en alerte critique</div>
+      Health Score ≤ -4 : signaux faibles convergents (décroissance, inactivité, mono-site, mono-libellé). Action commerciale urgente recommandée.
+    </div>
+    ` : ''}
+    
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">🔴 Clients en alerte critique</div>
+        <div class="text-sm text-muted">${critical.length} clients</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap">
+          <table class="data">
+            <thead><tr><th>Client</th><th>Tier</th><th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">Évol.</th><th class="num">Health</th><th>Statut</th><th>Recommandation</th></tr></thead>
+            <tbody>
+              ${critical.length === 0 ? '<tr><td colspan=7 style="text-align:center;color:var(--evol-strong-up);padding:24px;">✓ Aucun client en alerte critique</td></tr>' : critical.map(c => `
+                <tr>
+                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                  <td class="num">${fmt.money(c.CA_N)}</td>
+                  <td class="num">${c.evol === null ? '—' : `<span class="evol-cell" style="background:${c.color};color:white;">${fmt.signed(c.evol*100)}</span>`}</td>
+                  <td class="num"><strong>${c.healthScore}</strong></td>
+                  <td>${c.healthStatus}</td>
+                  <td class="text-sm">${c.tier === 'S' || c.tier === 'A' ? '🚨 Visite KAM senior' : '☎ Relance commerciale'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">🟠 Clients à surveiller</div>
+        <div class="text-sm text-muted">${atRisk.length} clients</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap">
+          <table class="data">
+            <thead><tr><th>Client</th><th>Tier</th><th class="num">CAP</th><th class="num">Health</th><th>Statut</th></tr></thead>
+            <tbody>
+              ${atRisk.slice(0, 30).map(c => `
+                <tr>
+                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                  <td class="num">${fmt.money(c.CA_N)}</td>
+                  <td class="num">${c.healthScore}</td>
+                  <td>${c.healthStatus}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+</script>
+
+<script id="js-pages-3">
+// ============================================================
+// MODULE 5 : PAGE 8 — FORECAST & WHAT-IF
+// ============================================================
+
+function render_forecast() {
+  const p = PAGES[8];
+  const el = document.getElementById('page-forecast');
+  const all = APP.data.fact;
+  
+  if (!APP.whatif) APP.whatif = { croissance: 0, top10: 0, saison: 1 };
+  if (!APP.horizon) APP.horizon = 12;
+  
+  // Calcul forecast
+  const lastDate = new Date(all.reduce((m, r) => r.DATE && r.DATE.getTime() > m ? r.DATE.getTime() : m, 0));
+  const years = [...new Set(all.map(r => r.ANNEE).filter(Boolean))];
+  const cagr = CALC.cagr(all, years);
+  const forecast = CALC.forecast(all, APP.horizon, lastDate, APP.whatif);
+  const forecastTotal = forecast.reduce((s,f) => s + f.base, 0);
+  const forecastTotalOpt = forecast.reduce((s,f) => s + f.optimist, 0);
+  const forecastTotalPess = forecast.reduce((s,f) => s + f.pessimist, 0);
+  
+  // CA actuel sur même horizon historique
+  const caActuelEquivalent = all
+    .filter(r => {
+      const lookbackDate = new Date(lastDate);
+      lookbackDate.setMonth(lookbackDate.getMonth() - APP.horizon);
+      return r.DATE > lookbackDate && r.DATE <= lastDate;
+    })
+    .reduce((s,r) => s + (r.MONTANT||0), 0);
+  
+  const evolForecast = caActuelEquivalent > 0 ? (forecastTotal - caActuelEquivalent) / caActuelEquivalent : null;
+  
+  // Prévision par site
+  const sites = [...new Set(all.map(r => r.SITE).filter(Boolean))];
+  const forecastBySite = sites.map(site => {
+    const sRows = all.filter(r => r.SITE === site);
+    const sForecast = CALC.forecast(sRows, APP.horizon, lastDate, APP.whatif);
+    return { site, total: sForecast.reduce((s,f) => s + f.base, 0) };
+  }).sort((a,b) => b.total - a.total);
+  
+  // Top 20 clients par forecast (optimisé : pré-groupement)
+  const rowsByClient = {};
+  all.forEach(r => {
+    if (!r.CLIENT) return;
+    if (!rowsByClient[r.CLIENT]) rowsByClient[r.CLIENT] = [];
+    rowsByClient[r.CLIENT].push(r);
+  });
+  
+  // Limiter aux 50 plus gros clients pour calculer leur forecast (sinon trop lent)
+  const top50ClientsByCA = Object.entries(rowsByClient)
+    .map(([c, rows]) => ({ c, ca: rows.reduce((s,r) => s + (r.MONTANT||0), 0), rows }))
+    .sort((a,b) => b.ca - a.ca)
+    .slice(0, 50);
+  
+  const forecastByClient = top50ClientsByCA.map(({ c, rows }) => {
+    if (rows.length < 6) return null;
+    const cForecast = CALC.forecast(rows, APP.horizon, lastDate, APP.whatif);
+    return { client: c, total: cForecast.reduce((s,f) => s + f.base, 0) };
+  }).filter(Boolean).sort((a,b) => b.total - a.total).slice(0, 20);
+  
+  el.innerHTML = `
+    ${pageHeader(p)}
+    
+    <div class="alert-banner info">
+      <div class="alert-banner-title">📊 Méthodologie prédictive</div>
+      Modèle CAGR + saisonnalité (Niveau 2). CAGR calculé sur les ${years.length} années d'historique disponibles. Coefficients saisonniers calculés sur la moyenne mensuelle historique. Bandes de confiance ±15%. La projection s'appuie sur l'historique global (toutes années) ; les filtres haut de page restent indicatifs sur cette page.
+    </div>
+
+    <div class="grid grid-4 mt-2">
+      <div class="kpi kpi-strong">
+        <div class="kpi-label">Prévision ${APP.horizon} mois</div>
+        <div class="kpi-value gold">${fmt.money(forecastTotal)}<span class="kpi-unit">XOF</span></div>
+        ${evolForecast !== null ? evolHTML(evolForecast) : ''}
+      </div>
+      <div class="kpi kpi-good">
+        <div class="kpi-label">Scénario optimiste</div>
+        <div class="kpi-value small">${fmt.money(forecastTotalOpt)}<span class="kpi-unit">XOF</span></div>
+        <div class="kpi-bench">+15% vs base</div>
+      </div>
+      <div class="kpi kpi-alert">
+        <div class="kpi-label">Scénario pessimiste</div>
+        <div class="kpi-value small">${fmt.money(forecastTotalPess)}<span class="kpi-unit">XOF</span></div>
+        <div class="kpi-bench">-15% vs base</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">CAGR historique</div>
+        <div class="kpi-value small">${(cagr * 100).toFixed(1)}%</div>
+        <div class="kpi-bench">/ an sur ${years.length} ans</div>
+      </div>
+    </div>
+    
+    <div class="grid" style="grid-template-columns:1fr;">
+      <div class="card mt-3">
+        <div class="card-header">
+          <div class="card-title">Évolution historique & projection</div>
+          <div class="flex gap-1">
+            <span class="text-sm text-muted">Horizon :</span>
+            <select id="horizon-select" style="background:var(--grey-50);border:1px solid var(--grey-200);padding:4px 8px;border-radius:4px;font-size:12px;">
+              <option value="3" ${APP.horizon===3?'selected':''}>3 mois</option>
+              <option value="6" ${APP.horizon===6?'selected':''}>6 mois</option>
+              <option value="12" ${APP.horizon===12?'selected':''}>12 mois</option>
+              <option value="24" ${APP.horizon===24?'selected':''}>24 mois</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="chart-container tall"><canvas id="chart-forecast"></canvas></div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="grid grid-1-2 mt-3">
+      <div class="whatif-card">
+        <div class="whatif-title">💡 What-If Analysis</div>
+        <p style="font-size:11px;color:var(--navy-100);margin-bottom:18px;">Simulez l'impact de scénarios stratégiques en temps réel</p>
+        
+        <div class="whatif-slider">
+          <div class="whatif-slider-label">
+            <span>Ajustement croissance</span>
+            <span class="whatif-slider-value" id="wi-c-val">${(APP.whatif.croissance * 100).toFixed(0)}%</span>
+          </div>
+          <input type="range" id="wi-croissance" min="-50" max="50" step="1" value="${APP.whatif.croissance * 100}">
+        </div>
+        
+        <div class="whatif-slider">
+          <div class="whatif-slider-label">
+            <span>Variation Top 10 clients</span>
+            <span class="whatif-slider-value" id="wi-t-val">${(APP.whatif.top10 * 100).toFixed(0)}%</span>
+          </div>
+          <input type="range" id="wi-top10" min="-100" max="50" step="5" value="${APP.whatif.top10 * 100}">
+        </div>
+        
+        <div class="whatif-slider">
+          <div class="whatif-slider-label">
+            <span>Effet saisonnier</span>
+            <span class="whatif-slider-value" id="wi-s-val">${APP.whatif.saison.toFixed(2)}×</span>
+          </div>
+          <input type="range" id="wi-saison" min="0.5" max="1.5" step="0.05" value="${APP.whatif.saison}">
+        </div>
+        
+        <div class="divider" style="background:rgba(255,255,255,0.15);"></div>
+        
+        <div style="background:rgba(212,162,78,0.15);padding:14px;border-radius:8px;border:1px solid var(--gold-500);">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--gold-300);margin-bottom:4px;">Prévision ajustée</div>
+          <div style="font-family:var(--font-display);font-size:24px;font-weight:700;color:var(--gold-300);" id="wi-result">${fmt.money(forecastTotal + top50ClientsByCA.slice(0,10).reduce((s,o) => s + o.ca, 0) * APP.whatif.top10 * APP.horizon / 12)}</div>
+          <div style="font-size:10px;color:var(--navy-100);">XOF sur ${APP.horizon} mois</div>
+        </div>
+        
+        <button class="btn-primary gold mt-2" id="wi-reset" style="width:100%;">↻ Réinitialiser</button>
+      </div>
+      
+      <div class="card">
+        <div class="card-header"><div class="card-title">Prévision par site</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Site</th><th class="num">Prévision ${APP.horizon}m</th><th class="num">Part</th></tr></thead>
+              <tbody>
+                ${forecastBySite.map(s => `<tr><td><strong>${s.site}</strong></td><td class="num">${fmt.money(s.total)}</td><td class="num">${fmt.pct(forecastTotal>0?s.total/forecastTotal:0)}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">Top 20 — Prévision par client</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap">
+          <table class="data">
+            <thead><tr><th>Client</th><th class="num">Prévision ${APP.horizon}m</th><th class="num">Part %</th></tr></thead>
+            <tbody>
+              ${forecastByClient.map(c => `<tr><td><strong>${c.client}</strong></td><td class="num">${fmt.money(c.total)}</td><td class="num">${fmt.pct(forecastTotal>0?c.total/forecastTotal:0)}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  setTimeout(() => {
+    renderForecastChart(all, forecast, lastDate);
+    attachWhatIfHandlers();
+  }, 50);
+}
+
+function renderForecastChart(all, forecast, lastDate) {
+  destroyChart('forecast');
+  const ctx = document.getElementById('chart-forecast');
+  if (!ctx) return;
+  const c = chartColors();
+  
+  // Historique mensuel
+  const histMap = {};
+  all.forEach(r => {
+    if (!r.YEAR_MONTH) return;
+    histMap[r.YEAR_MONTH] = (histMap[r.YEAR_MONTH] || 0) + (r.MONTANT || 0);
+  });
+  const sortedHist = Object.entries(histMap).sort();
+  const histLabels = sortedHist.map(e => e[0]);
+  const histValues = sortedHist.map(e => e[1]);
+  
+  const fcLabels = forecast.map(f => f.yearMonth);
+  const allLabels = [...histLabels, ...fcLabels];
+  
+  const histData = [...histValues, ...Array(forecast.length).fill(null)];
+  const fcBase = [...Array(histValues.length).fill(null), ...forecast.map(f => f.base)];
+  const fcOpt = [...Array(histValues.length).fill(null), ...forecast.map(f => f.optimist)];
+  const fcPess = [...Array(histValues.length).fill(null), ...forecast.map(f => f.pessimist)];
+  
+  // Connexion historique → forecast
+  if (histValues.length > 0) {
+    fcBase[histValues.length - 1] = histValues[histValues.length - 1];
+    fcOpt[histValues.length - 1] = histValues[histValues.length - 1];
+    fcPess[histValues.length - 1] = histValues[histValues.length - 1];
+  }
+  
+  APP.charts.forecast = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: allLabels,
+      datasets: [
+        { label: 'Historique', data: histData, borderColor: c.primary, backgroundColor: c.primary, borderWidth: 2, pointRadius: 0, tension: 0.3 },
+        { label: 'Optimiste', data: fcOpt, borderColor: c.success, borderDash: [4,4], backgroundColor: 'rgba(11,110,79,0.05)', fill: '+1', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+        { label: 'Prévision (base)', data: fcBase, borderColor: c.gold, borderWidth: 3, pointRadius: 3, pointBackgroundColor: c.gold, tension: 0.3 },
+        { label: 'Pessimiste', data: fcPess, borderColor: c.danger, borderDash: [4,4], backgroundColor: 'rgba(214,40,40,0.05)', borderWidth: 1.5, pointRadius: 0, tension: 0.3 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Inter' } } } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: c.grid }, ticks: { callback: v => fmt.money(v), font: { size: 10, family: 'JetBrains Mono' } } },
+        x: { grid: { display: false }, ticks: { font: { size: 9, family: 'Inter' }, maxRotation: 60, autoSkip: true, maxTicksLimit: 16 } }
+      }
+    }
+  });
+}
+
+function attachWhatIfHandlers() {
+  const wiC = document.getElementById('wi-croissance');
+  const wiT = document.getElementById('wi-top10');
+  const wiS = document.getElementById('wi-saison');
+  const horizonSel = document.getElementById('horizon-select');
+  
+  const update = () => {
+    APP.whatif.croissance = parseInt(wiC.value) / 100;
+    APP.whatif.top10 = parseInt(wiT.value) / 100;
+    APP.whatif.saison = parseFloat(wiS.value);
+    document.getElementById('wi-c-val').textContent = (APP.whatif.croissance * 100).toFixed(0) + '%';
+    document.getElementById('wi-t-val').textContent = (APP.whatif.top10 * 100).toFixed(0) + '%';
+    document.getElementById('wi-s-val').textContent = APP.whatif.saison.toFixed(2) + '×';
+    render_forecast();
+  };
+  
+  wiC?.addEventListener('input', update);
+  wiT?.addEventListener('input', update);
+  wiS?.addEventListener('input', update);
+  
+  horizonSel?.addEventListener('change', e => {
+    APP.horizon = parseInt(e.target.value);
+    render_forecast();
+  });
+  
+  document.getElementById('wi-reset')?.addEventListener('click', () => {
+    APP.whatif = { croissance: 0, top10: 0, saison: 1 };
+    render_forecast();
+  });
+}
+</script>
+
+</body>
+</html>

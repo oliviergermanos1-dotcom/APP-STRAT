@@ -1,0 +1,27 @@
+{
+  "name": "cap-strategic-analytics",
+  "version": "1.0.0",
+  "description": "Customer Intelligence Platform pour AGL - 9 pages d'analyse stratégique Marketing & Commercial",
+  "main": "index.html",
+  "private": true,
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "test": "node tests/validate_syntax.js && node tests/perf_test.js",
+    "test:syntax": "node tests/validate_syntax.js",
+    "test:perf": "node tests/perf_test.js",
+    "consolidate": "python scripts/consolidate.py"
+  },
+  "keywords": [
+    "agl",
+    "africa-global-logistics",
+    "marketing-intelligence",
+    "customer-analytics",
+    "power-bi-alternative",
+    "strategic-analytics"
+  ],
+  "author": "Olivier ASSAF GERMANOS - Head of Strategy AGL",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
