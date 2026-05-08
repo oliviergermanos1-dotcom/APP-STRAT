@@ -2146,12 +2146,27 @@ function applyFilters() {
 
   // Recalcul des agrégats clients (avec N-1 aligné sur les mêmes mois & filtres)
   APP.clientsAgg = CALC.aggregateByClient(APP.filtered, APP.data.fact, f.ANNEE);
-  
+
+  // ========== DERNIÈRE TRANSACTION PAR CLIENT (sur TOUT l'historique) ==========
+  // Permet de répondre à "Ce client est perdu depuis quand ?".
+  // On encode (année × 100 + mois) pour comparer simplement.
+  const lastByClient = {};
+  for (let i = 0; i < APP.data.fact.length; i++) {
+    const r = APP.data.fact[i];
+    if (!r.CLIENT) continue;
+    const key = r.ANNEE * 100 + r.MOIS;
+    if (!lastByClient[r.CLIENT] || key > lastByClient[r.CLIENT]) {
+      lastByClient[r.CLIENT] = key;
+    }
+  }
+  const refY = f.ANNEE;
+  const refM = f.MOIS_MAX || 12;
+
   // Pré-calcul percentiles + stats (une fois pour tous les clients)
   const { p80, p20 } = CALC.computePercentiles(APP.clientsAgg);
   const stats = CALC.precomputeStats(APP.clientsAgg);
-  
-  // Enrichir avec score, tier, quadrant
+
+  // Enrichir avec score, tier, quadrant + dernière transaction
   APP.clientsAgg.forEach(c => {
     c.score = CALC.scoreClient(c, stats);
     c.tier = CALC.tier(c.score);
@@ -2160,9 +2175,35 @@ function applyFilters() {
     c.statut = CALC.statutCycleVie(c);
     c.healthScore = CALC.healthScore(c, APP.data.fact);
     c.healthStatus = CALC.healthStatus(c.healthScore);
+
+    const k = lastByClient[c.CLIENT];
+    if (k) {
+      const ly = Math.floor(k / 100);
+      const lm = k % 100;
+      c.lastYear = ly;
+      c.lastMonth = lm;
+      c.monthsSinceLastTx = (refY - ly) * 12 + (refM - lm);
+    } else {
+      c.lastYear = null; c.lastMonth = null; c.monthsSinceLastTx = null;
+    }
   });
-  
+
   renderCurrentPage();
+}
+
+// Formate une date "perdu depuis" en libellé lisible
+function formatLastSeen(c) {
+  if (!c.lastYear) return '—';
+  const moisNoms = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+  const dateStr = `${moisNoms[c.lastMonth - 1]} ${c.lastYear}`;
+  const m = c.monthsSinceLastTx;
+  if (m === null || m <= 0) return `Actif (${dateStr})`;
+  if (m < 12) return `Perdu depuis ${m} mois <span class="text-muted">(dernière facture : ${dateStr})</span>`;
+  const ans = Math.floor(m / 12);
+  const reste = m % 12;
+  const ansTxt = ans === 1 ? '1 an' : `${ans} ans`;
+  const resteTxt = reste > 0 ? ` ${reste} m` : '';
+  return `Perdu depuis ${ansTxt}${resteTxt} <span class="text-muted">(dernière facture : ${dateStr})</span>`;
 }
 
 function buildPages() {
@@ -2361,8 +2402,89 @@ function render_cockpit() {
         <div class="kpi-label">Taux de perte client</div>
         <div class="kpi-value small">${fmt.pct(churn)}</div>
         <div class="kpi-bench">${churn === null ? '—' : churn < 0.10 ? '✓ Bon — sous 10%' : churn < 0.20 ? '~ À surveiller' : '⚠ Critique'}</div>
+        <div class="kpi-bench">Voir le détail par ancienneté ↓</div>
       </div>
     </div>
+
+    ${(() => {
+      // Détail des clients perdus par ancienneté de la dernière facture
+      const lost = APP.clientsAgg.filter(c => c.CA_N === 0 && c.monthsSinceLastTx !== null && c.monthsSinceLastTx > 0);
+      const buckets = {
+        '1-6 mois': lost.filter(c => c.monthsSinceLastTx <= 6),
+        '6-12 mois': lost.filter(c => c.monthsSinceLastTx > 6 && c.monthsSinceLastTx <= 12),
+        '12-24 mois': lost.filter(c => c.monthsSinceLastTx > 12 && c.monthsSinceLastTx <= 24),
+        '+ de 24 mois': lost.filter(c => c.monthsSinceLastTx > 24)
+      };
+      const bucketsMeta = [
+        { name: '1-6 mois', label: 'Récemment perdus', color: 'var(--evol-down)', actionable: 'Reconquête facile — appeler', desc: 'fenêtre encore ouverte' },
+        { name: '6-12 mois', label: 'Perdus dans l\'année', color: 'var(--evol-strong-dn)', actionable: 'Reconquête possible — relance ciblée', desc: 'la fenêtre se referme' },
+        { name: '12-24 mois', label: 'Perdus l\'an dernier', color: '#7F7F7F', actionable: 'Reconquête difficile — campagne dédiée', desc: 'la relation s\'est délitée' },
+        { name: '+ de 24 mois', label: 'Définitivement perdus', color: '#B0B0B0', actionable: 'Considérer comme prospects froids', desc: 'investir ailleurs en priorité' }
+      ];
+      const topLost = [...lost].sort((a,b) => (b.CA_N1 || 0) - (a.CA_N1 || 0) || (a.monthsSinceLastTx - b.monthsSinceLastTx)).slice(0, 30);
+
+      return `
+      ${explain(`<strong>Définition précise</strong> : un client est compté comme "perdu" s'il <strong>ne facture rien</strong> sur la période ${y} sélectionnée alors qu'il a déjà facturé par le passé. La <strong>liste détaillée ci-dessous</strong> répond à la question : <em>perdu depuis combien de temps ?</em>
+        <ul>
+          <li><strong>Récemment perdus (1-6 mois)</strong> : la fenêtre de reconquête est encore largement ouverte — un appel KAM peut suffire.</li>
+          <li><strong>Perdus dans l'année (6-12 mois)</strong> : la fenêtre se referme, il faut une relance commerciale ciblée avec une vraie offre.</li>
+          <li><strong>Perdus l'an dernier (12-24 mois)</strong> : la relation s'est délitée, une simple relance ne suffira plus — campagne dédiée nécessaire.</li>
+          <li><strong>Définitivement perdus (&gt; 24 mois)</strong> : à considérer comme des prospects froids — souvent plus rentable d'investir l'effort sur l'acquisition de nouveaux clients.</li>
+        </ul>
+        Le tri se fait par <strong>CA perdu décroissant</strong> : les plus gros porteurs de revenu remontés en premier.`, 'Comment lire la section ci-dessous')}
+
+      <div class="grid grid-4 mt-2">
+        ${bucketsMeta.map(b => {
+          const list = buckets[b.name];
+          const caTotal = list.reduce((s,c) => s + (c.CA_N1 || 0), 0);
+          return `<div class="kpi" style="border-top:3px solid ${b.color};">
+            <div class="kpi-label">${b.label}</div>
+            <div class="kpi-value">${list.length}</div>
+            <div class="kpi-bench">${b.name} — ${fmt.money(caTotal)} XOF perdus</div>
+            <div class="kpi-bench" style="margin-top:4px;font-style:italic;">${b.actionable}</div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-header">
+          <div class="card-title">Top 30 clients perdus — par CA perdu</div>
+          <div class="text-sm text-muted">Trié par CAP de l'année précédente, du plus gros au plus petit. ${lost.length} clients perdus au total dans le périmètre filtré.</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap" style="max-height:480px;">
+            <table class="data">
+              <thead><tr>
+                <th>Client</th>
+                <th>Tier</th>
+                <th>Métier</th>
+                <th class="num">CA perdu (CAP ${y-1})</th>
+                <th>Perdu depuis</th>
+                <th>Recommandation</th>
+              </tr></thead>
+              <tbody>
+                ${topLost.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--evol-strong-up);padding:24px;">✓ Aucun client perdu dans le périmètre filtré</td></tr>' : topLost.map(c => {
+                  const m = c.monthsSinceLastTx;
+                  const meta = m <= 6 ? bucketsMeta[0] : m <= 12 ? bucketsMeta[1] : m <= 24 ? bucketsMeta[2] : bucketsMeta[3];
+                  return `<tr>
+                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                    <td class="text-sm">${c.METIER || '—'}</td>
+                    <td class="num">${fmt.money(c.CA_N1 || 0)}</td>
+                    <td class="text-sm">
+                      <span style="display:inline-block;width:6px;height:6px;background:${meta.color};border-radius:50%;margin-right:6px;"></span>
+                      ${formatLastSeen(c)}
+                    </td>
+                    <td class="text-sm">${meta.actionable}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          ${lost.length > 30 ? `<div style="padding:12px;text-align:center;color:var(--grey-500);font-size:11px;">${lost.length - 30} clients perdus supplémentaires non affichés. Filtrez par site / métier / département pour réduire la liste, ou consultez l'onglet « Moteur de croissance » pour la vue complète.</div>` : ''}
+        </div>
+      </div>`;
+    })()}
 
     ${explain(`<ul>
         <li><strong>Graphique de gauche</strong> : barres mois par mois — barre dorée = CAP ${y}, barre grise = CAP ${y-1} sur les mêmes mois. Permet de repérer immédiatement les mois en avance ou en retard sur l'an dernier.</li>
@@ -2818,12 +2940,43 @@ function render_growth() {
     ${explain(`Les <strong>2 listes ci-dessous</strong> ciblent l'acquisition et la reconquête :
       <ul>
         <li><strong>À gauche — Nouveaux clients</strong> : à on-boarder correctement et à transformer en clients récurrents (objectif : passer Tier C → Tier B).</li>
-        <li><strong>À droite — Clients à reconquérir</strong> : ils achetaient en ${APP.filters.ANNEE - 1} mais plus en ${APP.filters.ANNEE}. La colonne « CA N-1 » est triée du plus gros au plus petit : commencer par les plus gros porteurs de revenu perdu.</li>
+        <li><strong>À droite — Clients à reconquérir</strong> : ils n'ont rien facturé en ${APP.filters.ANNEE} alors qu'ils ont déjà facturé par le passé. La colonne <strong>« Perdu depuis »</strong> indique la fraîcheur de la perte (plus c'est récent, plus c'est facile à reconquérir). La liste est triée par <strong>CA perdu décroissant</strong>.</li>
       </ul>`, 'Comment lire les listes ci-dessous')}
 
     <div class="grid grid-2 mt-3">
       ${listCard('🆕 Nouveaux clients', newClients, 'CA_N', 'ca')}
-      ${listCard('💔 Clients à reconquérir', lostClients, 'CA_N1', 'caN1')}
+      ${(() => {
+        // Carte enrichie : Clients à reconquérir avec « Perdu depuis »
+        const list = [...lostClients].sort((a,b) => (b.CA_N1 || 0) - (a.CA_N1 || 0));
+        return `
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">💔 Clients à reconquérir</div>
+            <div class="text-sm text-muted">${list.length} clients — triés par CA perdu</div>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div class="tbl-wrap">
+              <table class="data">
+                <thead><tr><th>Client</th><th class="num">CA perdu</th><th>Perdu depuis</th></tr></thead>
+                <tbody>
+                  ${list.length === 0 ? '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun client perdu</td></tr>' : list.slice(0, 30).map(c => {
+                    const m = c.monthsSinceLastTx || 0;
+                    const dot = m <= 6 ? 'var(--evol-down)' : m <= 12 ? 'var(--evol-strong-dn)' : m <= 24 ? '#7F7F7F' : '#B0B0B0';
+                    return `<tr>
+                      <td><strong>${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
+                      <td class="num text-muted">${fmt.money(c.CA_N1 || 0)}</td>
+                      <td class="text-sm">
+                        <span style="display:inline-block;width:6px;height:6px;background:${dot};border-radius:50%;margin-right:6px;"></span>
+                        ${formatLastSeen(c)}
+                      </td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>`;
+      })()}
     </div>
   `;
 }
