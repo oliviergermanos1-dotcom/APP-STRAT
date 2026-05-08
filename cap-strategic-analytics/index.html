@@ -775,6 +775,43 @@ table.data tr.highlight { background: var(--gold-50); }
   margin-bottom: 4px;
 }
 
+/* Encart "Comment lire ce tableau" — placé au-dessus de chaque graphique/tableau */
+.explain-box {
+  background: linear-gradient(90deg, rgba(212, 162, 78, 0.10) 0%, rgba(212, 162, 78, 0.02) 100%);
+  border-left: 3px solid var(--gold-500);
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--grey-700);
+}
+.explain-box-title {
+  font-weight: 700;
+  color: var(--navy-900);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.explain-box-title::before {
+  content: "📖";
+  font-size: 13px;
+}
+.explain-box ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+.explain-box li {
+  margin: 2px 0;
+}
+.explain-box strong {
+  color: var(--navy-800);
+}
+
 /* =========================================
    CHARTS
    ========================================= */
@@ -1890,18 +1927,35 @@ function buildSlicers() {
   const metiers = [...new Set(fact.map(r => r.METIER).filter(Boolean))].sort();
   const libelles = [...new Set(fact.map(r => r.LIBELLE).filter(Boolean))].sort();
 
+  // ============================================================
+  // LIEN MÉTIER ↔ DÉPARTEMENT
+  // Construit à partir des données : chaque libellé (département)
+  // appartient à exactement un métier, déterminé par le préfixe
+  // du code IRIS (10=Consignation, 15=Manutention, 20=Transit,
+  // 30=Aérien, 40=Logistique, 45=Transport, 60=Services annexes,
+  // 70=Support, 75=Autres, 80=Services tiers).
+  // ============================================================
+  const libelleToMetier = new Map();
+  const metierToLibelles = new Map();
+  fact.forEach(r => {
+    if (!r.LIBELLE || !r.METIER) return;
+    if (!libelleToMetier.has(r.LIBELLE)) libelleToMetier.set(r.LIBELLE, r.METIER);
+    if (!metierToLibelles.has(r.METIER)) metierToLibelles.set(r.METIER, new Set());
+    metierToLibelles.get(r.METIER).add(r.LIBELLE);
+  });
+  APP.metierIndex = { libelleToMetier, metierToLibelles };
+
   const yMax = annees[0] || new Date().getFullYear();
-  // Borne de mois par défaut = dernier mois disponible sur l'année courante (pour comparer "à périmètre identique")
   const moisDispoYMax = [...new Set(fact.filter(r => r.ANNEE === yMax).map(r => r.MOIS).filter(Boolean))];
-  const moisMaxDefault = moisDispoYMax.length ? Math.max(...moisDispoYMax.reduce((a,m) => (a.push(m), a), [])) : 12;
+  const moisMaxDefault = moisDispoYMax.length ? moisDispoYMax.reduce((m,v) => v > m ? v : m, 0) : 12;
 
   APP.filters = {
     ANNEE: yMax,
     SITE: 'Tout',
     METIER: 'Tout',
     LIBELLE: 'Tout',
-    MOIS_MAX: moisMaxDefault,   // borne de mois pour comparaison N vs N-1 sur les mêmes mois
-    CLIENT_Q: ''                // recherche client (sous-chaîne, insensible à la casse)
+    MOIS_MAX: moisMaxDefault,
+    CLIENT_Q: ''
   };
 
   const moisLabels = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
@@ -1934,7 +1988,7 @@ function buildSlicers() {
     <div class="slicer-divider"></div>
     <div class="slicer">
       <span class="slicer-label">Métier</span>
-      <select id="slicer-metier">
+      <select id="slicer-metier" title="Famille d'activités AGL. Sélectionner un métier filtre automatiquement les départements correspondants.">
         <option>Tout</option>
         ${metiers.map(m => `<option>${m}</option>`).join('')}
       </select>
@@ -1946,7 +2000,7 @@ function buildSlicers() {
     <div class="slicer-divider"></div>
     <div class="slicer">
       <span class="slicer-label">Département</span>
-      <select id="slicer-libelle" title="Libellé département IRIS (ex : ENTREPOSAGE, TIM, MANUTENTION...)">
+      <select id="slicer-libelle" title="Département IRIS (sous-activité du métier sélectionné)">
         <option>Tout</option>
         ${libelles.map(l => `<option>${l}</option>`).join('')}
       </select>
@@ -1964,9 +2018,29 @@ function buildSlicers() {
   html += `<button class="btn-reset-filters" id="btn-reset">Réinitialiser</button>`;
   bar.innerHTML = html;
 
+  // Met à jour la liste des départements selon le métier sélectionné
+  function refreshLibelleOptions(metierFilter) {
+    const sel = document.getElementById('slicer-libelle');
+    if (!sel) return;
+    let allowed;
+    if (!metierFilter || metierFilter === 'Tout') {
+      allowed = libelles;
+    } else {
+      const set = metierToLibelles.get(metierFilter);
+      allowed = set ? [...set].sort() : [];
+    }
+    const current = APP.filters.LIBELLE;
+    const stillValid = current === 'Tout' || allowed.includes(current);
+    sel.innerHTML = `<option>Tout</option>` + allowed.map(l => `<option ${l === current ? 'selected' : ''}>${l}</option>`).join('');
+    if (!stillValid) {
+      APP.filters.LIBELLE = 'Tout';
+      sel.value = 'Tout';
+    }
+  }
+  refreshLibelleOptions(APP.filters.METIER);
+
   document.getElementById('slicer-annee').addEventListener('change', e => {
     APP.filters.ANNEE = parseInt(e.target.value);
-    // Recaler la borne de mois au dernier mois dispo pour la nouvelle année (pour conserver la cohérence "même périmètre")
     const moisDispo = [...new Set(APP.data.fact.filter(r => r.ANNEE === APP.filters.ANNEE).map(r => r.MOIS).filter(Boolean))];
     if (moisDispo.length) {
       APP.filters.MOIS_MAX = moisDispo.reduce((m,v) => v > m ? v : m, 0);
@@ -1986,16 +2060,27 @@ function buildSlicers() {
   if (metiers.length) {
     document.getElementById('slicer-metier').addEventListener('change', e => {
       APP.filters.METIER = e.target.value;
+      // Lien : restreindre les départements aux libellés du métier choisi
+      refreshLibelleOptions(APP.filters.METIER);
       applyFilters();
     });
   }
   if (libelles.length) {
     document.getElementById('slicer-libelle').addEventListener('change', e => {
       APP.filters.LIBELLE = e.target.value;
+      // Lien inverse : si on choisit un département, on aligne le métier correspondant (un libellé = un seul métier)
+      if (APP.filters.LIBELLE && APP.filters.LIBELLE !== 'Tout') {
+        const m = libelleToMetier.get(APP.filters.LIBELLE);
+        if (m && APP.filters.METIER !== m) {
+          APP.filters.METIER = m;
+          const ms = document.getElementById('slicer-metier');
+          if (ms) ms.value = m;
+          refreshLibelleOptions(m);
+        }
+      }
       applyFilters();
     });
   }
-  // Recherche client : debounce léger pour éviter de relancer applyFilters à chaque touche
   let qTimer = null;
   document.getElementById('slicer-client').addEventListener('input', e => {
     clearTimeout(qTimer);
@@ -2011,7 +2096,7 @@ function buildSlicers() {
     document.getElementById('slicer-mois').value = moisMaxDefault;
     document.getElementById('slicer-site').value = 'Tout';
     if (metiers.length) document.getElementById('slicer-metier').value = 'Tout';
-    if (libelles.length) document.getElementById('slicer-libelle').value = 'Tout';
+    if (libelles.length) refreshLibelleOptions('Tout');
     document.getElementById('slicer-client').value = '';
     applyFilters();
   });
@@ -2120,6 +2205,15 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
+// Génère un encart "📖 Comment lire ce tableau / graphique" placé au-dessus
+// d'un bloc graphique. `body` peut être une chaîne HTML simple ou contenir une <ul>.
+function explain(body, titre) {
+  return `<div class="explain-box">
+    <div class="explain-box-title">${titre || 'Comment lire ce tableau'}</div>
+    <div>${body}</div>
+  </div>`;
+}
+
 function destroyChart(key) {
   if (APP.charts[key]) {
     try { APP.charts[key].destroy(); } catch(e) {}
@@ -2184,7 +2278,15 @@ function render_cockpit() {
   const el = document.getElementById('page-cockpit');
   el.innerHTML = `
     ${pageHeader(p)}
-    
+
+    ${explain(`Les <strong>4 chiffres clés</strong> ci-dessous résument la santé commerciale de la période :
+      <ul>
+        <li><strong>CAP ${y}</strong> : chiffre d'affaires total réalisé sur la période, comparé à la même période ${y-1}.</li>
+        <li><strong>Clients actifs</strong> : nombre de clients distincts ayant facturé sur la période.</li>
+        <li><strong>CAP moyen par client</strong> : combien chaque client rapporte en moyenne. En hausse = clients qui consomment plus.</li>
+        <li><strong>Concentration du portefeuille</strong> : indique si le CA dépend de quelques gros clients (chiffre élevé = risque) ou s'il est bien réparti (chiffre bas = sain).</li>
+      </ul>`, 'Comment lire les 4 chiffres clés')}
+
     <div class="grid grid-4 mt-2">
       <div class="kpi kpi-strong">
         <div class="kpi-label">CAP ${y}</div>
@@ -2194,42 +2296,56 @@ function render_cockpit() {
       <div class="kpi">
         <div class="kpi-label">Clients actifs</div>
         <div class="kpi-value">${nbClients}</div>
-        <div class="kpi-bench">distinct sur la période</div>
+        <div class="kpi-bench">clients distincts sur la période</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">CAP moyen / client (ARPU)</div>
+        <div class="kpi-label">CAP moyen par client</div>
         <div class="kpi-value small">${fmt.money(arpu)}<span class="kpi-unit">XOF</span></div>
+        <div class="kpi-bench">total CAP / nombre de clients</div>
       </div>
       <div class="kpi ${hhiClass}">
-        <div class="kpi-label">HHI Concentration</div>
+        <div class="kpi-label">Concentration portefeuille</div>
         <div class="kpi-value small">${Math.round(hhi)}</div>
-        <div class="kpi-bench">${hhi < 1500 ? 'Sain (<1500)' : hhi < 2500 ? 'Modéré' : 'Risque (>2500)'}</div>
+        <div class="kpi-bench">${hhi < 1500 ? '✓ Sain — CA bien réparti' : hhi < 2500 ? '~ Modéré' : '⚠ Risque — trop dépendant de quelques clients'}</div>
       </div>
     </div>
-    
+
+    ${explain(`Les <strong>4 indicateurs ci-dessous</strong> mesurent la solidité commerciale :
+      <ul>
+        <li><strong>Poids des 10 plus gros clients</strong> : quelle part du CA dépend des 10 premiers. Si on perd l'un d'eux, c'est ce % qui saute. Cible : sous 50%.</li>
+        <li><strong>Rétention nette du CA</strong> : sur 100 € de CA fait l'an dernier avec ces clients, combien refont-ils cette année ? Au-dessus de 100% = ils consomment plus.</li>
+        <li><strong>Rétention brute du CA</strong> : version prudente — limite l'apport aux clients qui n'ont pas baissé. Mesure pure de la rétention. Cible : > 90%.</li>
+        <li><strong>Taux de perte client</strong> : % de clients qui étaient là l'an dernier mais ne le sont plus cette année. Cible : sous 10%.</li>
+      </ul>`, 'Comment lire les 4 indicateurs de rétention')}
+
     <div class="grid grid-4 mt-2">
       <div class="kpi ${top10Class}">
-        <div class="kpi-label">Top 10 Dependency</div>
+        <div class="kpi-label">Poids des 10 plus gros clients</div>
         <div class="kpi-value small">${fmt.pct(top10)}</div>
         <div class="kpi-bench">${top10 < 0.5 ? '✓ Diversifié' : top10 < 0.7 ? '~ À surveiller' : '⚠ Trop concentré'}</div>
       </div>
       <div class="kpi ${nrrClass}">
-        <div class="kpi-label">NRR — Net Revenue Retention</div>
+        <div class="kpi-label">Rétention nette du CA</div>
         <div class="kpi-value small">${fmt.pct(nrr)}</div>
-        <div class="kpi-bench">Cible > 100%</div>
+        <div class="kpi-bench">${nrr === null ? '—' : nrr >= 1 ? `+${((nrr-1)*100).toFixed(1)} pts vs N-1 — clients existants en expansion` : `${((nrr-1)*100).toFixed(1)} pts vs N-1 — clients existants en contraction`}</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">GRR — Gross Revenue Retention</div>
+        <div class="kpi-label">Rétention brute du CA</div>
         <div class="kpi-value small">${fmt.pct(grr)}</div>
-        <div class="kpi-bench">Cible > 90%</div>
+        <div class="kpi-bench">${grr === null ? '—' : grr >= 0.9 ? '✓ Au-dessus du seuil de 90%' : '⚠ Sous le seuil de 90%'}</div>
       </div>
       <div class="kpi ${churnClass}">
-        <div class="kpi-label">Taux de Churn</div>
+        <div class="kpi-label">Taux de perte client</div>
         <div class="kpi-value small">${fmt.pct(churn)}</div>
-        <div class="kpi-bench">Cible < 10%</div>
+        <div class="kpi-bench">${churn === null ? '—' : churn < 0.10 ? '✓ Bon — sous 10%' : churn < 0.20 ? '~ À surveiller' : '⚠ Critique'}</div>
       </div>
     </div>
-    
+
+    ${explain(`<ul>
+        <li><strong>Graphique de gauche</strong> : barres mois par mois — barre dorée = CAP ${y}, barre grise = CAP ${y-1} sur les mêmes mois. Permet de repérer immédiatement les mois en avance ou en retard sur l'an dernier.</li>
+        <li><strong>Encadré de droite</strong> : pourcentage du CA ${y} apporté par des clients qui n'existaient pas en ${y-1}. Mesure le dynamisme commercial pur.</li>
+      </ul>`, 'Comment lire les graphiques ci-dessous')}
+
     <div class="grid grid-2-1 mt-3">
       <div class="card">
         <div class="card-header">
@@ -2241,16 +2357,23 @@ function render_cockpit() {
       </div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Contribution nouveaux clients</div>
+          <div class="card-title">Contribution des nouveaux clients</div>
         </div>
         <div class="card-body">
           <div class="kpi-value gold" style="font-size:36px;">${fmt.pct(newLogo)}</div>
-          <div class="kpi-bench">part du CA réalisée par les nouveaux clients ${y}</div>
+          <div class="kpi-bench">part du CA réalisée par les clients qui n'existaient pas en ${y-1}</div>
           <div class="divider"></div>
           <div class="text-sm text-muted">${APP.clientsAgg.filter(c => c.CA_N1 === 0 && c.CA_N > 0).length} nouveaux clients identifiés sur ${y}</div>
         </div>
       </div>
     </div>
+
+    ${explain(`Les deux tableaux ci-dessous sont des <strong>listes courtes prêtes à l'action commerciale</strong> :
+      <ul>
+        <li><strong>Top 5 alertes</strong> : les 5 clients qui ont le plus baissé (évolution &lt; -15%) — à appeler en priorité pour comprendre et redresser.</li>
+        <li><strong>Top 5 stars</strong> : les 5 clients en plus forte croissance (évolution &gt; +20%) — à fidéliser et à comprendre pour répliquer la dynamique ailleurs.</li>
+      </ul>
+      Couleur : vert = forte hausse, rouge = forte baisse.`, 'Comment lire les listes ci-dessous')}
 
     <div class="grid grid-2 mt-3">
       <div class="card">
@@ -2369,17 +2492,30 @@ function render_portfolio() {
   
   el.innerHTML = `
     ${pageHeader(p)}
-    
-    <div class="alert-banner info">
-      <div class="alert-banner-title">Méthodologie</div>
-      Matrice 9-box croisant CA (Top 20% / Mid 60% / Bottom 20%) × Croissance (≥+15% / -5%↔+15% / ≤-5%). Référence cabinet international (BCG/McKinsey 9-cell).
-    </div>
-    
+
+    ${explain(`Chaque client est rangé dans une <strong>case</strong> selon 2 critères :
+      <ul>
+        <li><strong>Sa taille</strong> (axe horizontal) — Gros / Moyen / Petit, selon son CA.</li>
+        <li><strong>Sa dynamique</strong> (axe vertical) — En croissance / Stable / En baisse, selon son évolution vs ${APP.filters.ANNEE - 1}.</li>
+      </ul>
+      Ça donne 9 cases stratégiques (un classique des cabinets de conseil). Les noms de cases sont en anglais par convention métier mais voici la traduction :
+      <ul>
+        <li><strong>Champions</strong> = gros clients en forte croissance (à protéger absolument)</li>
+        <li><strong>Cash Generators</strong> = gros clients stables (vache à lait)</li>
+        <li><strong>Endangered Kings</strong> = gros clients en baisse (URGENCE — visite KAM senior)</li>
+        <li><strong>Rising Stars</strong> = clients moyens en forte croissance (à investir)</li>
+        <li><strong>Steady Performers</strong> = clients moyens stables (cœur du portefeuille)</li>
+        <li><strong>Fading Mid-Tier</strong> = clients moyens qui s'effritent (à relancer)</li>
+        <li><strong>Seeds</strong> = petits clients en forte croissance (graines à arroser)</li>
+        <li><strong>Marginal</strong> = petits clients stables (à laisser, faible priorité)</li>
+        <li><strong>Dormant</strong> = petits clients en baisse (à arbitrer ou à laisser partir)</li>
+      </ul>`, 'Comment lire la matrice ci-dessous')}
+
     <div class="grid grid-2-1">
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Matrice 9-box stratégique</div>
-          <div class="text-sm text-muted">${clients.length} clients positionnés</div>
+          <div class="card-title">Carte stratégique — Taille × Dynamique de croissance</div>
+          <div class="text-sm text-muted">${clients.length} clients positionnés. Survolez un point pour voir le nom du client.</div>
         </div>
         <div class="card-body">
           <div class="chart-container tall"><div id="chart-scatter" style="width:100%;height:100%;"></div></div>
@@ -2387,12 +2523,13 @@ function render_portfolio() {
       </div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Répartition par quadrant</div>
+          <div class="card-title">Combien de clients par case</div>
+          <div class="text-sm text-muted">Nombre + part du CA total</div>
         </div>
         <div class="card-body" style="padding:0;">
           <div class="tbl-wrap" style="max-height:none;">
             <table class="data">
-              <thead><tr><th>Quadrant</th><th class="num">N</th><th class="num">% CA</th></tr></thead>
+              <thead><tr><th>Case stratégique</th><th class="num">Nb clients</th><th class="num">% du CA</th></tr></thead>
               <tbody>
                 ${quadrantOrder.map(q => {
                   const d = byQuad[q] || { count: 0, ca: 0 };
@@ -2409,10 +2546,18 @@ function render_portfolio() {
         </div>
       </div>
     </div>
-    
+
+    ${explain(`Ce graphique répond à la question : <strong>« combien de clients génèrent quelle part du CA ? »</strong>
+      <ul>
+        <li>Les <strong>barres bleues</strong> représentent le CA des 30 plus gros clients, classés du plus gros au plus petit.</li>
+        <li>La <strong>courbe dorée</strong> montre le cumul : à quelle position dans le classement on atteint 50%, 80%, 100% du CA.</li>
+        <li>Règle classique du 80/20 : si la courbe atteint 80% avant le 10ᵉ client, le portefeuille est très concentré (risque). Si elle atteint 80% au 25ᵉ client, le portefeuille est sainement diversifié.</li>
+      </ul>`, 'Comment lire la concentration ci-dessous')}
+
     <div class="card mt-3">
       <div class="card-header">
-        <div class="card-title">Pareto 80/20 — concentration cumulée du CA</div>
+        <div class="card-title">Concentration cumulée du CA — règle 80/20</div>
+        <div class="text-sm text-muted">Top 30 clients, classés du plus gros au plus petit</div>
       </div>
       <div class="card-body">
         <div class="chart-container tall"><canvas id="chart-pareto"></canvas></div>
@@ -2503,7 +2648,24 @@ function render_customers() {
   
   el.innerHTML = `
     ${pageHeader(p)}
-    
+
+    ${explain(`Chaque client reçoit un <strong>score sur 100</strong> qui mélange 5 dimensions :
+      <ul>
+        <li><strong>Taille</strong> : son CA absolu (gros client = score élevé).</li>
+        <li><strong>Croissance</strong> : son évolution vs ${APP.filters.ANNEE - 1}.</li>
+        <li><strong>Régularité</strong> : nombre de mois actifs sur l'année (un client présent toute l'année est plus solide qu'un client ponctuel).</li>
+        <li><strong>Diversité</strong> : nombre de services AGL différents qu'il consomme (plus c'est varié, plus la relation est ancrée).</li>
+        <li><strong>Ancienneté</strong> : depuis combien d'années il est client.</li>
+      </ul>
+      Selon le score, le client tombe dans un <strong>tier</strong> :
+      <ul>
+        <li><strong>S</strong> (≥ 90) — comptes stratégiques (à protéger)</li>
+        <li><strong>A</strong> (75-89) — premium (KAM dédié)</li>
+        <li><strong>B</strong> (50-74) — standard</li>
+        <li><strong>C</strong> (25-49) — longue traîne</li>
+        <li><strong>D</strong> (&lt; 25) — à arbitrer</li>
+      </ul>`, 'Comment lire les compteurs ci-dessous')}
+
     <div class="grid grid-4">
       ${['S','A','B','C','D'].slice(0,4).map(t => `
         <div class="kpi">
@@ -2513,11 +2675,20 @@ function render_customers() {
         </div>
       `).join('')}
     </div>
-    
+
+    ${explain(`Le tableau liste les <strong>${clients.length} clients du périmètre filtré</strong>, classés du score le plus élevé au plus faible. Colonnes :
+      <ul>
+        <li><strong>CAP ${APP.filters.ANNEE}</strong> et <strong>CAP ${APP.filters.ANNEE - 1}</strong> : CA des deux périodes, calculés sur les <em>mêmes mois</em> pour une comparaison juste.</li>
+        <li><strong>Évol.</strong> : variation en %, colorée (vert = hausse, rouge = baisse).</li>
+        <li><strong>Score</strong> : note 0-100 calculée comme expliqué ci-dessus.</li>
+        <li><strong>Case stratégique</strong> : où il se trouve dans la matrice 9-cases (Champion, Star, Endangered King…).</li>
+        <li><strong>Statut cycle de vie</strong> : nouveau, en croissance, mature, en déclin, dormant ou perdu.</li>
+      </ul>`, 'Comment lire le tableau ci-dessous')}
+
     <div class="card mt-3">
       <div class="card-header">
-        <div class="card-title">Vue 360° — ${clients.length} clients</div>
-        <div class="text-sm text-muted">Trié par Score Client (0-100)</div>
+        <div class="card-title">Liste détaillée des clients — ${clients.length} clients</div>
+        <div class="text-sm text-muted">Classés par score décroissant. 200 premiers visibles, le reste accessible en scrollant dans le tableau.</div>
       </div>
       <div class="card-body" style="padding:0;">
         <div class="tbl-wrap" style="max-height:600px;">
@@ -2525,7 +2696,7 @@ function render_customers() {
             <thead><tr>
               <th>#</th><th>Client</th><th>Tier</th><th>Métier</th>
               <th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">CAP ${APP.filters.ANNEE-1}</th>
-              <th class="num">Évol.</th><th class="num">Score</th><th>Quadrant</th><th>Statut</th>
+              <th class="num">Évol.</th><th class="num">Score</th><th>Case stratégique</th><th>Statut</th>
             </tr></thead>
             <tbody>
               ${clients.slice(0, 200).map((c, i) => `
@@ -2568,34 +2739,55 @@ function render_growth() {
   
   el.innerHTML = `
     ${pageHeader(p)}
-    
+
+    ${explain(`Cette page sert à <strong>répondre à la question commerciale du mois</strong> : qui appeler en priorité ?
+      Les 4 compteurs indiquent la photographie du portefeuille :
+      <ul>
+        <li><strong>Clients en croissance</strong> : ceux qui ont fait au moins +5% vs ${APP.filters.ANNEE - 1}.</li>
+        <li><strong>Clients en décroissance</strong> : ceux qui ont baissé de plus de 5%.</li>
+        <li><strong>Nouveaux clients</strong> : qui n'existaient pas en ${APP.filters.ANNEE - 1} et qui ont facturé en ${APP.filters.ANNEE}.</li>
+        <li><strong>Clients perdus</strong> : qui facturaient en ${APP.filters.ANNEE - 1} mais plus en ${APP.filters.ANNEE} → candidats à la reconquête.</li>
+      </ul>`, 'Comment lire les 4 compteurs ci-dessous')}
+
     <div class="grid grid-4">
       <div class="kpi kpi-good">
         <div class="kpi-label">Clients en croissance</div>
         <div class="kpi-value">${clients.filter(c => c.evol !== null && c.evol > 0.05).length}</div>
-        <div class="kpi-bench">évol > +5%</div>
+        <div class="kpi-bench">évolution > +5% vs N-1</div>
       </div>
       <div class="kpi kpi-alert">
         <div class="kpi-label">Clients en décroissance</div>
         <div class="kpi-value">${clients.filter(c => c.evol !== null && c.evol < -0.05).length}</div>
-        <div class="kpi-bench">évol < -5%</div>
+        <div class="kpi-bench">évolution < -5% vs N-1</div>
       </div>
       <div class="kpi" style="border-top:3px solid var(--evol-new);">
         <div class="kpi-label">Nouveaux clients</div>
         <div class="kpi-value">${newClients.length}</div>
-        <div class="kpi-bench">premières transactions ${APP.filters.ANNEE}</div>
+        <div class="kpi-bench">premières factures en ${APP.filters.ANNEE}</div>
       </div>
       <div class="kpi" style="border-top:3px solid var(--evol-lost);">
         <div class="kpi-label">Clients perdus</div>
         <div class="kpi-value">${lostClients.length}</div>
-        <div class="kpi-bench">candidats win-back</div>
+        <div class="kpi-bench">à reconquérir en priorité</div>
       </div>
     </div>
-    
+
+    ${explain(`Les <strong>2 listes ci-dessous</strong> montrent les 15 clients les plus extrêmes :
+      <ul>
+        <li><strong>À gauche — Top progressions</strong> : meilleurs élèves en pourcentage de croissance. À fidéliser, à comprendre, à utiliser comme référence commerciale.</li>
+        <li><strong>À droite — Top baisses</strong> : clients qui chutent le plus. <strong>Action urgente</strong> : appeler le client, comprendre la cause, proposer un plan de redressement.</li>
+      </ul>`, 'Comment lire les listes ci-dessous')}
+
     <div class="grid grid-2 mt-3">
       ${listCard('🚀 Top progressions — à fidéliser', topGrowers, 'evol', 'evol')}
       ${listCard('⚠ Top baisses — action urgente', topDecliners, 'evol', 'evol')}
     </div>
+
+    ${explain(`Les <strong>2 listes ci-dessous</strong> ciblent l'acquisition et la reconquête :
+      <ul>
+        <li><strong>À gauche — Nouveaux clients</strong> : à on-boarder correctement et à transformer en clients récurrents (objectif : passer Tier C → Tier B).</li>
+        <li><strong>À droite — Clients à reconquérir</strong> : ils achetaient en ${APP.filters.ANNEE - 1} mais plus en ${APP.filters.ANNEE}. La colonne « CA N-1 » est triée du plus gros au plus petit : commencer par les plus gros porteurs de revenu perdu.</li>
+      </ul>`, 'Comment lire les listes ci-dessous')}
 
     <div class="grid grid-2 mt-3">
       ${listCard('🆕 Nouveaux clients', newClients, 'CA_N', 'ca')}
@@ -2666,37 +2858,51 @@ function render_crosssell() {
   
   el.innerHTML = `
     ${pageHeader(p)}
-    
-    <div class="alert-banner info">
-      <div class="alert-banner-title">Logique cross-sell</div>
-      Un client à fort CA et faible pénétration libellés = forte opportunité de cross-sell. Le whitespace mesure cette opportunité monétisée.
-    </div>
-    
+
+    ${explain(`Cette page identifie les clients à qui <strong>vendre plus de services AGL différents</strong>. Le périmètre filtré contient ${totalLib} services distincts (départements). Trois compteurs synthétiques :
+      <ul>
+        <li><strong>Services disponibles</strong> : nombre de départements AGL différents dans le périmètre filtré.</li>
+        <li><strong>Pénétration moyenne</strong> : en moyenne, un client consomme X% des services possibles. Plus c'est faible, plus il y a du potentiel à activer.</li>
+        <li><strong>Clients mono-service</strong> : clients qui n'achètent qu'un seul type de service. Ils sont fragiles (perdre ce service = perdre le client).</li>
+      </ul>`, 'Comment lire les compteurs ci-dessous')}
+
     <div class="grid grid-3">
       <div class="kpi">
-        <div class="kpi-label">Libellés disponibles</div>
+        <div class="kpi-label">Services AGL disponibles</div>
         <div class="kpi-value">${totalLib}</div>
-        <div class="kpi-bench">services AGL distincts</div>
+        <div class="kpi-bench">départements distincts dans le périmètre</div>
       </div>
       <div class="kpi kpi-strong">
         <div class="kpi-label">Pénétration moyenne</div>
         <div class="kpi-value gold small">${fmt.pct(clients.length ? clients.reduce((s,c) => s + c.penetrationRate, 0) / clients.length : 0)}</div>
-        <div class="kpi-bench">% libellés consommés / client</div>
+        <div class="kpi-bench">% de services moyen consommé par client</div>
       </div>
       <div class="kpi kpi-alert">
-        <div class="kpi-label">Mono-libellé</div>
+        <div class="kpi-label">Clients mono-service</div>
         <div class="kpi-value">${monoLibelle.length}</div>
-        <div class="kpi-bench">clients sur 1 seul service (LTV faible)</div>
+        <div class="kpi-bench">un seul service consommé — relation fragile</div>
       </div>
     </div>
-    
+
+    ${explain(`Le <strong>tableau de gauche</strong> liste les 20 plus gros « gisements » de cross-sell : des clients à fort CA mais qui n'utilisent qu'une partie des services AGL.
+      <ul>
+        <li><strong>CA</strong> : leur chiffre d'affaires actuel.</li>
+        <li><strong>Services</strong> : nombre de services qu'ils consomment / total disponible.</li>
+        <li><strong>Pénétration</strong> : pourcentage du catalogue activé.</li>
+        <li><strong>Potentiel cross-sell</strong> = CA × (1 − pénétration). Lecture : « si on leur vendait tous les services, on récupérerait jusqu'à ce montant en plus ». Trier par cette colonne pour prioriser.</li>
+      </ul>
+      Le <strong>graphique de droite</strong> compare la pénétration moyenne par tier : normalement les Tier S/A pénètrent plus de services que les D. Si ce n'est pas le cas, c'est un signal d'alerte stratégique.`, 'Comment lire les graphiques ci-dessous')}
+
     <div class="grid grid-2 mt-3">
       <div class="card">
-        <div class="card-header"><div class="card-title">Top 20 Whitespace — opportunités cross-sell</div></div>
+        <div class="card-header">
+          <div class="card-title">Top 20 — meilleurs gisements de cross-sell</div>
+          <div class="text-sm text-muted">Trier par « Potentiel » pour prioriser les actions</div>
+        </div>
         <div class="card-body" style="padding:0;">
           <div class="tbl-wrap">
             <table class="data">
-              <thead><tr><th>Client</th><th>Tier</th><th class="num">CA</th><th class="num">Lib.</th><th class="num">Pénétration</th><th class="num">Potentiel</th></tr></thead>
+              <thead><tr><th>Client</th><th>Tier</th><th class="num">CA</th><th class="num">Services</th><th class="num">Pénétration</th><th class="num">Potentiel cross-sell</th></tr></thead>
               <tbody>
                 ${topWhitespace.map(c => `
                   <tr>
@@ -2713,7 +2919,7 @@ function render_crosssell() {
         </div>
       </div>
       <div class="card">
-        <div class="card-header"><div class="card-title">Pénétration moyenne par Tier</div></div>
+        <div class="card-header"><div class="card-title">Pénétration moyenne par tier</div></div>
         <div class="card-body">
           <div class="chart-container"><canvas id="chart-penet-tier"></canvas></div>
         </div>
@@ -2792,31 +2998,51 @@ function render_geo() {
   
   el.innerHTML = `
     ${pageHeader(p)}
-    
+
+    ${explain(`Une carte par site (ABJ = Abidjan, SPY = San Pedro, BYK = Bouaké, DLA = Douala). Sur chaque carte :
+      <ul>
+        <li>Le <strong>CAP du site</strong> sur la période filtrée.</li>
+        <li>Une <strong>flèche colorée</strong> avec l'évolution vs ${y - 1}, calculée sur les <em>mêmes mois</em>.</li>
+        <li>Le <strong>nombre de clients</strong> distincts qui ont facturé sur ce site.</li>
+      </ul>
+      Le bandeau de couleur en haut résume la santé : vert = forte croissance, jaune = stable, orange = baisse, rouge = baisse forte.`, 'Comment lire les cartes ci-dessous')}
+
     <div class="grid grid-${Math.min(sites.length,4)}">
       ${siteData.slice(0,4).map(s => `
         <div class="kpi" style="border-top:3px solid ${s.color};">
           <div class="kpi-label">Site ${s.site}</div>
           <div class="kpi-value small">${fmt.money(s.ca)}<span class="kpi-unit">XOF</span></div>
           ${evolHTML(s.evol)}
-          <div class="kpi-bench mt-1">${s.nbClients} clients</div>
+          <div class="kpi-bench mt-1">${s.nbClients} clients distincts</div>
         </div>
       `).join('')}
     </div>
-    
+
+    ${explain(`Deux graphiques pour comparer les sites entre eux :
+      <ul>
+        <li><strong>À gauche — CAP par site</strong> : pour chaque site, deux barres côte à côte. La barre grise = ${y - 1}, la barre bleue = ${y}. Permet de voir d'un coup d'œil quel site progresse, lequel stagne.</li>
+        <li><strong>À droite — Évolution % par site</strong> : la même information mais en pourcentage. Plus lisible quand les sites ont des tailles très différentes.</li>
+      </ul>`, 'Comment lire les graphiques ci-dessous')}
+
     <div class="grid grid-2 mt-3">
       <div class="card">
-        <div class="card-header"><div class="card-title">CAP par site</div></div>
+        <div class="card-header"><div class="card-title">CAP par site — ${y} vs ${y - 1} (mêmes mois)</div></div>
         <div class="card-body"><div class="chart-container tall"><canvas id="chart-site"></canvas></div></div>
       </div>
       <div class="card">
-        <div class="card-header"><div class="card-title">Évolution % par site</div></div>
+        <div class="card-header"><div class="card-title">Évolution % par site vs ${y - 1}</div></div>
         <div class="card-body"><div class="chart-container tall"><canvas id="chart-site-evol"></canvas></div></div>
       </div>
     </div>
-    
+
+    ${explain(`Le tableau ci-dessous reprend tous les chiffres précis pour chaque site :
+      <ul>
+        <li><strong>CAP ${y}</strong> et <strong>CAP ${y-1}</strong> sont calculés sur les <em>mêmes mois</em> et avec les <em>mêmes filtres</em> (métier, département, recherche client) — comparaison à périmètre identique.</li>
+        <li><strong>Part %</strong> : poids du site dans le CA total des sites affichés.</li>
+      </ul>`, 'Comment lire le tableau ci-dessous')}
+
     <div class="card mt-3">
-      <div class="card-header"><div class="card-title">Détail par site × métier</div></div>
+      <div class="card-header"><div class="card-title">Détail chiffré par site</div></div>
       <div class="card-body" style="padding:0;">
         <div class="tbl-wrap">
           <table class="data">
@@ -2933,20 +3159,39 @@ function render_cohorts() {
   
   el.innerHTML = `
     ${pageHeader(p)}
-    
+
+    ${explain(`Chaque client est rangé dans un <strong>statut</strong> selon son moment dans la vie commerciale :
+      <ul>
+        <li><strong>🆕 Nouveau</strong> : acquis dans la dernière année.</li>
+        <li><strong>📈 En croissance</strong> : évolution &gt; +10% vs N-1.</li>
+        <li><strong>⚓ Mature</strong> : stable, aucun signal particulier.</li>
+        <li><strong>📉 En déclin</strong> : évolution &lt; -10% vs N-1.</li>
+        <li><strong>💤 Dormant</strong> : pas de transaction depuis &gt; 6 mois.</li>
+        <li><strong>❌ Perdu</strong> : pas de transaction depuis &gt; 12 mois.</li>
+      </ul>`, 'Comment lire les compteurs ci-dessous')}
+
     <div class="grid grid-3">
       ${Object.entries(byStatut).map(([s,n]) => `
         <div class="kpi">
           <div class="kpi-label">${s}</div>
           <div class="kpi-value">${n}</div>
-          <div class="kpi-bench">${fmt.pct(clients.length > 0 ? n / clients.length : 0)}</div>
+          <div class="kpi-bench">${fmt.pct(clients.length > 0 ? n / clients.length : 0)} du portefeuille</div>
         </div>
       `).join('')}
     </div>
-    
+
+    ${explain(`Cette matrice est l'outil clé pour <strong>mesurer la fidélité dans le temps</strong>.
+      <ul>
+        <li><strong>Chaque ligne</strong> = une cohorte = clients arrivés une certaine année (ex. ligne 2024 = tous les clients dont la 1ʳᵉ facture date de 2024).</li>
+        <li><strong>Chaque colonne</strong> = une année d'observation. Lecture en glissant horizontalement : combien cette cohorte a-t-elle pesé en CA chaque année ?</li>
+        <li><strong>Cellule</strong> : montant en haut, % par rapport à la 1ʳᵉ année en bas. Plus c'est vert foncé, plus la cohorte est fidèle et a grossi.</li>
+        <li><strong>Diagonale</strong> = première année (toujours 100%, base de comparaison).</li>
+      </ul>
+      <strong>Lecture stratégique</strong> : si une cohorte chute à 30% en 2 ans, c'est un problème de rétention sur cette génération de clients.`, 'Comment lire la matrice ci-dessous')}
+
     <div class="card mt-3">
       <div class="card-header">
-        <div class="card-title">Matrice de cohortes — CA par année d'acquisition × année observée</div>
+        <div class="card-title">Matrice de cohortes — CA des clients par année d'acquisition</div>
         <div class="text-sm text-muted">Vue historique complète, indépendante des filtres haut de page (lecture cycle de vie)</div>
       </div>
       <div class="card-body" style="padding:0;">
@@ -2990,34 +3235,58 @@ function render_risk() {
   
   el.innerHTML = `
     ${pageHeader(p)}
-    
+
+    ${explain(`Le <strong>Health Score</strong> est une note qui combine 5 signaux faibles indépendants :
+      <ul>
+        <li><strong>Décroissance</strong> : -2 points si baisse &gt; 15% sur 3 mois.</li>
+        <li><strong>Inactivité récente</strong> : -2 points si pas de transaction depuis &gt; 3 mois.</li>
+        <li><strong>Baisse de diversité</strong> : -1 point si moins de services consommés qu'avant.</li>
+        <li><strong>Volatilité</strong> : -1 point si CA très instable d'un mois à l'autre.</li>
+        <li><strong>Mono-site</strong> : -1 point si le client n'est présent que sur un seul site.</li>
+      </ul>
+      Score total = somme des points. Plus c'est négatif, plus le client est en danger :
+      <ul>
+        <li>🟢 <strong>Sain</strong> : score ≥ 0</li>
+        <li>🟡 <strong>À surveiller</strong> : score -1 à -2</li>
+        <li>🟠 <strong>À risque</strong> : score -3 à -4</li>
+        <li>🔴 <strong>Critique</strong> : score &lt; -4 (action urgente)</li>
+      </ul>`, 'Comment lire les compteurs ci-dessous')}
+
     <div class="grid grid-4">
       ${Object.entries(byStatus).map(([s,n]) => {
         const k = s.includes('Sain') ? 'good' : s.includes('Critique') ? 'alert' : s.includes('risque') ? 'alert' : '';
         return `<div class="kpi ${k ? 'kpi-' + k : ''}">
           <div class="kpi-label">${s}</div>
           <div class="kpi-value">${n}</div>
-          <div class="kpi-bench">${fmt.pct(clients.length > 0 ? n / clients.length : 0)}</div>
+          <div class="kpi-bench">${fmt.pct(clients.length > 0 ? n / clients.length : 0)} du portefeuille</div>
         </div>`;
       }).join('')}
     </div>
-    
+
     ${critical.length > 0 ? `
     <div class="alert-banner mt-3">
       <div class="alert-banner-title">🚨 ${critical.length} client${critical.length > 1 ? 's' : ''} en alerte critique</div>
-      Health Score ≤ -4 : signaux faibles convergents (décroissance, inactivité, mono-site, mono-libellé). Action commerciale urgente recommandée.
+      Score ≤ -4 : plusieurs signaux d'alerte s'accumulent (décroissance, inactivité, fragilité de la relation). Action commerciale urgente recommandée — voir le tableau ci-dessous.
     </div>
     ` : ''}
-    
+
+    ${explain(`Liste <strong>triée par CA décroissant</strong> : les plus gros clients critiques en premier (priorité commerciale absolue). Pour chaque client :
+      <ul>
+        <li><strong>CAP ${APP.filters.ANNEE}</strong> et <strong>Évol.</strong> : son chiffre actuel et sa tendance.</li>
+        <li><strong>Score</strong> : la note Health (négative = danger).</li>
+        <li><strong>Statut</strong> : niveau d'alerte (🔴 Critique / 🟠 À risque…).</li>
+        <li><strong>Recommandation</strong> : action concrète selon le tier — visite KAM senior pour les Tier S/A, relance commerciale pour les autres.</li>
+      </ul>`, 'Comment lire le tableau ci-dessous')}
+
     <div class="card mt-3">
       <div class="card-header">
-        <div class="card-title">🔴 Clients en alerte critique</div>
-        <div class="text-sm text-muted">${critical.length} clients</div>
+        <div class="card-title">🔴 Clients en alerte critique — action urgente</div>
+        <div class="text-sm text-muted">${critical.length} clients, triés par CA décroissant</div>
       </div>
       <div class="card-body" style="padding:0;">
         <div class="tbl-wrap">
           <table class="data">
-            <thead><tr><th>Client</th><th>Tier</th><th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">Évol.</th><th class="num">Health</th><th>Statut</th><th>Recommandation</th></tr></thead>
+            <thead><tr><th>Client</th><th>Tier</th><th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">Évol.</th><th class="num">Score</th><th>Statut</th><th>Recommandation</th></tr></thead>
             <tbody>
               ${critical.length === 0 ? '<tr><td colspan=7 style="text-align:center;color:var(--evol-strong-up);padding:24px;">✓ Aucun client en alerte critique</td></tr>' : critical.map(c => `
                 <tr>
@@ -3035,15 +3304,17 @@ function render_risk() {
       </div>
     </div>
     
+    ${explain(`Clients dont le score est entre -2 et -3 : <strong>1 ou 2 signaux d'alerte présents</strong>, mais pas encore critique. C'est le moment idéal pour les remettre en route avant qu'ils ne basculent en rouge. Affichage limité aux 30 plus gros pour rester actionnable.`, 'Comment lire le tableau ci-dessous')}
+
     <div class="card mt-3">
       <div class="card-header">
         <div class="card-title">🟠 Clients à surveiller</div>
-        <div class="text-sm text-muted">${atRisk.length} clients</div>
+        <div class="text-sm text-muted">${atRisk.length} clients (30 premiers affichés, triés par CA)</div>
       </div>
       <div class="card-body" style="padding:0;">
         <div class="tbl-wrap">
           <table class="data">
-            <thead><tr><th>Client</th><th>Tier</th><th class="num">CAP</th><th class="num">Health</th><th>Statut</th></tr></thead>
+            <thead><tr><th>Client</th><th>Tier</th><th class="num">CAP</th><th class="num">Score</th><th>Statut</th></tr></thead>
             <tbody>
               ${atRisk.slice(0, 30).map(c => `
                 <tr>
@@ -3125,11 +3396,14 @@ function render_forecast() {
   
   el.innerHTML = `
     ${pageHeader(p)}
-    
-    <div class="alert-banner info">
-      <div class="alert-banner-title">📊 Méthodologie prédictive</div>
-      Modèle CAGR + saisonnalité (Niveau 2). CAGR calculé sur les ${years.length} années d'historique disponibles. Coefficients saisonniers calculés sur la moyenne mensuelle historique. Bandes de confiance ±15%. La projection s'appuie sur l'historique global (toutes années) ; les filtres haut de page restent indicatifs sur cette page.
-    </div>
+
+    ${explain(`Le moteur de prévision combine 2 logiques :
+      <ul>
+        <li><strong>Croissance moyenne historique</strong> : sur les ${years.length} années passées, le CAP a grossi de ${(cagr * 100).toFixed(1)}% par an en moyenne. Cette tendance est projetée sur l'avenir.</li>
+        <li><strong>Saisonnalité mensuelle</strong> : on apprend des années passées que par exemple décembre est toujours plus fort que février, et on applique ce profil sur les mois projetés.</li>
+        <li><strong>Bandes de confiance</strong> : la « base » est la prévision la plus probable. L'<strong>optimiste</strong> = +15% (vents porteurs), le <strong>pessimiste</strong> = -15% (vents contraires).</li>
+      </ul>
+      <strong>Note importante</strong> : la projection s'appuie sur l'historique global (toutes années) ; les filtres haut de page restent indicatifs sur cette page.`, 'Méthode de prévision')}
 
     <div class="grid grid-4 mt-2">
       <div class="kpi kpi-strong">
@@ -3140,20 +3414,22 @@ function render_forecast() {
       <div class="kpi kpi-good">
         <div class="kpi-label">Scénario optimiste</div>
         <div class="kpi-value small">${fmt.money(forecastTotalOpt)}<span class="kpi-unit">XOF</span></div>
-        <div class="kpi-bench">+15% vs base</div>
+        <div class="kpi-bench">+15% vs base — vents porteurs</div>
       </div>
       <div class="kpi kpi-alert">
         <div class="kpi-label">Scénario pessimiste</div>
         <div class="kpi-value small">${fmt.money(forecastTotalPess)}<span class="kpi-unit">XOF</span></div>
-        <div class="kpi-bench">-15% vs base</div>
+        <div class="kpi-bench">-15% vs base — vents contraires</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">CAGR historique</div>
+        <div class="kpi-label">Croissance annuelle moyenne</div>
         <div class="kpi-value small">${(cagr * 100).toFixed(1)}%</div>
-        <div class="kpi-bench">/ an sur ${years.length} ans</div>
+        <div class="kpi-bench">moyenne historique sur ${years.length} ans</div>
       </div>
     </div>
-    
+
+    ${explain(`Le graphique trace <strong>l'historique réel</strong> (ligne bleue continue) puis la <strong>projection sur ${APP.horizon} mois</strong> (3 lignes pointillées dorée/verte/rouge correspondant aux scénarios base/optimiste/pessimiste). On peut changer l'horizon via le menu en haut à droite (3, 6, 12 ou 24 mois).`, 'Comment lire le graphique ci-dessous')}
+
     <div class="grid" style="grid-template-columns:1fr;">
       <div class="card mt-3">
         <div class="card-header">
@@ -3173,31 +3449,39 @@ function render_forecast() {
         </div>
       </div>
     </div>
-    
+
+    ${explain(`Le panneau bleu de gauche est un <strong>simulateur interactif</strong>. Bougez les 3 curseurs pour répondre à des questions stratégiques :
+      <ul>
+        <li><strong>Ajustement de croissance</strong> : « et si on accélérait/ralentissait notre croissance générale de X% ? »</li>
+        <li><strong>Variation des 10 plus gros clients</strong> : « et si on perdait 30% du CA des Top 10 ? » (ou si on en gagnait).</li>
+        <li><strong>Effet saisonnier</strong> : « et si la saison cacao était 1,3× plus forte qu'habituellement ? »</li>
+      </ul>
+      La <strong>prévision ajustée</strong> en bas du panneau se recalcule en temps réel. Le tableau de droite montre la répartition de la prévision par site.`, 'Comment utiliser la simulation ci-dessous')}
+
     <div class="grid grid-1-2 mt-3">
       <div class="whatif-card">
-        <div class="whatif-title">💡 What-If Analysis</div>
-        <p style="font-size:11px;color:var(--navy-100);margin-bottom:18px;">Simulez l'impact de scénarios stratégiques en temps réel</p>
-        
+        <div class="whatif-title">💡 Simulation de scénarios</div>
+        <p style="font-size:11px;color:var(--navy-100);margin-bottom:18px;">Bougez les curseurs pour tester l'impact de scénarios stratégiques. La prévision se recalcule en temps réel.</p>
+
         <div class="whatif-slider">
           <div class="whatif-slider-label">
-            <span>Ajustement croissance</span>
+            <span>Ajustement de la croissance générale</span>
             <span class="whatif-slider-value" id="wi-c-val">${(APP.whatif.croissance * 100).toFixed(0)}%</span>
           </div>
           <input type="range" id="wi-croissance" min="-50" max="50" step="1" value="${APP.whatif.croissance * 100}">
         </div>
-        
+
         <div class="whatif-slider">
           <div class="whatif-slider-label">
-            <span>Variation Top 10 clients</span>
+            <span>Variation des 10 plus gros clients</span>
             <span class="whatif-slider-value" id="wi-t-val">${(APP.whatif.top10 * 100).toFixed(0)}%</span>
           </div>
           <input type="range" id="wi-top10" min="-100" max="50" step="5" value="${APP.whatif.top10 * 100}">
         </div>
-        
+
         <div class="whatif-slider">
           <div class="whatif-slider-label">
-            <span>Effet saisonnier</span>
+            <span>Intensification saisonnière</span>
             <span class="whatif-slider-value" id="wi-s-val">${APP.whatif.saison.toFixed(2)}×</span>
           </div>
           <input type="range" id="wi-saison" min="0.5" max="1.5" step="0.05" value="${APP.whatif.saison}">
@@ -3229,8 +3513,13 @@ function render_forecast() {
       </div>
     </div>
     
+    ${explain(`Le tableau classe les <strong>20 clients pour qui on prévoit le plus de CA</strong> sur les ${APP.horizon} prochains mois. La colonne « Part % » indique le poids de chaque client dans le total prévu : si la part du n°1 dépasse 15%, c'est un signal de surconcentration à surveiller.`, 'Comment lire le tableau ci-dessous')}
+
     <div class="card mt-3">
-      <div class="card-header"><div class="card-title">Top 20 — Prévision par client</div></div>
+      <div class="card-header">
+        <div class="card-title">Top 20 — Prévision par client (${APP.horizon} mois)</div>
+        <div class="text-sm text-muted">Calculée sur les 50 plus gros clients par CA historique, top 20 retenu</div>
+      </div>
       <div class="card-body" style="padding:0;">
         <div class="tbl-wrap">
           <table class="data">
