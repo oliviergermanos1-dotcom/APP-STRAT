@@ -2446,6 +2446,47 @@ function applyFilters() {
   const { p80, p20 } = CALC.computePercentiles(APP.clientsAgg);
   const stats = CALC.precomputeStats(APP.clientsAgg);
 
+  // ============================================================
+  // INDEX DES NOMS DE CLIENTS — pour détection de doublons probables
+  // (variations orthographiques d'une même entité dans le temps)
+  // ============================================================
+  // Pour chaque client : sa 1ʳᵉ activité dans le dataset (mois)
+  const allClientFirstKey = {};
+  for (const cli of APP.clientsAgg) {
+    if (cli.firstYearMonth) allClientFirstKey[cli.CLIENT] = cli.firstYearMonth;
+  }
+  // Liste des clients PRÉ-existants (firstKey avant la période courante)
+  const preExistingNames = [];
+  for (const name in allClientFirstKey) {
+    if (allClientFirstKey[name] < periodStartKey) preExistingNames.push(name);
+  }
+  // Helper : détecte si un "vrai nouveau" a un nom proche d'un client pré-existant
+  // (recouvrement de mots significatifs ≥ 50% OU sous-chaîne contenant le nom court)
+  function findHistoricalNameMatch(newName) {
+    if (!newName || preExistingNames.length === 0) return null;
+    const upper = newName.toUpperCase();
+    const myWords = upper.split(/[\s\-_,\.\/]+/).filter(w => w.length >= 4 && !['SARL','SA','SAS','LTD','INC','CORP','GROUPE','GROUP','COMPANY','COTE','IVOIRE','AFRICA','AFRIQUE','OUEST','WEST'].includes(w));
+    if (myWords.length === 0) return null;
+    let best = null, bestScore = 0;
+    for (const other of preExistingNames) {
+      const otherUpper = other.toUpperCase();
+      const otherWords = otherUpper.split(/[\s\-_,\.\/]+/).filter(w => w.length >= 4 && !['SARL','SA','SAS','LTD','INC','CORP','GROUPE','GROUP','COMPANY','COTE','IVOIRE','AFRICA','AFRIQUE','OUEST','WEST'].includes(w));
+      if (otherWords.length === 0) continue;
+      // Score : nombre de mots significatifs partagés / min(longueurs)
+      const shared = myWords.filter(w => otherWords.includes(w)).length;
+      const minLen = Math.min(myWords.length, otherWords.length);
+      const score = shared / minLen;
+      // Bonus si l'un contient l'autre comme sous-chaîne
+      const contains = (myWords.length === 1 && otherUpper.indexOf(myWords[0]) !== -1) ||
+                       (otherWords.length === 1 && upper.indexOf(otherWords[0]) !== -1);
+      if ((score >= 0.5 || contains) && shared >= 1 && score > bestScore) {
+        bestScore = score;
+        best = other;
+      }
+    }
+    return best;
+  }
+
   // Enrichir avec score, tier, quadrant + historique strict
   APP.clientsAgg.forEach(c => {
     c.score = CALC.scoreClient(c, stats);
@@ -2536,6 +2577,15 @@ function applyFilters() {
     c.isReactivated = c.CA_N > 0 && hadHistory && !c.activeInLookback36;
     c.isShortHiatus = c.CA_N > 0 && hadHistory && !c.activeInLookback && c.activeInLookback36;
     c.isTrueLost    = c.CA_N === 0 && c.monthsSinceLastTx !== null && c.monthsSinceLastTx > 9;
+
+    // Détection de doublon probable : pour un "vrai nouveau", recherche un nom
+    // historique proche (variation orthographique de la même entité ?).
+    // Si trouvé : c.suspectedDuplicate = nom historique proche (à vérifier).
+    if (c.isTrueNew) {
+      c.suspectedDuplicate = findHistoricalNameMatch(c.CLIENT);
+    } else {
+      c.suspectedDuplicate = null;
+    }
 
     // Métier historique dominant (par CAP cumulé sur l'historique avant période)
     const histCA = histMetiersCAByClient[c.CLIENT];
@@ -3802,20 +3852,21 @@ function render_cockpit() {
         <div class="card">
           <div class="card-header">
             <div class="card-title" style="color:var(--gold-700);">🆕 Vrais nouveaux clients</div>
-            <div class="text-sm text-muted">${trueNewList.length} clients — 1ʳᵉ facture jamais émise — triés par CAP</div>
+            <div class="text-sm text-muted">${trueNewList.length} clients — 1ʳᵉ facture jamais émise dans la base — triés par CAP. ${trueNewList.filter(c => c.suspectedDuplicate).length > 0 ? `<span style="color:var(--evol-down);">⚠ ${trueNewList.filter(c => c.suspectedDuplicate).length} potentiels doublons (variations de raison sociale)</span>` : ''}</div>
           </div>
           <div class="card-body" style="padding:0;">
             <div class="tbl-wrap" style="max-height:380px;">
               <table class="data">
-                <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture</th></tr></thead>
+                <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture</th><th>Vérification</th></tr></thead>
                 <tbody>
-                  ${trueNewList.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNewList.slice(0, 100).map((c, i) => `<tr>
+                  ${trueNewList.length === 0 ? '<tr><td colspan=7 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNewList.slice(0, 100).map((c, i) => `<tr${c.suspectedDuplicate ? ' style="background:rgba(247,127,0,0.06);"' : ''}>
                     <td class="text-muted">${i+1}</td>
                     <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
                     <td>${formatLibelles(c)}</td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
                     <td class="text-sm">${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</td>
+                    <td class="text-sm">${c.suspectedDuplicate ? `<span style="color:var(--evol-down);font-weight:600;" title="Nom historique proche dans la base : ${c.suspectedDuplicate}">🔍 doublon ?</span><br><span class="text-muted" style="font-size:10px;">≈ ${c.suspectedDuplicate}</span>` : '<span style="color:var(--evol-strong-up);font-weight:600;">✓ pas de doublon trouvé</span>'}</td>
                   </tr>`).join('')}
                 </tbody>
               </table>
@@ -4522,22 +4573,23 @@ function render_growth() {
       <div class="card">
         <div class="card-header">
           <div class="card-title">🆕 Vrais nouveaux clients</div>
-          <div class="text-sm text-muted">${trueNew.length} clients — aucune activité 36 mois précédents — triés par CA décroissant</div>
+          <div class="text-sm text-muted">${trueNew.length} clients — 1ʳᵉ facture jamais émise dans la base — triés par CA. ${trueNew.filter(c => c.suspectedDuplicate).length > 0 ? `<span style="color:var(--evol-down);">⚠ ${trueNew.filter(c => c.suspectedDuplicate).length} potentiels doublons</span>` : ''}</div>
         </div>
         <div class="card-body" style="padding:0;">
           <div class="tbl-wrap" style="max-height:520px;">
             <table class="data">
-              <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CA ${lbl.courte}</th><th>1ʳᵉ facture</th></tr></thead>
+              <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CA ${lbl.courte}</th><th>1ʳᵉ facture</th><th>Vérification</th></tr></thead>
               <tbody>
-                ${trueNew.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNew.map((c, i) => {
+                ${trueNew.length === 0 ? '<tr><td colspan=7 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNew.map((c, i) => {
                   const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
-                  return `<tr>
+                  return `<tr${c.suspectedDuplicate ? ' style="background:rgba(247,127,0,0.06);"' : ''}>
                     <td class="text-muted">${i+1}</td>
                     <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
                     <td>${formatLibelles(c)}</td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
                     <td class="text-sm">${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</td>
+                    <td class="text-sm">${c.suspectedDuplicate ? `<span style="color:var(--evol-down);font-weight:600;" title="Nom historique proche : ${c.suspectedDuplicate}">🔍 doublon ?</span><br><span class="text-muted" style="font-size:10px;">≈ ${c.suspectedDuplicate}</span>` : '<span style="color:var(--evol-strong-up);font-weight:600;">✓</span>'}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
