@@ -2170,9 +2170,9 @@ function buildApp() {
       </div>
       <div class="app-title">
         <div class="app-title-main">Strategic Analytics</div>
-        <div class="app-title-sub">Customer Intelligence Platform · Marketing & Commercial</div>
       </div>
       <div class="header-actions">
+        <button class="btn-header" id="btn-reset-header" title="Réinitialiser tous les filtres (Année, Mois, Site, Métier, Département, Recherche client)">↻ Réinitialiser</button>
         <button class="btn-header" id="btn-presentation" title="Mode présentation COMEX : plein écran + rotation automatique toutes les 30 secondes">▶️ Présentation</button>
         <button class="btn-header gold" id="btn-export-html" title="Exporter le rapport en HTML interactif (à partager par mail/Teams — le destinataire ouvre directement, pas besoin de fichier de données)">📤 Exporter HTML interactif</button>
         <button class="btn-header" id="btn-print" title="Imprimer / Exporter PDF">📄 Export PDF</button>
@@ -2197,12 +2197,8 @@ function buildApp() {
 
 function buildSidebar() {
   const sidebar = document.getElementById('sidebar');
-  // Bouton "Réinitialiser tous les filtres" en haut de la sidebar
-  let html = `<div style="padding:14px 16px 8px 16px;">
-    <button id="btn-reset-sidebar" style="width:100%;background:linear-gradient(135deg,var(--gold-700),var(--gold-500));color:white;border:none;border-radius:6px;padding:10px 14px;font-family:var(--font-body);font-size:12px;font-weight:700;letter-spacing:0.5px;cursor:pointer;box-shadow:0 2px 6px rgba(212,162,78,0.25);transition:transform 0.15s ease, box-shadow 0.15s ease;display:flex;align-items:center;justify-content:center;gap:8px;" onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 12px rgba(212,162,78,0.35)';" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 6px rgba(212,162,78,0.25)';">
-      <span style="font-size:14px;">↻</span> Réinitialiser les filtres
-    </button>
-  </div>`;
+  // Bouton Réinitialiser déplacé dans le bandeau du haut (à côté de Présentation)
+  let html = '';
   let lastSection = null;
   PAGES.forEach(p => {
     if (p.section !== lastSection) {
@@ -2218,17 +2214,6 @@ function buildSidebar() {
   sidebar.querySelectorAll('.nav-item').forEach(it => {
     it.addEventListener('click', () => switchPage(it.dataset.page));
   });
-  // Réinitialiser les filtres : déclenche le clic sur le bouton existant dans la slicer-bar
-  const btnResetSidebar = document.getElementById('btn-reset-sidebar');
-  if (btnResetSidebar) {
-    btnResetSidebar.addEventListener('click', () => {
-      const realBtn = document.getElementById('btn-reset');
-      if (realBtn) realBtn.click();
-      // Ferme le drawer mobile si ouvert
-      document.querySelector('.app-sidebar')?.classList.remove('mobile-open');
-      document.body.classList.remove('mobile-drawer-open');
-    });
-  }
 }
 
 function buildSlicers() {
@@ -3157,6 +3142,11 @@ function attachEvents() {
   if (btnExport) btnExport.addEventListener('click', exportInteractiveHTML);
   const btnPres = document.getElementById('btn-presentation');
   if (btnPres) btnPres.addEventListener('click', togglePresentationMode);
+  // Bouton Réinitialiser dans le header : déclenche le bouton de la slicer-bar (caché)
+  const btnResetH = document.getElementById('btn-reset-header');
+  if (btnResetH) btnResetH.addEventListener('click', () => {
+    document.getElementById('btn-reset')?.click();
+  });
   document.getElementById('btn-reload').addEventListener('click', () => {
     if (confirm('Recharger un nouveau fichier ? Les données actuelles seront effacées.')) {
       location.reload();
