@@ -1561,15 +1561,23 @@ function tryAutoLoadEmbedded() {
       YEAR_MONTH: r.YEAR_MONTH || (r.ANNEE + '-' + String(r.MOIS).padStart(2, '0'))
     }));
     APP.schema = window.__EMBEDDED_SCHEMA || {};
-    // Bandeau "snapshot mode"
+    // Bandeau "snapshot mode" — placé en BAS du rapport (visible sans gêner le header)
+    // Ouvrable/fermable, padding bas appliqué uniquement quand visible.
     const meta = window.__EMBEDDED_META || {};
     setTimeout(() => {
       const banner = document.createElement('div');
-      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:linear-gradient(90deg,var(--gold-700),var(--gold-500));color:white;padding:8px 16px;font-size:11px;text-align:center;z-index:200;font-family:var(--font-body);font-weight:600;letter-spacing:0.5px;';
-      banner.innerHTML = `📦 Rapport interactif AGL — snapshot exporté le ${meta.exportDate ? new Date(meta.exportDate).toLocaleDateString('fr-FR') : '—'} · ${meta.rows || APP.data.fact.length} transactions · ${meta.clients || '—'} clients · <span style="opacity:0.8;">données embarquées en lecture seule</span>`;
+      banner.id = 'snapshot-banner';
+      banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:linear-gradient(90deg,var(--gold-700),var(--gold-500));color:white;padding:6px 14px;font-size:10.5px;text-align:center;z-index:200;font-family:var(--font-body);font-weight:600;letter-spacing:0.3px;display:flex;align-items:center;justify-content:center;gap:14px;box-shadow:0 -2px 8px rgba(0,0,0,0.10);';
+      banner.innerHTML = `<span>📦 Snapshot AGL · ${meta.exportDate ? new Date(meta.exportDate).toLocaleDateString('fr-FR') : '—'} · ${meta.rows || APP.data.fact.length} transactions · ${meta.clients || '—'} clients · <span style="opacity:0.85;">lecture seule</span></span><button id="snapshot-banner-close" style="background:rgba(255,255,255,0.20);border:1px solid rgba(255,255,255,0.30);color:white;width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;padding:0;line-height:1;flex-shrink:0;" title="Masquer le bandeau">×</button>`;
       document.body.appendChild(banner);
-      // Décale le contenu de la hauteur du banner
-      document.body.style.paddingTop = '32px';
+      // Petit padding bas pour éviter recouvrement du dernier contenu (mais seulement le strict nécessaire)
+      document.body.style.paddingBottom = (banner.offsetHeight || 28) + 'px';
+      // Bouton fermeture
+      document.getElementById('snapshot-banner-close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        banner.style.display = 'none';
+        document.body.style.paddingBottom = '';
+      });
     }, 200);
     setTimeout(() => launchAnalysis(), 100);
     return true;
