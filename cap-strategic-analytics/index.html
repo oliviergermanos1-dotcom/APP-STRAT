@@ -2902,6 +2902,63 @@ document.addEventListener('click', (e) => {
   if (modal && modal.style.display !== 'none' && e.target === modal) closeClientModal();
 });
 
+// Pont : transforme un tableau d'insights typés (positif/attention/risque/
+// neutre/opportunite) en bloc synthese() structuré (mode brief Senior Partner).
+// Utilisé pour migrer rapidement toutes les pages historiquement en analyse()
+// vers le format unifié sans réécrire chaque logique.
+function analyseToSynthese(insights, titre) {
+  if (!insights || insights.length === 0) return '';
+  const grouped = { positif: [], attention: [], risque: [], neutre: [], opportunite: [] };
+  insights.filter(Boolean).forEach(i => {
+    const t = i.type || 'neutre';
+    if (grouped[t]) grouped[t].push(i);
+    else grouped.neutre.push(i);
+  });
+  // Priorité de criticité : risque → attention → opportunité → neutre → positif
+  const order = [
+    ...grouped.risque,
+    ...grouped.attention,
+    ...grouped.opportunite,
+    ...grouped.neutre,
+    ...grouped.positif
+  ];
+  // HEADLINE = constat le plus critique
+  const headline = order[0] ? order[0].constat : '';
+  // PERFORMANCE = paragraphe des insights factuels (neutre + positif), avec implication
+  const factualParts = grouped.neutre.concat(grouped.positif).map(i =>
+    i.constat + (i.implication ? ' ' + i.implication : '')
+  );
+  const performance = factualParts.length ? factualParts.join(' ') : null;
+  // SOLIDITÉ = paragraphe des points d'attention (insights typed 'attention')
+  const attentionParts = grouped.attention.map(i =>
+    i.constat + (i.implication ? ' ' + i.implication : '')
+  );
+  const solidite = attentionParts.length ? attentionParts.join(' ') : null;
+  // DYNAMIQUE = paragraphe des risques + opportunités (drivers d'action)
+  const dynamicParts = grouped.risque.concat(grouped.opportunite).map(i =>
+    i.constat + (i.implication ? ' ' + i.implication : '')
+  );
+  const dynamique = dynamicParts.length ? dynamicParts.join(' ') : null;
+  // VIGILANCE = bullets risque + attention (constat court)
+  const vigilance = grouped.risque.concat(grouped.attention).map(i => i.constat).slice(0, 6);
+  // LEVIERS = bullets opportunite + positif
+  const leviers = grouped.opportunite.concat(grouped.positif).map(i => i.constat).slice(0, 6);
+  // PRIORITÉS = 3 actions les plus prioritaires (déduplication par texte)
+  const seen = new Set();
+  const priorites = [];
+  for (const i of order) {
+    if (priorites.length >= 3) break;
+    if (i.action && !seen.has(i.action)) { priorites.push(i.action); seen.add(i.action); }
+  }
+  // Nettoyage du titre (éviter doublon "Analyse / Synthèse stratégique —")
+  const cleanTitre = (titre || '')
+    .replace(/^[🎯📊💡✅⚠️🔴]+\s*/, '')
+    .replace(/^Synthèse stratégique\s*(consolidée)?\s*[—-]\s*/i, '')
+    .replace(/^Analyse stratégique\s*[—-]\s*/i, '')
+    .trim();
+  return synthese({ headline, performance, solidite, dynamique, vigilance, leviers, priorites }, cleanTitre || titre);
+}
+
 function destroyChart(key) {
   if (APP.charts[key]) {
     try { APP.charts[key].destroy(); } catch(e) {}
@@ -3539,7 +3596,7 @@ function render_portfolio() {
       ins.push({ type:'neutre', constat:`Les gros clients (Champions + Vaches à lait + en danger) = <strong>${grosCount} comptes</strong>, soit <strong>${fmt.pct(grosPct)}</strong> du CA (${fmt.money(grosCA)} XOF).`, implication:`Distribution typique B2B logistique : la valeur se concentre dans le top du portefeuille.`, action:`Affecter le temps KAM senior à ces ${grosCount} comptes en priorité absolue.` });
       if (danger.count > 0) ins.push({ type:'risque', constat:`<strong>${danger.count} gros clients en danger</strong> — ${fmt.money(danger.ca)} XOF en risque immédiat.`, implication:`Comptes structurants en chute libre (≥ -5% vs N-1). Un seul perdu suffit à pénaliser le P&L de l'année.`, action:`Visite KAM senior dans les 15 jours sur chacun. Plan de redressement formel à présenter au COMEX.` });
       if (champ.count > 0) ins.push({ type:'positif', constat:`<strong>${champ.count} Champions</strong> identifiés — gros clients en forte croissance, ${fmt.money(champ.ca)} XOF.`, implication:`Cœur de la dynamique commerciale. Toute déstabilisation (concurrent, qualité) aura un impact direct sur la trajectoire annuelle.`, action:`Sécuriser contractuellement (engagements pluriannuels) et étendre la pénétration cross-sell sur 12 mois.` });
-      return analyse(ins, 'Analyse stratégique — Carte 9-cases');
+      return analyseToSynthese(ins, 'Analyse stratégique — Carte 9-cases');
     })()}
 
     <div class="card">
@@ -3975,7 +4032,7 @@ function render_growth() {
       }
       // Définition stricte vs lâche
       if (naive_new !== trueNew.length || naive_lost !== trueLost.length) insights.push({ type:'opportunite', constat:`La méthode lâche aurait identifié <strong>${naive_new} "nouveaux"</strong> et <strong>${naive_lost} "perdus"</strong>. Avec la méthode stricte sur 12 mois glissants : <strong>${trueNew.length} vrais nouveaux</strong>, <strong>${trueLost.length} vrais perdus</strong>.`, implication:`L'écart vient des clients saisonniers et des réactivations qui faussent la lecture commerciale habituelle.`, action:`Communiquer en interne sur cette nouvelle définition pour aligner les KPI commerciaux.` });
-      return analyse(insights, `Analyse stratégique — Dynamique du portefeuille (${lbl.longue})`);
+      return analyseToSynthese(insights, `Analyse stratégique — Dynamique du portefeuille (${lbl.longue})`);
     })()}
 
     ${(() => {
@@ -4255,7 +4312,7 @@ function render_crosssell() {
       ins.push({ type:'opportunite', constat:`Potentiel cross-sell total estimé à <strong>${fmt.money(totalWhitespace)} XOF</strong> sur le périmètre filtré.`, implication:`C'est le CA additionnel théoriquement atteignable si chaque client utilisait l'ensemble des services AGL disponibles. Évidemment optimiste, mais donne l'ordre de grandeur du gisement.`, action:`Cibler le Top 20 par "Potentiel cross-sell" (tableau ci-dessous) — c'est là que l'effort commercial génère le plus.` });
       if (monoLibelle.length > 0 && monoPct > 0.10) ins.push({ type:'risque', constat:`<strong>${monoLibelle.length} clients mono-service</strong> (${fmt.money(monoCA)} XOF, ${fmt.pct(monoPct)} du CA) — ils dépendent d'un seul service AGL.`, implication:`Très fragiles : si ce service unique pose problème (qualité, prix, concurrent), le client part. LTV faible et risque churn élevé.`, action:`Ouvrir un 2ᵉ service à au moins 30% d'entre eux dans les 12 mois (priorité aux Tier B+ mono-service).` });
       if (avgPenetTier < 0.30 && penetByTier['S'].n > 0) ins.push({ type:'attention', constat:`Pénétration moyenne des Tier S = <strong>${fmt.pct(avgPenetTier)}</strong> seulement.`, implication:`Même les comptes stratégiques sont sous-exploités. Ils représentent un gisement majeur de cross-sell sécurisé (relation déjà établie, confiance acquise).`, action:`Programme dédié "Tier S 360°" — KAM doit pousser systématiquement les services adjacents lors de chaque revue trimestrielle.` });
-      return analyse(ins, 'Analyse stratégique — Gisement cross-sell');
+      return analyseToSynthese(ins, 'Analyse stratégique — Gisement cross-sell');
     })()}
 
     <div class="grid grid-3">
@@ -4401,7 +4458,7 @@ function render_geo() {
         const best = winners.sort((a,b) => b.evol - a.evol)[0];
         ins.push({ type:'positif', constat:`<strong>${best.site}</strong> est en meilleure dynamique : <strong>+${(best.evol*100).toFixed(1)}%</strong> vs N-1.`, implication:`Bonne pratique commerciale ou opérationnelle locale. À documenter et à répliquer.`, action:`Identifier les 2 facteurs clés du succès local (équipe, offre, mix client) et les transposer aux autres sites.` });
       }
-      return analyse(ins, 'Analyse stratégique — Performance par site');
+      return analyseToSynthese(ins, 'Analyse stratégique — Performance par site');
     })()}
 
     <div class="grid grid-${Math.min(sites.length,4)}">
@@ -4571,7 +4628,7 @@ function render_cohorts() {
         const retention = cohortFirstCA > 0 ? cohortLastCA / cohortFirstCA : 0;
         if (cohortFirstCA > 0) ins.push({ type: retention >= 0.7 ? 'positif' : retention >= 0.4 ? 'attention' : 'risque', constat:`La cohorte <strong>${firstY}</strong> conserve <strong>${fmt.pct(retention)}</strong> de son CA initial en ${lastY}.`, implication: retention >= 0.7 ? `Excellente fidélisation de long terme — les clients acquis vivent plusieurs cycles.` : retention >= 0.4 ? `Rétention moyenne — la moitié de la cohorte s'érode au bout de quelques années.` : `Rétention faible — les clients acquis ne durent pas. Coût d'acquisition mal amorti.`, action: retention >= 0.7 ? `Capitaliser sur la qualité de la relation initiale — étendre les pratiques d'on-boarding.` : `Audit du parcours client post-acquisition (12-24 mois critiques) pour comprendre la fuite.` });
       }
-      return analyse(ins, 'Analyse stratégique — Cycle de vie & cohortes');
+      return analyseToSynthese(ins, 'Analyse stratégique — Cycle de vie & cohortes');
     })()}
 
     <div class="grid grid-3">
@@ -4644,7 +4701,7 @@ function render_risk() {
       }
       if (atRisk.length > 0) ins.push({ type:'attention', constat:`<strong>${atRisk.length} clients à surveiller</strong> (Health Score -2 à -3) — ${fmt.money(atRiskCA)} XOF de CA potentiellement en danger.`, implication:`Fenêtre de redressement encore ouverte. Sans action sous 60 jours, risque de basculement vers la zone critique.`, action:`Programme de prévention : 1 contact commercial structuré par client dans le mois.` });
       if (critical.length === 0 && atRisk.length === 0) ins.push({ type:'positif', constat:`Aucun client en zone d'alerte (critique ou à surveiller).`, implication:`Portefeuille robuste sur la période — peu de signaux faibles convergents.`, action:`Maintenir la vigilance commerciale et la qualité de service.` });
-      return analyse(ins, 'Analyse stratégique — Risques de perte');
+      return analyseToSynthese(ins, 'Analyse stratégique — Risques de perte');
     })()}
 
     <div class="grid grid-4">
@@ -4799,7 +4856,7 @@ function render_forecast() {
         const top5Pct = forecastByClient.slice(0,5).reduce((s,c)=>s+c.total,0) / forecastTotal;
         if (top1Pct > 0.15 || top5Pct > 0.50) ins.push({ type:'attention', constat:`Le Top 1 du forecast pèse <strong>${fmt.pct(top1Pct)}</strong> du total prévu, le Top 5 <strong>${fmt.pct(top5Pct)}</strong>.`, implication:`Sur-concentration prévisionnelle. Le scénario base est très dépendant du maintien de quelques comptes — fragile si l'un d'eux décroche.`, action:`Tester le scénario "perte du Top 1" via le slider What-If pour mesurer l'impact réel.` });
       }
-      return analyse(ins, `Analyse stratégique — Prévision ${APP.horizon} mois`);
+      return analyseToSynthese(ins, `Analyse stratégique — Prévision ${APP.horizon} mois`);
     })()}
 
     <div class="grid grid-4 mt-2">
@@ -5041,7 +5098,7 @@ function render_actions() {
       ins.push({ type:'neutre', constat:`<strong>${totalActions} actions commerciales identifiées</strong> sur ${lbl.longue}, réparties en 6 catégories priorisées par impact CA.`, implication:`Cette page est le tableau de bord opérationnel. Chaque ligne = une action concrète, un client précis, une recommandation claire. Idéal pour la revue commerciale hebdomadaire.`, action:`Distribuer les actions par KAM. Suivre l'avancement chaque vendredi en réunion d'équipe.` });
       if (critical.length > 0) ins.push({ type:'risque', constat:`<strong>${critical.length} alertes critiques</strong> (Health Score ≤ -4) — ${fmt.money(critical.reduce((s,c)=>s+c.CA_N,0))} XOF en jeu.`, implication:`Priorité absolue cette semaine. Sans intervention, ces clients basculent en perte définitive.`, action:`Visite KAM senior planifiée dans les 7 jours pour chaque alerte critique.` });
       if (xsellNew.length > 0) ins.push({ type:'opportunite', constat:`<strong>${xsellNew.length} clients viennent d'ouvrir un nouveau métier</strong> — signal d'élargissement de la relation à exploiter immédiatement.`, implication:`Fenêtre de 90 jours pour transformer cette ouverture en relation pérenne et étendre encore le panier.`, action:`Visite de "consolidation" sur chacun pour cartographier les besoins logistiques globaux.` });
-      return analyse(ins, '🎯 Synthèse stratégique consolidée — Centre d\'action');
+      return analyseToSynthese(ins, '🎯 Synthèse stratégique consolidée — Centre d\'action');
     })()}
 
     <div class="grid grid-3 mt-2">
@@ -5218,7 +5275,7 @@ function render_heatmap() {
       let maxM = 0, maxV = 0;
       monthTotals.forEach((v, i) => { if (v > maxV) { maxV = v; maxM = i; } });
       if (totalAll > 0) ins.push({ type:'neutre', constat:`Le mois le plus fort en cumulé est <strong>${moisLabels[maxM]}</strong> (${fmt.pct(maxV / totalAll)} du CA des 24 derniers mois).`, implication:`À comparer avec les benchmarks sectoriels logistique africaine. Pic typique post-récolte agricole + e-commerce de fin d'année.`, action:`Aligner les campagnes commerciales sur ce calendrier (pré-saison + saison) et anticiper la trésorerie.` });
-      return analyse(ins, '🎯 Synthèse stratégique — Saisonnalité par métier');
+      return analyseToSynthese(ins, '🎯 Synthèse stratégique — Saisonnalité par métier');
     })()}
 
     <div class="card mt-3">
@@ -5345,7 +5402,7 @@ function render_filiere() {
       const grow = filieres.filter(f => f.evol !== null && f.evol >= 0.10);
       if (decline.length > 0) ins.push({ type:'attention', constat:`<strong>${decline.length} filière(s) en décroissance</strong> : ${decline.map(f => f.meta.label + ' (' + (f.evol*100).toFixed(0) + '%)').join(', ')}.`, implication:`Signal sectoriel : à corréler avec les cycles de matière première / géopolitique / réglementation.`, action:`Investigation par filière en baisse — déterminer si c'est cyclique (à attendre) ou structurel (à arbitrer).` });
       if (grow.length > 0) ins.push({ type:'opportunite', constat:`<strong>${grow.length} filière(s) en croissance</strong> &gt; +10% : ${grow.map(f => f.meta.label + ' (+' + (f.evol*100).toFixed(0) + '%)').join(', ')}.`, implication:`Opportunités d'expansion sectorielle — capitaliser sur les filières porteuses.`, action:`Renforcer la prospection commerciale sur ces filières + plan de cross-sell sur les clients existants.` });
-      return analyse(ins, '🎯 Synthèse stratégique — Filières clients');
+      return analyseToSynthese(ins, '🎯 Synthèse stratégique — Filières clients');
     })()}
 
     <div class="card mt-3">
@@ -5476,7 +5533,7 @@ function render_corridor() {
       // Corridors en forte croissance
       const growing = corridors.filter(c => c.caN1 > 0 && (c.ca - c.caN1)/c.caN1 >= 0.20).sort((a,b) => ((b.ca-b.caN1)/b.caN1) - ((a.ca-a.caN1)/a.caN1));
       if (growing.length > 0) ins.push({ type:'opportunite', constat:`<strong>${growing.length} corridor(s) en forte croissance</strong> (≥+20%). Top : ${growing.slice(0,3).map(c => c.site + ' ↔ ' + c.filiere.label.replace(/^[^\s]+\s/, '')).join(', ')}.`, implication:`Corridors porteurs où renforcer l'effort commercial / opérationnel.`, action:`Prioriser les ressources et la prospection sur ces axes.` });
-      return analyse(ins, '🎯 Synthèse stratégique — Corridors logistiques');
+      return analyseToSynthese(ins, '🎯 Synthèse stratégique — Corridors logistiques');
     })()}
 
     <div class="card mt-3">
@@ -5582,7 +5639,7 @@ function render_strategie() {
       ins.push({ type:'neutre', constat:`<strong>${items.length} objectifs stratégiques suivis</strong>. Sur la période ${lbl.longue} : <strong>${onTrack}/${items.length} en avance ou conformes</strong>, <strong>${atRisk}/${items.length} en risque</strong> (écart &gt; 15%).`, implication:`Tableau de bord du contrat moral entre la Direction et les équipes — les écarts cumulés en cours d'année sont des signaux à exploiter avant fin d'année.`, action:`Revue trimestrielle COMEX du tableau. Réajuster les ambitions ou les leviers selon les écarts.` });
       const inRisk = items.filter(it => it.invert ? it.realise > it.attendu * 1.10 : it.realise < it.attendu * 0.85);
       if (inRisk.length > 0) ins.push({ type:'risque', constat:`Objectifs en risque : ${inRisk.map(it => '<strong>' + it.meta.label + '</strong>').join(', ')}.`, implication:`Sans correction, fin d'année probablement sous la cible. Il faut soit ajuster la cible, soit activer des leviers.`, action:`Plan d'actions correctrices à présenter en revue trimestrielle.` });
-      return analyse(ins, '🎯 Synthèse stratégique — Suivi des objectifs AGL');
+      return analyseToSynthese(ins, '🎯 Synthèse stratégique — Suivi des objectifs AGL');
     })()}
 
     <div class="alert-banner info mt-3">
