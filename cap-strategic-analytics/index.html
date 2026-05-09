@@ -2,7 +2,9 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="CAP Strategic Analytics - AGL Marketing & Strategy Intelligence Platform">
 <meta name="theme-color" content="#0A2540">
 <title>CAP Strategic Analytics — AGL</title>
@@ -961,9 +963,20 @@ body.is-mobile .app-main,
 body.is-mobile .app-sidebar,
 @media (max-width: 900px) {
   body:not(.is-desktop-forced) .app-sidebar {
-    position: fixed; top: var(--header-h); left: 0; bottom: 0; width: 260px;
+    position: fixed; top: var(--header-h); left: 0;
+    /* Largeur : 220px par défaut, mais jamais plus de 75% de l'écran (smartphones étroits) */
+    width: 220px; max-width: 75vw;
+    /* Hauteur : utilise calc fixe au lieu de bottom:0 — plus fiable sur iOS Safari
+       où la barre d'adresse fait varier le viewport height */
+    height: calc(100vh - var(--header-h));
+    height: calc(100dvh - var(--header-h));  /* dvh = dynamic viewport, gère barre Safari */
     z-index: 90; transform: translateX(-100%); transition: transform 0.25s ease;
     box-shadow: 4px 0 16px rgba(0,0,0,0.15);
+    /* Scroll touch fluide iOS */
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
+    /* Évite les sélections accidentelles au swipe iOS */
+    -webkit-user-select: none;
   }
 }
 body.is-mobile .app-sidebar.mobile-open,
@@ -973,8 +986,13 @@ body.is-mobile .app-sidebar.mobile-open,
 body.is-mobile.mobile-drawer-open::after,
 @media (max-width: 900px) {
   body.mobile-drawer-open::after {
-    content:''; position: fixed; inset: var(--header-h) 0 0 0;
+    content:''; position: fixed;
+    top: var(--header-h); left: 0; right: 0;
+    /* Hauteur fiable iOS Safari + Android */
+    height: calc(100vh - var(--header-h));
+    height: calc(100dvh - var(--header-h));
     background: rgba(10,37,64,0.5); z-index: 85;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 body.is-mobile .btn-menu-mobile,
@@ -3036,24 +3054,30 @@ function attachEvents() {
   });
 
   // ===== Menu burger mobile : ouvre/ferme la sidebar drawer =====
+  // Géré sur 'click' ET 'touchend' pour fiabilité iOS Safari
   const btnMenu = document.getElementById('btn-menu-mobile');
   if (btnMenu) {
-    btnMenu.addEventListener('click', () => {
+    const toggleDrawer = (e) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
       const sidebar = document.querySelector('.app-sidebar');
       if (!sidebar) return;
       const willOpen = !sidebar.classList.contains('mobile-open');
       sidebar.classList.toggle('mobile-open', willOpen);
       document.body.classList.toggle('mobile-drawer-open', willOpen);
-    });
+    };
+    btnMenu.addEventListener('click', toggleDrawer);
+    btnMenu.addEventListener('touchend', toggleDrawer);
   }
-  // Ferme le drawer mobile quand on clique sur le voile
-  document.addEventListener('click', (e) => {
+  // Ferme le drawer mobile quand on tape sur le voile (en dehors du sidebar)
+  // Handle touchstart pour réactivité immédiate sur iOS
+  const closeDrawerHandler = (e) => {
     if (!document.body.classList.contains('mobile-drawer-open')) return;
-    // Si clic en dehors du sidebar et du bouton burger
     if (e.target.closest('.app-sidebar') || e.target.closest('#btn-menu-mobile')) return;
     document.querySelector('.app-sidebar')?.classList.remove('mobile-open');
     document.body.classList.remove('mobile-drawer-open');
-  });
+  };
+  document.addEventListener('click', closeDrawerHandler);
+  document.addEventListener('touchstart', closeDrawerHandler, { passive: true });
   // Ferme le drawer après navigation (clic sur un nav-item)
   document.addEventListener('click', (e) => {
     if (e.target.closest('.nav-item')) {
