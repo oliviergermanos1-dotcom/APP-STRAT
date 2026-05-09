@@ -3537,8 +3537,10 @@ async function exportInteractiveHTML() {
     await new Promise(resolve => setTimeout(resolve, 50));  // laisse le DOM rafraîchir le bouton
 
     // 2. Sérialiser les données (sans Date, recalculé au chargement)
+    // RGPD : strip également l'ID interne IRIS (pseudo-identifiant non
+    // utilisé pour l'analyse — minimisation des données art. 5.1.c).
     const factSerializable = APP.data.fact.map(r => {
-      const { DATE, ...rest } = r;  // strip Date object (recréé au chargement)
+      const { DATE, ID, ...rest } = r;
       return rest;
     });
     const meta = {
