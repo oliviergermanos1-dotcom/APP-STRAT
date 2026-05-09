@@ -1890,6 +1890,55 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 const CALC = {};
 
+// ============= MATHEMATICAL SAFETY HELPERS =============
+// Garde-fous contre NaN / null / Infinity (audit math expert mai 2026)
+const _isFiniteNum = v => typeof v === 'number' && isFinite(v);
+const _safeNum = (v, fallback = 0) => _isFiniteNum(v) ? v : fallback;
+const _safeDiv = (a, b, fallback = 0) => (_isFiniteNum(a) && _isFiniteNum(b) && b !== 0) ? a / b : fallback;
+const _safeLog = (v, fallback = 0) => (_isFiniteNum(v) && v > 0) ? Math.log(v) : fallback;
+const _safeMax = (arr) => arr.reduce((m, v) => (_isFiniteNum(v) && v > m) ? v : m, -Infinity);
+const _safeMin = (arr) => arr.reduce((m, v) => (_isFiniteNum(v) && v < m) ? v : m, Infinity);
+const _clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, _safeNum(v, lo)));
+
+// Percentile from a sorted ascending array (linear interpolation)
+const _percentile = (sorted, p) => {
+  if (!sorted || !sorted.length) return 0;
+  const idx = (sorted.length - 1) * _clamp(p, 0, 1);
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  if (lo === hi) return _safeNum(sorted[lo]);
+  return _safeNum(sorted[lo]) + (_safeNum(sorted[hi]) - _safeNum(sorted[lo])) * (idx - lo);
+};
+
+// IQR (Interquartile Range) bounds for outlier-resistant capping
+// Returns { q1, q3, iqr, lo, hi } where lo/hi = Q1/Q3 ± multiplier·IQR
+const _iqrBounds = (values, multiplier = 1.5) => {
+  const sorted = values.filter(_isFiniteNum).sort((a, b) => a - b);
+  if (sorted.length < 4) {
+    const min = sorted[0] || 0, max = sorted[sorted.length - 1] || 0;
+    return { q1: min, q3: max, iqr: max - min, lo: min, hi: max };
+  }
+  const q1 = _percentile(sorted, 0.25);
+  const q3 = _percentile(sorted, 0.75);
+  const iqr = q3 - q1;
+  return { q1, q3, iqr, lo: q1 - multiplier * iqr, hi: q3 + multiplier * iqr };
+};
+
+// Z-score robuste basé sur la médiane et MAD (Median Absolute Deviation)
+// Plus résistant aux outliers que (x - mean) / std
+const _robustZ = (value, sortedValues) => {
+  if (!sortedValues.length || !_isFiniteNum(value)) return 0;
+  const median = _percentile(sortedValues, 0.5);
+  const deviations = sortedValues.map(v => Math.abs(v - median)).sort((a,b) => a - b);
+  const mad = _percentile(deviations, 0.5) || 1;
+  return _safeDiv(value - median, 1.4826 * mad);
+};
+
+// Expose pour usage externe (debug, autres modules)
+CALC._safeNum = _safeNum;
+CALC._safeDiv = _safeDiv;
+CALC._iqrBounds = _iqrBounds;
+CALC._percentile = _percentile;
+
 // ============= MESURES DE BASE =============
 CALC.cap = (rows) => rows.reduce((s, r) => s + (r.MONTANT || 0), 0);
 
@@ -2080,28 +2129,53 @@ CALC.aggregateByClient = (rows, allRows, currentYear) => {
 };
 
 // ============= SEGMENTATION =============
+// Pré-calcul des stats du portefeuille — version IQR-robuste (audit math expert).
+// Utilise des bornes IQR (P75 + 1.5×IQR) au lieu du max absolu pour éviter
+// qu'un seul outlier (méga-client unique) ne tire toute la normalisation.
+// Cela rend le scoring stable même en présence d'1-2 clients géants.
 CALC.precomputeStats = (all) => {
-  let maxCA = 0, maxLib = 0, maxAnc = 0;
-  all.forEach(c => {
-    if (c.CA_N > maxCA) maxCA = c.CA_N;
-    if (c.nbLibelles > maxLib) maxLib = c.nbLibelles;
-    const anc = 2026 - c.firstYear + 1;
-    if (anc > maxAnc) maxAnc = anc;
-  });
-  return { maxCA, maxLib: Math.max(maxLib, 1), maxAnc: Math.max(maxAnc, 1) };
+  const REF_YEAR = (typeof APP !== 'undefined' && APP.filters && APP.filters.ANNEE) ? APP.filters.ANNEE : 2026;
+  const caValues = all.map(c => _safeNum(c.CA_N)).filter(v => v > 0);
+  const libValues = all.map(c => _safeNum(c.nbLibelles)).filter(v => v > 0);
+  const ancValues = all.map(c => _safeNum(REF_YEAR - c.firstYear + 1)).filter(v => v > 0);
+
+  const caBounds = _iqrBounds(caValues);
+  const libBounds = _iqrBounds(libValues);
+  const ancBounds = _iqrBounds(ancValues);
+
+  // Cap = upper IQR bound (robuste aux outliers), avec plancher minimum à 1
+  // pour éviter divisions par 0 dans scoreClient.
+  return {
+    maxCA: Math.max(caBounds.hi, 1),
+    maxLib: Math.max(libBounds.hi, 1),
+    maxAnc: Math.max(ancBounds.hi, 1),
+    // Stats détaillées (debug & analyses futures)
+    caQ1: caBounds.q1, caQ3: caBounds.q3, caIQR: caBounds.iqr,
+    absMaxCA: _safeMax(caValues),
+    absMaxLib: _safeMax(libValues),
+    absMaxAnc: _safeMax(ancValues),
+    nClients: caValues.length
+  };
 };
 
+// Score client 0-100 — version IQR-capped & garde-fous numériques.
+// Composite : Taille (25%) · Croissance (25%) · Régularité (20%) · Diversité (15%) · Ancienneté (15%)
 CALC.scoreClient = (client, stats) => {
+  if (!client || !stats) return 0;
   const { maxCA, maxLib, maxAnc } = stats;
-  
-  // Score Taille (log-normalisé)
-  const sTaille = client.CA_N > 0 && maxCA > 0
-    ? Math.log(client.CA_N + 1) / Math.log(maxCA + 1) * 20
+  const REF_YEAR = (typeof APP !== 'undefined' && APP.filters && APP.filters.ANNEE) ? APP.filters.ANNEE : 2026;
+
+  // Score Taille — log-normalisé avec capping IQR (le client est plafonné à maxCA
+  // pour éviter qu'un méga-client unique ne soit le seul à 100 et écrase tous les autres)
+  const caRaw = _safeNum(client.CA_N);
+  const caCapped = Math.min(Math.max(caRaw, 0), maxCA);
+  const sTaille = (caCapped > 0 && maxCA > 0)
+    ? _safeDiv(_safeLog(caCapped + 1), _safeLog(maxCA + 1)) * 20
     : 0;
-  
-  // Score Croissance
+
+  // Score Croissance — paliers métier (inchangé, fonctionne bien)
   let sCroissance = 10;
-  if (client.evol !== null) {
+  if (client.evol !== null && _isFiniteNum(client.evol)) {
     if (client.evol >= 0.50) sCroissance = 20;
     else if (client.evol >= 0.20) sCroissance = 17;
     else if (client.evol >= 0.10) sCroissance = 14;
@@ -2110,20 +2184,23 @@ CALC.scoreClient = (client, stats) => {
     else if (client.evol >= -0.20) sCroissance = 4;
     else sCroissance = 1;
   }
-  
+
   // Score Régularité (mois actifs sur 12 max)
-  const sRegularite = Math.min(client.nbMois, 12) / 12 * 20;
-  
-  // Score Diversité
-  const sDiversite = client.nbLibelles / maxLib * 20;
-  
-  // Score Ancienneté
-  const ancienneteClient = 2026 - client.firstYear + 1;
-  const sAnciennete = Math.min(ancienneteClient / maxAnc, 1) * 20;
-  
-  // Composite (sur 100)
+  const sRegularite = _clamp(_safeNum(client.nbMois), 0, 12) / 12 * 20;
+
+  // Score Diversité — capping IQR sur nbLibelles
+  const libRaw = _safeNum(client.nbLibelles);
+  const libCapped = Math.min(libRaw, maxLib);
+  const sDiversite = _safeDiv(libCapped, maxLib) * 20;
+
+  // Score Ancienneté — capping IQR sur ancienneté
+  const ancRaw = client.firstYear ? _safeNum(REF_YEAR - client.firstYear + 1) : 0;
+  const ancCapped = Math.min(ancRaw, maxAnc);
+  const sAnciennete = _clamp(_safeDiv(ancCapped, maxAnc), 0, 1) * 20;
+
+  // Composite pondéré (somme = 100 max théorique)
   const score = sTaille * 1.25 + sCroissance * 1.25 + sRegularite * 1.0 + sDiversite * 0.75 + sAnciennete * 0.75;
-  return Math.round(score);
+  return _clamp(Math.round(_safeNum(score)), 0, 100);
 };
 
 CALC.tier = (score) => {
@@ -3410,7 +3487,33 @@ function switchPage(id) {
 function renderCurrentPage() {
   const id = APP.currentPage;
   const fn = window['render_' + id];
-  if (typeof fn === 'function') fn();
+  if (typeof fn !== 'function') return;
+  // Garde-fou : capture toute erreur de calcul ou de rendu pour
+  // éviter de planter l'app entière. L'utilisateur voit un message
+  // élégant et peut continuer à naviguer dans les autres pages.
+  try {
+    fn();
+  } catch (err) {
+    console.error('[CAP] Erreur de rendu page', id, err);
+    const el = document.getElementById('page-' + id);
+    if (el) {
+      const errMsg = (err && err.message) ? err.message : String(err);
+      const errStack = (err && err.stack) ? err.stack.split('\n').slice(0, 4).join('\n') : '';
+      el.innerHTML = `
+        <div class="card mt-3" style="border:2px solid var(--evol-strong-dn);">
+          <div class="card-header"><div class="card-title" style="color:var(--evol-strong-dn);">⚠ Erreur de rendu sur cette page</div></div>
+          <div class="card-body">
+            <p style="margin:0 0 12px 0;">Une erreur est survenue lors du calcul ou de l'affichage de cette page. Les autres pages restent fonctionnelles.</p>
+            <pre style="background:var(--grey-50);padding:12px;border-radius:6px;font-size:11px;overflow:auto;max-height:200px;color:var(--grey-700);">${errMsg.replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;')}${errStack ? '\n\n' + errStack.replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;') : ''}</pre>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <button class="btn-primary" onclick="renderCurrentPage()">↻ Réessayer</button>
+              <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-page=&quot;cockpit&quot;]')?.click()">Retour au Cockpit</button>
+            </div>
+            <p style="font-size:11px;color:var(--grey-500);margin:12px 0 0 0;font-style:italic;">Ouvre la console du navigateur (F12) pour plus de détails techniques. Si l'erreur persiste, essaie de modifier les filtres ou recharge la page.</p>
+          </div>
+        </div>`;
+    }
+  }
 }
 
 // ============================================================
