@@ -937,16 +937,107 @@ table.data tr.highlight { background: var(--gold-50); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Responsive */
+/* ============================================================
+   RESPONSIVE — Mobile (Android / iOS) & Tablette
+   ============================================================ */
+
+/* Tablette / petit desktop */
 @media (max-width: 1100px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
   .grid-5 { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Bouton menu mobile (hamburger) — affiché uniquement < 900px */
+.btn-menu-mobile { display: none; }
+
+/* Tablette portrait + mobile <= 900px */
+@media (max-width: 900px) {
+  /* Layout : sidebar devient un drawer hors-écran, slidé via classe .open */
+  .app-main { grid-template-columns: 1fr; position: relative; }
+  .app-sidebar {
+    position: fixed; top: var(--header-h); left: 0; bottom: 0; width: 260px;
+    z-index: 90; transform: translateX(-100%); transition: transform 0.25s ease;
+    box-shadow: 4px 0 16px rgba(0,0,0,0.15);
+  }
+  .app-sidebar.mobile-open { transform: translateX(0); }
+  /* Voile semi-transparent quand drawer ouvert */
+  body.mobile-drawer-open::after {
+    content:''; position: fixed; inset: var(--header-h) 0 0 0;
+    background: rgba(10,37,64,0.4); z-index: 80;
+  }
+  /* Bouton burger visible */
+  .btn-menu-mobile {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.20);
+    color: white; width: 38px; height: 38px; border-radius: 6px; cursor: pointer;
+    font-size: 18px; padding: 0; margin-right: 8px;
+  }
+  /* Header : titre raccourci, certains boutons cachés (gardés pour desktop) */
+  .app-title { margin-left: 12px; }
+  .app-title-main { font-size: 14px; }
+  .app-title-sub { display: none; }
+  .header-actions { gap: 6px; }
+  .btn-header { padding: 7px 10px; font-size: 11px; }
+  .btn-header span:not(:first-child) { display: none; }   /* raccourcir intitulé long */
+  /* Slicers : passe en scroll horizontal pour préserver tous les filtres */
+  .slicer-bar {
+    height: auto; padding: 10px 12px; gap: 10px;
+    overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .slicer { flex-shrink: 0; }
+  .slicer select, .slicer input { min-width: 110px; }
+  /* Content : padding réduit */
+  .app-content { padding: 12px; }
+  /* Cards : plus compactes */
+  .card-body { padding: 14px; }
+  .card-header { padding: 10px 14px; }
+  /* KPI : taille de police réduite */
+  .kpi { padding: 14px; }
+  .kpi-value { font-size: 22px; }
+  .kpi-value.small { font-size: 18px; }
+  /* Tables : maintien de scroll horizontal natif */
+  .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.data { font-size: 11px; min-width: 800px; }
+  table.data th, table.data td { padding: 8px 10px; }
+  /* Modal client : prend tout l'écran sur mobile */
+  #client-modal {
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+  #client-modal > div {
+    border-radius: 0 !important;
+    max-width: 100% !important;
+    height: 100vh;
+  }
+  #client-modal-body { max-height: calc(100vh - 60px) !important; padding: 14px !important; }
+  /* Synthèse : marge réduite */
+  .page-header { padding: 12px 0; }
+}
+
+/* Mobile pur ≤ 768px : grilles à 1 colonne sur tout */
 @media (max-width: 768px) {
-  .grid-4, .grid-3, .grid-2, .grid-2-1, .grid-1-2 { grid-template-columns: 1fr; }
-  .app-main { grid-template-columns: 1fr; }
-  .app-sidebar { display: none; }
+  .grid-4, .grid-3, .grid-2, .grid-2-1, .grid-1-2, .grid-5 { grid-template-columns: 1fr; }
+  /* Synthèse : grille vigilance/leviers sur 1 colonne */
+  .app-content [style*="grid-template-columns:1fr 1fr"] { grid-template-columns: 1fr !important; }
+  /* En-tête briefing : pile vertical au lieu de 2 colonnes */
+  .app-content [style*="justify-content:space-between"][style*="align-items:flex-end"] {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+}
+
+/* Très petit mobile ≤ 480px */
+@media (max-width: 480px) {
+  .app-title-main { font-size: 12px; letter-spacing: 0.5px; }
+  .btn-header { padding: 6px 8px; font-size: 10px; }
+  .btn-header.gold { padding: 6px 10px; }
+  .kpi-value { font-size: 20px; }
+  .card-title { font-size: 13px; }
+  .page-title { font-size: 18px; }
+  .app-content { padding: 8px; }
 }
 
 /* Print */
@@ -2004,6 +2095,7 @@ function buildApp() {
   const app = document.getElementById('app');
   app.innerHTML = `
     <header class="app-header">
+      <button class="btn-menu-mobile" id="btn-menu-mobile" aria-label="Ouvrir le menu" title="Ouvrir le menu">☰</button>
       <div class="app-logo">
         <div class="app-logo-mark">CAP</div>
         <span style="font-family:var(--font-display);font-weight:900;letter-spacing:2px;">AGL</span>
@@ -2749,6 +2841,33 @@ function attachEvents() {
   document.getElementById('btn-reload').addEventListener('click', () => {
     if (confirm('Recharger un nouveau fichier ? Les données actuelles seront effacées.')) {
       location.reload();
+    }
+  });
+
+  // ===== Menu burger mobile : ouvre/ferme la sidebar drawer =====
+  const btnMenu = document.getElementById('btn-menu-mobile');
+  if (btnMenu) {
+    btnMenu.addEventListener('click', () => {
+      const sidebar = document.querySelector('.app-sidebar');
+      if (!sidebar) return;
+      const willOpen = !sidebar.classList.contains('mobile-open');
+      sidebar.classList.toggle('mobile-open', willOpen);
+      document.body.classList.toggle('mobile-drawer-open', willOpen);
+    });
+  }
+  // Ferme le drawer mobile quand on clique sur le voile
+  document.addEventListener('click', (e) => {
+    if (!document.body.classList.contains('mobile-drawer-open')) return;
+    // Si clic en dehors du sidebar et du bouton burger
+    if (e.target.closest('.app-sidebar') || e.target.closest('#btn-menu-mobile')) return;
+    document.querySelector('.app-sidebar')?.classList.remove('mobile-open');
+    document.body.classList.remove('mobile-drawer-open');
+  });
+  // Ferme le drawer après navigation (clic sur un nav-item)
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.nav-item')) {
+      document.querySelector('.app-sidebar')?.classList.remove('mobile-open');
+      document.body.classList.remove('mobile-drawer-open');
     }
   });
 }
