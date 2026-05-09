@@ -2493,31 +2493,104 @@ function applyFilters() {
   for (const name in allClientFirstKey) {
     if (allClientFirstKey[name] < periodStartKey) preExistingNames.push(name);
   }
-  // Helper : détecte si un "vrai nouveau" a un nom proche d'un client pré-existant
-  // (recouvrement de mots significatifs ≥ 50% OU sous-chaîne contenant le nom court)
+  // ============================================================
+  // FUZZY MATCHING MULTI-ALGORITHME — détection robuste de doublons
+  // (variations orthographiques, abréviations, suffixes juridiques...)
+  // Niveau cabinet international : combine 5 algorithmes pondérés.
+  // ============================================================
+  const STOPWORDS = ['SARL','SA','SAS','SARLU','LTD','INC','CORP','CORPORATION','CIE','COMPAGNIE','GROUPE','GROUP','COMPANY','HOLDING','COTE','IVOIRE','AFRICA','AFRIQUE','OUEST','WEST','EAST','EST','NORD','SUD','SOUTH','NORTH','THE','LE','LA','LES','DE','DU','DES','ET','AND','SOCIETE','SOCIÉTÉ','ENTREPRISE','SI','CI','SARLU','SUARL'];
+  const tokenize = (s) => s.toUpperCase().split(/[\s\-_,\.\/&'"\(\)]+/).filter(w => w.length >= 3 && !STOPWORDS.includes(w));
+  // Distance de Levenshtein (limitée pour perf)
+  function levenshtein(a, b, maxDist) {
+    if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
+    const dp = Array(b.length + 1).fill(0).map((_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      let prev = i;
+      let minRow = i;
+      for (let j = 1; j <= b.length; j++) {
+        const cur = a[i-1] === b[j-1] ? dp[j-1] : 1 + Math.min(dp[j-1], dp[j], prev);
+        dp[j-1] = prev;
+        prev = cur;
+        if (cur < minRow) minRow = cur;
+      }
+      dp[b.length] = prev;
+      if (minRow > maxDist) return maxDist + 1;
+    }
+    return dp[b.length];
+  }
+
   function findHistoricalNameMatch(newName) {
     if (!newName || preExistingNames.length === 0) return null;
     const upper = newName.toUpperCase();
-    const myWords = upper.split(/[\s\-_,\.\/]+/).filter(w => w.length >= 4 && !['SARL','SA','SAS','LTD','INC','CORP','GROUPE','GROUP','COMPANY','COTE','IVOIRE','AFRICA','AFRIQUE','OUEST','WEST'].includes(w));
-    if (myWords.length === 0) return null;
-    let best = null, bestScore = 0;
+    const myWords = tokenize(newName);
+    const myCompact = upper.replace(/\s+/g, '');
+    const myFirstWord = myWords[0] || '';
+    const matches = [];
+
     for (const other of preExistingNames) {
       const otherUpper = other.toUpperCase();
-      const otherWords = otherUpper.split(/[\s\-_,\.\/]+/).filter(w => w.length >= 4 && !['SARL','SA','SAS','LTD','INC','CORP','GROUPE','GROUP','COMPANY','COTE','IVOIRE','AFRICA','AFRIQUE','OUEST','WEST'].includes(w));
+      const otherWords = tokenize(other);
       if (otherWords.length === 0) continue;
-      // Score : nombre de mots significatifs partagés / min(longueurs)
-      const shared = myWords.filter(w => otherWords.includes(w)).length;
-      const minLen = Math.min(myWords.length, otherWords.length);
-      const score = shared / minLen;
-      // Bonus si l'un contient l'autre comme sous-chaîne
-      const contains = (myWords.length === 1 && otherUpper.indexOf(myWords[0]) !== -1) ||
-                       (otherWords.length === 1 && upper.indexOf(otherWords[0]) !== -1);
-      if ((score >= 0.5 || contains) && shared >= 1 && score > bestScore) {
-        bestScore = score;
-        best = other;
+      const otherCompact = otherUpper.replace(/\s+/g, '');
+      let score = 0, reason = '';
+
+      // ===== 1. RECOUVREMENT DE MOTS SIGNIFICATIFS (Jaccard) =====
+      const shared = myWords.filter(w => otherWords.includes(w));
+      if (shared.length > 0) {
+        const minLen = Math.min(myWords.length, otherWords.length);
+        const ratio = shared.length / minLen;
+        if (ratio > score) { score = ratio; reason = `Mots communs : ${shared.join(', ')}`; }
       }
+
+      // ===== 2. PREFIX MATCHING strict (5+ premiers caractères identiques) =====
+      // Capture ADIALEA ≈ ADIALIA, OLAM ≈ OLAMCI, SITAB ≈ SITABCI, etc.
+      let prefixLen = 0;
+      const minLen = Math.min(myCompact.length, otherCompact.length);
+      while (prefixLen < minLen && myCompact[prefixLen] === otherCompact[prefixLen]) prefixLen++;
+      if (prefixLen >= 5) {
+        const prefixRatio = prefixLen / Math.min(myCompact.length, otherCompact.length);
+        if (prefixRatio >= 0.5 && prefixRatio > score) { score = prefixRatio; reason = `Préfixe commun : "${myCompact.slice(0, prefixLen)}"`; }
+      }
+
+      // ===== 3. PREMIER MOT SIGNIFICATIF identique ou très proche =====
+      // Capture les variantes "SITAB CI" / "SITAB INDUSTRIES SI" / "SITAB SARL"
+      const otherFirstWord = otherWords[0] || '';
+      if (myFirstWord && otherFirstWord) {
+        if (myFirstWord === otherFirstWord) {
+          if (0.7 > score) { score = 0.7; reason = `Premier mot identique : "${myFirstWord}"`; }
+        } else if (myFirstWord.length >= 5 && otherFirstWord.length >= 5) {
+          const dist = levenshtein(myFirstWord, otherFirstWord, 2);
+          if (dist <= 1 && 0.65 > score) {
+            score = 0.65; reason = `Premier mot très proche : "${myFirstWord}" ≈ "${otherFirstWord}"`;
+          }
+        }
+      }
+
+      // ===== 4. SOUS-CHAÎNE : le nom court est inclus dans le nom long =====
+      if (myWords.length === 1 && myFirstWord.length >= 4 && otherUpper.indexOf(myFirstWord) !== -1) {
+        if (0.65 > score) { score = 0.65; reason = `"${myFirstWord}" contenu dans "${other}"`; }
+      }
+      if (otherWords.length === 1 && otherFirstWord.length >= 4 && upper.indexOf(otherFirstWord) !== -1) {
+        if (0.65 > score) { score = 0.65; reason = `"${otherFirstWord}" contenu dans "${newName}"`; }
+      }
+
+      // ===== 5. LEVENSHTEIN sur la version compacte (pour fautes de frappe) =====
+      // Tolère 1-2 caractères de différence sur les noms de longueur 6+
+      if (myCompact.length >= 6 && otherCompact.length >= 6) {
+        const maxAllowed = Math.min(2, Math.floor(Math.min(myCompact.length, otherCompact.length) / 5));
+        const dist = levenshtein(myCompact, otherCompact, maxAllowed);
+        if (dist <= maxAllowed) {
+          const r = 1 - dist / Math.max(myCompact.length, otherCompact.length);
+          if (r > score) { score = r; reason = `Très proche orthographiquement (${dist} caractères de diff)`; }
+        }
+      }
+
+      if (score >= 0.5) matches.push({ name: other, score, reason });
     }
-    return best;
+
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b.score - a.score);
+    return matches[0];   // objet { name, score, reason }
   }
 
   // Enrichir avec score, tier, quadrant + historique strict
@@ -2611,13 +2684,19 @@ function applyFilters() {
     c.isShortHiatus = c.CA_N > 0 && hadHistory && !c.activeInLookback && c.activeInLookback36;
     c.isTrueLost    = c.CA_N === 0 && c.monthsSinceLastTx !== null && c.monthsSinceLastTx > 9;
 
-    // Détection de doublon probable : pour un "vrai nouveau", recherche un nom
-    // historique proche (variation orthographique de la même entité ?).
-    // Si trouvé : c.suspectedDuplicate = nom historique proche (à vérifier).
+    // Détection de doublon probable. Si trouvé → reclassification automatique :
+    //   isTrueNew passe à FALSE (pas un vrai nouveau)
+    //   isToVerify passe à TRUE (à vérifier auprès du KAM / facturation)
+    // Garde les détails du match dans c.suspectedDuplicate pour affichage.
+    c.suspectedDuplicate = null;
+    c.isToVerify = false;
     if (c.isTrueNew) {
-      c.suspectedDuplicate = findHistoricalNameMatch(c.CLIENT);
-    } else {
-      c.suspectedDuplicate = null;
+      const match = findHistoricalNameMatch(c.CLIENT);
+      if (match) {
+        c.suspectedDuplicate = match;  // { name, score, reason }
+        c.isToVerify = true;
+        c.isTrueNew = false;            // RECLASSIFICATION : ne plus compter comme vrai nouveau
+      }
     }
 
     // Métier historique dominant (par CAP cumulé sur l'historique avant période)
@@ -3942,23 +4021,27 @@ function render_cockpit() {
         <div class="card-body">
           ${(() => {
             const trueNewList = APP.clientsAgg.filter(c => c.isTrueNew);
+            const toVerifyList = APP.clientsAgg.filter(c => c.isToVerify);
             const reactivatedList = APP.clientsAgg.filter(c => c.isReactivated);
             const trueNewCA = trueNewList.reduce((s,c) => s + (c.CA_N || 0), 0);
+            const toVerifyCA = toVerifyList.reduce((s,c) => s + (c.CA_N || 0), 0);
             const reactivatedCA = reactivatedList.reduce((s,c) => s + (c.CA_N || 0), 0);
             const totalCA = APP.clientsAgg.reduce((s,c) => s + (c.CA_N || 0), 0);
             const pctTrueNew = totalCA > 0 ? trueNewCA / totalCA : 0;
+            const pctToVerify = totalCA > 0 ? toVerifyCA / totalCA : 0;
             const pctReact = totalCA > 0 ? reactivatedCA / totalCA : 0;
             const lbl = periodLabel();
             return `
               <div class="kpi-value gold" style="font-size:36px;">${fmt.pct(pctTrueNew)}</div>
-              <div class="kpi-bench">part du CA <strong>${lbl.longue}</strong> réalisée par des clients dont c'est la <strong>toute 1ʳᵉ facture jamais émise</strong></div>
+              <div class="kpi-bench">part du CA <strong>${lbl.longue}</strong> réalisée par des <strong>vrais nouveaux clients confirmés</strong> (haute confiance, sans doublon probable)</div>
               <div class="divider"></div>
-              <div class="text-sm" style="line-height:1.7;">
-                <div><strong style="color:var(--gold-700);">${trueNewList.length}</strong> vrais nouveaux clients <span class="text-muted">(aucun historique de facturation avant la période)</span></div>
-                <div><strong style="color:var(--evol-new);">${reactivatedList.length}</strong> clients réactivés <span class="text-muted">(${fmt.pct(pctReact)} du CA — facturaient avant ${APP.filters.ANNEE - 3}, absents <strong>≥ 36 mois</strong>, reviennent maintenant)</span></div>
+              <div class="text-sm" style="line-height:1.8;">
+                <div>🌟 <strong style="color:var(--gold-700);">${trueNewList.length}</strong> vrais nouveaux clients <span class="text-muted">(${fmt.pct(pctTrueNew)} du CA — aucun historique, aucun doublon détecté)</span></div>
+                <div>🔍 <strong style="color:var(--evol-down);">${toVerifyList.length}</strong> clients à vérifier <span class="text-muted">(${fmt.pct(pctToVerify)} du CA — nom proche d'un client existant : doublon ou cross-sell réel)</span></div>
+                <div>♻ <strong style="color:var(--evol-new);">${reactivatedList.length}</strong> clients réactivés <span class="text-muted">(${fmt.pct(pctReact)} du CA — facturaient avant ${APP.filters.ANNEE - 3}, absents ≥ 36 mois)</span></div>
               </div>
-              <div class="text-sm text-muted" style="margin-top:8px;font-style:italic;">📐 Fenêtre de vérification 36 mois : <strong>${lookback36Label()}</strong> — aucune activité dans cette fenêtre = "long-dormant" ou "vrai nouveau"</div>
-              <a href="#cockpit-new-clients-table" onclick="document.querySelector('#cockpit-new-clients-table')?.scrollIntoView({behavior:'smooth',block:'start'});return false;" style="display:block;margin-top:14px;padding:10px 14px;background:linear-gradient(135deg,var(--gold-500),var(--gold-300));color:var(--navy-900);font-weight:700;font-size:13px;text-align:center;text-decoration:none;border-radius:6px;cursor:pointer;letter-spacing:0.3px;box-shadow:0 2px 6px rgba(212,162,78,0.3);">📋 Voir la liste détaillée des ${trueNewList.length + reactivatedList.length} clients (en bas de page) ↓</a>
+              <div class="text-sm text-muted" style="margin-top:8px;font-style:italic;">📐 Fenêtre 36 mois : <strong>${lookback36Label()}</strong> — l'algorithme de matching combine 5 critères (préfixe, mots, sous-chaîne, premier mot, Levenshtein)</div>
+              <a href="#cockpit-new-clients-table" onclick="document.querySelector('#cockpit-new-clients-table')?.scrollIntoView({behavior:'smooth',block:'start'});return false;" style="display:block;margin-top:14px;padding:10px 14px;background:linear-gradient(135deg,var(--gold-500),var(--gold-300));color:var(--navy-900);font-weight:700;font-size:13px;text-align:center;text-decoration:none;border-radius:6px;cursor:pointer;letter-spacing:0.3px;box-shadow:0 2px 6px rgba(212,162,78,0.3);">📋 Voir les 3 listes détaillées (${trueNewList.length + toVerifyList.length + reactivatedList.length} clients) ↓</a>
             `;
           })()}
         </div>
@@ -3966,62 +4049,92 @@ function render_cockpit() {
     </div>
 
     ${(() => {
-      // Tableau détaillé : Vrais nouveaux clients + Réactivés
+      // 3 listes distinctes après reclassification automatique :
+      //  - Vrais nouveaux confirmés (haute confiance)
+      //  - À vérifier (doublon probable détecté)
+      //  - Réactivés (déjà clients, absents ≥ 36 mois)
       const trueNewList = [...APP.clientsAgg].filter(c => c.isTrueNew).sort((a,b) => b.CA_N - a.CA_N);
+      const toVerifyList = [...APP.clientsAgg].filter(c => c.isToVerify).sort((a,b) => b.CA_N - a.CA_N);
       const reactList = [...APP.clientsAgg].filter(c => c.isReactivated).sort((a,b) => b.CA_N - a.CA_N);
       const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
-      if (trueNewList.length === 0 && reactList.length === 0) return '';
+      if (trueNewList.length === 0 && toVerifyList.length === 0 && reactList.length === 0) return '';
+
+      const renderClientRow = (c, i, withMatch) => `<tr>
+        <td class="text-muted">${i+1}</td>
+        <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
+        <td class="text-sm">${c.METIER || '—'}</td>
+        <td>${formatLibelles(c)}</td>
+        <td class="num">${fmt.money(c.CA_N)}</td>
+        ${withMatch && c.suspectedDuplicate ? `<td class="text-sm"><strong style="color:var(--evol-down);">≈ ${c.suspectedDuplicate.name}</strong><br><span class="text-muted" style="font-size:10px;">${c.suspectedDuplicate.reason} · score ${(c.suspectedDuplicate.score * 100).toFixed(0)}%</span></td>` : ''}
+        <td class="text-sm">${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</td>
+      </tr>`;
+
       return `
-      <div id="cockpit-new-clients-table" class="grid grid-2 mt-3" style="scroll-margin-top:80px;">
-        <div class="card">
+      <div id="cockpit-new-clients-table" style="scroll-margin-top:80px;">
+
+        <!-- SECTION 1 : VRAIS NOUVEAUX CONFIRMÉS -->
+        <div class="card mt-3" style="border-left:4px solid var(--gold-500);">
           <div class="card-header">
-            <div class="card-title" style="color:var(--gold-700);">🆕 Vrais nouveaux clients</div>
-            <div class="text-sm text-muted">${trueNewList.length} clients — 1ʳᵉ facture jamais émise dans la base — triés par CAP. ${trueNewList.filter(c => c.suspectedDuplicate).length > 0 ? `<span style="color:var(--evol-down);">⚠ ${trueNewList.filter(c => c.suspectedDuplicate).length} potentiels doublons (variations de raison sociale)</span>` : ''}</div>
+            <div class="card-title" style="color:var(--gold-700);">🌟 Vrais nouveaux clients confirmés <span style="font-size:11px;font-weight:400;color:var(--grey-500);text-transform:none;letter-spacing:0;">(haute confiance)</span></div>
+            <div class="text-sm text-muted">${trueNewList.length} clients · 1ʳᵉ facture jamais émise dans la base ET aucun doublon orthographique détecté · triés par CAP</div>
           </div>
           <div class="card-body" style="padding:0;">
-            <div class="tbl-wrap" style="max-height:380px;">
+            <div class="tbl-wrap" style="max-height:420px;">
               <table class="data">
-                <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture</th><th>Vérification</th></tr></thead>
+                <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture</th></tr></thead>
                 <tbody>
-                  ${trueNewList.length === 0 ? '<tr><td colspan=7 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNewList.slice(0, 100).map((c, i) => `<tr${c.suspectedDuplicate ? ' style="background:rgba(247,127,0,0.06);"' : ''}>
-                    <td class="text-muted">${i+1}</td>
-                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
-                    <td class="text-sm">${c.METIER || '—'}</td>
-                    <td>${formatLibelles(c)}</td>
-                    <td class="num">${fmt.money(c.CA_N)}</td>
-                    <td class="text-sm">${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</td>
-                    <td class="text-sm">${c.suspectedDuplicate ? `<span style="color:var(--evol-down);font-weight:600;" title="Nom historique proche dans la base : ${c.suspectedDuplicate}">🔍 doublon ?</span><br><span class="text-muted" style="font-size:10px;">≈ ${c.suspectedDuplicate}</span>` : '<span style="color:var(--evol-strong-up);font-weight:600;">✓ pas de doublon trouvé</span>'}</td>
-                  </tr>`).join('')}
+                  ${trueNewList.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client confirmé</td></tr>' : trueNewList.slice(0, 100).map((c, i) => renderClientRow(c, i, false)).join('')}
                 </tbody>
               </table>
             </div>
             ${trueNewList.length > 100 ? `<div style="padding:8px;text-align:center;color:var(--grey-500);font-size:11px;">${trueNewList.length - 100} clients supplémentaires non affichés</div>` : ''}
           </div>
         </div>
-        <div class="card">
+
+        <!-- SECTION 2 : À VÉRIFIER (doublons probables) -->
+        ${toVerifyList.length > 0 ? `
+        <div class="card mt-3" style="border-left:4px solid var(--evol-down);background:rgba(247,127,0,0.03);">
           <div class="card-header">
-            <div class="card-title" style="color:var(--evol-new);">♻ Clients réactivés</div>
-            <div class="text-sm text-muted">${reactList.length} clients — absence ≥ 36 mois (long-dormants reviennent)</div>
+            <div class="card-title" style="color:var(--evol-down);">🔍 À vérifier — clients potentiellement existants <span style="font-size:11px;font-weight:400;color:var(--grey-500);text-transform:none;letter-spacing:0;">(doublon ou cross-sell réel)</span></div>
+            <div class="text-sm text-muted">${toVerifyList.length} clients dont le nom est <strong>orthographiquement proche</strong> d'un client historique de la base. Probablement la même entité sous une raison sociale différente — à confirmer avant de les compter comme acquisitions.</div>
           </div>
           <div class="card-body" style="padding:0;">
-            <div class="tbl-wrap" style="max-height:380px;">
+            <div class="tbl-wrap" style="max-height:420px;">
+              <table class="data">
+                <thead><tr><th>#</th><th>Client (raison sociale 2026)</th><th>Métier</th><th>Département(s)</th><th class="num">CAP ${y}</th><th>≈ Match historique</th><th>1ʳᵉ facture</th></tr></thead>
+                <tbody>
+                  ${toVerifyList.slice(0, 100).map((c, i) => renderClientRow(c, i, true)).join('')}
+                </tbody>
+              </table>
+            </div>
+            ${toVerifyList.length > 100 ? `<div style="padding:8px;text-align:center;color:var(--grey-500);font-size:11px;">${toVerifyList.length - 100} clients supplémentaires non affichés</div>` : ''}
+            <div style="padding:10px 16px;background:rgba(247,127,0,0.08);border-top:1px solid rgba(247,127,0,0.20);font-size:11px;color:var(--grey-700);">
+              💡 <strong>Comment lever le doute</strong> : confirmer auprès du KAM ou de la facturation. Si même entité → c'est du <strong>cross-sell</strong> (élargissement de la relation). Si entité réellement nouvelle → c'est une vraie acquisition.
+            </div>
+          </div>
+        </div>
+        ` : ''}
+
+        <!-- SECTION 3 : RÉACTIVÉS -->
+        ${reactList.length > 0 ? `
+        <div class="card mt-3" style="border-left:4px solid var(--evol-new);">
+          <div class="card-header">
+            <div class="card-title" style="color:var(--evol-new);">♻ Clients réactivés <span style="font-size:11px;font-weight:400;color:var(--grey-500);text-transform:none;letter-spacing:0;">(long-dormants ≥ 36 mois)</span></div>
+            <div class="text-sm text-muted">${reactList.length} clients facturaient avant ${APP.filters.ANNEE - 3}, absents ≥ 36 mois, reviennent maintenant</div>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div class="tbl-wrap" style="max-height:420px;">
               <table class="data">
                 <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture historique</th></tr></thead>
                 <tbody>
-                  ${reactList.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun client réactivé sur la période</td></tr>' : reactList.slice(0, 100).map((c, i) => `<tr>
-                    <td class="text-muted">${i+1}</td>
-                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
-                    <td class="text-sm">${c.METIER || '—'}</td>
-                    <td>${formatLibelles(c)}</td>
-                    <td class="num">${fmt.money(c.CA_N)}</td>
-                    <td class="text-sm text-muted">${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</td>
-                  </tr>`).join('')}
+                  ${reactList.slice(0, 100).map((c, i) => renderClientRow(c, i, false)).join('')}
                 </tbody>
               </table>
             </div>
             ${reactList.length > 100 ? `<div style="padding:8px;text-align:center;color:var(--grey-500);font-size:11px;">${reactList.length - 100} clients supplémentaires non affichés</div>` : ''}
           </div>
         </div>
+        ` : ''}
       </div>`;
     })()}
 
