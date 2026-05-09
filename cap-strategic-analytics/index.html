@@ -2394,37 +2394,185 @@ CALC.coefSaisonniers = (rows) => {
   return coefs;
 };
 
+// ============= HOLT-WINTERS (Triple Exponential Smoothing, multiplicatif) =============
+// Modèle saisonnier additif/multiplicatif standard, adapté à des séries
+// mensuelles avec saisonnalité annuelle (m=12). Le mode multiplicatif est
+// approprié quand la saisonnalité est proportionnelle au niveau (CAP qui
+// croît dans le temps avec amplitude saisonnière qui croît aussi).
+//
+// Réf : Hyndman & Athanasopoulos, "Forecasting: Principles and Practice".
+// Paramètres α (level), β (trend), γ (seasonal) ∈ [0,1].
+// Defaults : α=0.3 (réactif), β=0.05 (tendance lisse), γ=0.3 (saison adaptable).
+// =========================================================================
+CALC._buildMonthlySeries = (rows) => {
+  const map = new Map();
+  for (const r of rows) {
+    if (!r.ANNEE || !r.MOIS || r.MONTANT == null) continue;
+    const k = r.ANNEE * 100 + r.MOIS;
+    map.set(k, (map.get(k) || 0) + r.MONTANT);
+  }
+  if (map.size < 2) return null;
+  const keys = [...map.keys()].sort((a, b) => a - b);
+  const start = keys[0], end = keys[keys.length - 1];
+  const series = [];
+  let yy = Math.floor(start / 100), mm = start % 100;
+  while (yy * 100 + mm <= end) {
+    series.push({ y: yy, m: mm, v: map.get(yy * 100 + mm) || 0 });
+    mm++;
+    if (mm > 12) { mm = 1; yy++; }
+  }
+  return series;
+};
+
+CALC._holtWintersMult = (values, m, alpha = 0.3, beta = 0.05, gamma = 0.3, horizon = 12) => {
+  const n = values.length;
+  if (n < 2 * m) return null;
+
+  const overallMean = values.reduce((s, v) => s + v, 0) / n;
+  if (!_isFiniteNum(overallMean) || overallMean <= 0) return null;
+
+  // Init seasonal indices : moyenne par mois sur les cycles complets / moyenne globale
+  const completeCycles = Math.floor(n / m);
+  const seasonal = new Array(m).fill(1);
+  for (let i = 0; i < m; i++) {
+    let sum = 0, cnt = 0;
+    for (let c = 0; c < completeCycles; c++) {
+      const v = values[c * m + i];
+      if (_isFiniteNum(v)) { sum += v; cnt++; }
+    }
+    const avg = cnt > 0 ? sum / cnt : overallMean;
+    seasonal[i] = avg > 0 ? avg / overallMean : 1;
+  }
+  // Normalisation : moyenne des indices = 1
+  const sMean = seasonal.reduce((s, v) => s + v, 0) / m;
+  if (sMean > 0) for (let i = 0; i < m; i++) seasonal[i] = _safeDiv(seasonal[i], sMean, 1);
+
+  // Init level & trend depuis le premier cycle
+  let L = _safeNum(values.slice(0, m).reduce((s, v) => s + v, 0) / m, overallMean);
+  const meanCycle2 = values.slice(m, 2 * m).reduce((s, v) => s + v, 0) / m;
+  let B = _safeNum((meanCycle2 - L) / m, 0);
+
+  // Application récursive + collection des valeurs prédites in-sample
+  const fitted = new Array(n);
+  const S = [...seasonal];
+  for (let t = 0; t < n; t++) {
+    const sIdx = t % m;
+    const sCur = S[sIdx] > 0 ? S[sIdx] : 1;
+    fitted[t] = (L + B) * sCur;
+
+    const yt = _safeNum(values[t]);
+    if (yt > 0) {
+      const Lprev = L;
+      L = alpha * _safeDiv(yt, sCur, L) + (1 - alpha) * (L + B);
+      B = beta * (L - Lprev) + (1 - beta) * B;
+      S[sIdx] = gamma * _safeDiv(yt, L > 0 ? L : 1, sCur) + (1 - gamma) * sCur;
+    } else {
+      // Si la valeur observée est ≤ 0 (avoir net), on n'update pas le multiplicatif
+      L = L + B;
+    }
+  }
+
+  // Forecast horizon
+  const forecast = new Array(horizon);
+  for (let h = 1; h <= horizon; h++) {
+    const sIdx = (n + h - 1) % m;
+    forecast[h - 1] = Math.max(0, (L + h * B) * (S[sIdx] || 1));
+  }
+
+  // RMSE & MAPE in-sample (on saute les m premières valeurs où l'init domine)
+  let sse = 0, mapeSum = 0, mapeCount = 0;
+  for (let t = m; t < n; t++) {
+    const e = values[t] - fitted[t];
+    if (_isFiniteNum(e)) sse += e * e;
+    if (values[t] > 0) {
+      mapeSum += Math.abs(e / values[t]);
+      mapeCount++;
+    }
+  }
+  const rmse = (n - m) > 0 ? Math.sqrt(sse / (n - m)) : 0;
+  const mape = mapeCount > 0 ? mapeSum / mapeCount : null;
+
+  return { forecast, fitted, rmse, mape, L, B, S: [...S] };
+};
+
+// Forecast principal — utilise Holt-Winters si données suffisantes, sinon fallback CAGR.
+// Retourne un Array compatible avec l'ancien code, augmenté de métadonnées
+// (method, rmse, mape, ciLevel) attachées comme propriétés du tableau.
 CALC.forecast = (rows, horizonMonths, lastDate, whatif) => {
-  const years = [...new Set(rows.map(r => r.ANNEE).filter(Boolean))];
-  const cagr = CALC.cagr(rows, years);
-  const coefs = CALC.coefSaisonniers(rows);
-  
   const forecast = [];
   let cur = new Date(lastDate);
-  
-  for (let i = 1; i <= horizonMonths; i++) {
-    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
-    const m = cur.getMonth() + 1;
-    const y = cur.getFullYear();
-    
-    // CAP référence : même mois année précédente
-    const refYear = y - 1;
-    const refMonth = m;
-    const capRef = rows.filter(r => r.ANNEE === refYear && r.MOIS === refMonth).reduce((s,r) => s + (r.MONTANT||0), 0);
-    
-    const adjGrowth = (1 + cagr) * (1 + (whatif?.croissance || 0));
-    const adjSaison = coefs[m] * (whatif?.saison || 1);
-    
-    const baseForecast = capRef * adjGrowth * adjSaison;
-    
-    forecast.push({
-      date: new Date(cur),
-      year: y, month: m,
-      yearMonth: `${y}-${String(m).padStart(2,'0')}`,
-      base: Math.round(baseForecast),
-      optimist: Math.round(baseForecast * 1.15),
-      pessimist: Math.round(baseForecast * 0.85)
-    });
+  forecast.method = 'cagr-naive';
+  forecast.rmse = null;
+  forecast.mape = null;
+  forecast.ciLevel = null;
+
+  // Tentative Holt-Winters multiplicatif si ≥ 24 mois d'historique
+  let hw = null;
+  const series = CALC._buildMonthlySeries(rows);
+  if (series && series.length >= 24) {
+    // Multiplicatif requiert valeurs > 0 — on clamp les avoirs nets à 0
+    const values = series.map(p => Math.max(0, _safeNum(p.v)));
+    hw = CALC._holtWintersMult(values, 12, 0.30, 0.05, 0.30, horizonMonths);
+    if (hw && hw.forecast.every(v => _isFiniteNum(v) && v >= 0)) {
+      forecast.method = 'holt-winters';
+      forecast.rmse = hw.rmse;
+      forecast.mape = hw.mape;
+      forecast.ciLevel = 0.95;
+    } else {
+      hw = null;
+    }
+  }
+
+  if (hw) {
+    // === HOLT-WINTERS path ===
+    const adjGrowth = 1 + _safeNum(whatif?.croissance, 0);
+    const adjSaison = _safeNum(whatif?.saison, 1);
+    const ciZ = 1.96; // 95% intervalle de confiance, hypothèse erreurs ~ Normal
+
+    for (let h = 1; h <= horizonMonths; h++) {
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+      const m = cur.getMonth() + 1;
+      const y = cur.getFullYear();
+      const baseHW = hw.forecast[h - 1] * adjGrowth * adjSaison;
+      // L'erreur grandit avec l'horizon : σ_h = RMSE × √h (random walk d'erreur)
+      const sigma = hw.rmse * Math.sqrt(h);
+      forecast.push({
+        date: new Date(cur),
+        year: y, month: m,
+        yearMonth: `${y}-${String(m).padStart(2, '0')}`,
+        base: Math.max(0, Math.round(baseHW)),
+        lower: Math.max(0, Math.round(baseHW - ciZ * sigma)),
+        upper: Math.max(0, Math.round(baseHW + ciZ * sigma)),
+        optimist: Math.max(0, Math.round(baseHW + ciZ * sigma)),
+        pessimist: Math.max(0, Math.round(baseHW - ciZ * sigma))
+      });
+    }
+  } else {
+    // === Fallback : ancien modèle CAGR + saison naïve (±15% bandes fixes) ===
+    const years = [...new Set(rows.map(r => r.ANNEE).filter(Boolean))];
+    const cagr = CALC.cagr(rows, years);
+    const coefs = CALC.coefSaisonniers(rows);
+
+    for (let i = 1; i <= horizonMonths; i++) {
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+      const m = cur.getMonth() + 1;
+      const y = cur.getFullYear();
+      const refYear = y - 1;
+      const capRef = rows.filter(r => r.ANNEE === refYear && r.MOIS === m).reduce((s, r) => s + (r.MONTANT || 0), 0);
+      const adjGrowth = (1 + cagr) * (1 + _safeNum(whatif?.croissance, 0));
+      const adjSaison = _safeNum(coefs[m], 1) * _safeNum(whatif?.saison, 1);
+      const baseForecast = capRef * adjGrowth * adjSaison;
+      forecast.push({
+        date: new Date(cur),
+        year: y, month: m,
+        yearMonth: `${y}-${String(m).padStart(2, '0')}`,
+        base: Math.round(baseForecast),
+        lower: Math.round(baseForecast * 0.85),
+        upper: Math.round(baseForecast * 1.15),
+        optimist: Math.round(baseForecast * 1.15),
+        pessimist: Math.round(baseForecast * 0.85)
+      });
+    }
   }
   return forecast;
 };
@@ -6684,6 +6832,52 @@ function render_forecast() {
       return analyseToSynthese(ins, `Analyse stratégique — Prévision ${APP.horizon} mois`);
     })()}
 
+    ${(() => {
+      // Carte "Modèle utilisé" — transparence sur la méthode + qualité d'ajustement
+      const isHW = forecast.method === 'holt-winters';
+      const methodLabel = isHW
+        ? 'Holt-Winters multiplicatif (saisonnalité 12 mois)'
+        : 'CAGR + saisonnalité (modèle de fallback, &lt; 24 mois d\'historique)';
+      const methodDesc = isHW
+        ? 'Lissage exponentiel triple : Niveau (α=0.30) · Tendance (β=0.05) · Saison (γ=0.30). Capture la croissance ET la saisonnalité de manière adaptative.'
+        : 'Modèle de référence : CAP même mois N-1 × (1+CAGR) × coefficient saisonnier. Bandes ±15% fixes, non statistiques.';
+      const rmseStr = (isHW && forecast.rmse !== null)
+        ? `<strong>${fmt.money(forecast.rmse)} XOF</strong>`
+        : '—';
+      const mapeStr = (isHW && forecast.mape !== null)
+        ? `<strong>${(forecast.mape * 100).toFixed(1)}%</strong>`
+        : '—';
+      const ciStr = (isHW && forecast.ciLevel !== null)
+        ? `<strong>${(forecast.ciLevel * 100).toFixed(0)}%</strong> (z = 1.96 · σ croît en √h avec l'horizon)`
+        : 'Bandes naïves ±15% (non statistiques)';
+      return `
+      <div class="card mt-2" style="background:linear-gradient(135deg,#FBF3DD,#FFFFFF);border-left:4px solid var(--gold-500);">
+        <div class="card-body" style="padding:14px 18px;">
+          <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1.2fr;gap:18px;align-items:center;">
+            <div>
+              <div style="font-size:10px;color:var(--gold-700);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;margin-bottom:4px;">📐 Modèle utilisé</div>
+              <div style="font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--navy-900);">${methodLabel}</div>
+              <div style="font-size:11px;color:var(--grey-700);margin-top:4px;line-height:1.4;">${methodDesc}</div>
+            </div>
+            <div style="border-left:1px solid var(--grey-200);padding-left:14px;">
+              <div style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">RMSE in-sample</div>
+              <div style="font-size:13px;color:var(--navy-900);margin-top:2px;">${rmseStr}</div>
+              <div style="font-size:10px;color:var(--grey-500);margin-top:2px;font-style:italic;">Erreur moyenne quadratique</div>
+            </div>
+            <div style="border-left:1px solid var(--grey-200);padding-left:14px;">
+              <div style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">MAPE</div>
+              <div style="font-size:13px;color:var(--navy-900);margin-top:2px;">${mapeStr}</div>
+              <div style="font-size:10px;color:var(--grey-500);margin-top:2px;font-style:italic;">Erreur % moyenne</div>
+            </div>
+            <div style="border-left:1px solid var(--grey-200);padding-left:14px;">
+              <div style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">Intervalle de confiance</div>
+              <div style="font-size:13px;color:var(--navy-900);margin-top:2px;line-height:1.4;">${ciStr}</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    })()}
+
     <div class="grid grid-4 mt-2">
       <div class="kpi kpi-strong">
         <div class="kpi-label">Prévision ${APP.horizon} mois</div>
@@ -6691,14 +6885,14 @@ function render_forecast() {
         ${evolForecast !== null ? evolHTML(evolForecast) : ''}
       </div>
       <div class="kpi kpi-good">
-        <div class="kpi-label">Scénario optimiste</div>
+        <div class="kpi-label">${forecast.method === 'holt-winters' ? 'Borne haute 95%' : 'Scénario optimiste'}</div>
         <div class="kpi-value small">${fmt.money(forecastTotalOpt)}<span class="kpi-unit">XOF</span></div>
-        <div class="kpi-bench">+15% vs base — vents porteurs</div>
+        <div class="kpi-bench">${forecast.method === 'holt-winters' ? 'IC 95% supérieur (RMSE × √h)' : '+15% vs base — vents porteurs'}</div>
       </div>
       <div class="kpi kpi-alert">
-        <div class="kpi-label">Scénario pessimiste</div>
+        <div class="kpi-label">${forecast.method === 'holt-winters' ? 'Borne basse 95%' : 'Scénario pessimiste'}</div>
         <div class="kpi-value small">${fmt.money(forecastTotalPess)}<span class="kpi-unit">XOF</span></div>
-        <div class="kpi-bench">-15% vs base — vents contraires</div>
+        <div class="kpi-bench">${forecast.method === 'holt-winters' ? 'IC 95% inférieur (RMSE × √h)' : '-15% vs base — vents contraires'}</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Croissance annuelle moyenne</div>
@@ -6849,9 +7043,9 @@ function renderForecastChart(all, forecast, lastDate) {
       labels: allLabels,
       datasets: [
         { label: 'Historique', data: histData, borderColor: c.primary, backgroundColor: c.primary, borderWidth: 2, pointRadius: 0, tension: 0.3 },
-        { label: 'Optimiste', data: fcOpt, borderColor: c.success, borderDash: [4,4], backgroundColor: 'rgba(11,110,79,0.05)', fill: '+1', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+        { label: forecast.method === 'holt-winters' ? 'Borne haute IC 95%' : 'Optimiste', data: fcOpt, borderColor: c.success, borderDash: [4,4], backgroundColor: 'rgba(11,110,79,0.05)', fill: '+1', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
         { label: 'Prévision (base)', data: fcBase, borderColor: c.gold, borderWidth: 3, pointRadius: 3, pointBackgroundColor: c.gold, tension: 0.3 },
-        { label: 'Pessimiste', data: fcPess, borderColor: c.danger, borderDash: [4,4], backgroundColor: 'rgba(214,40,40,0.05)', borderWidth: 1.5, pointRadius: 0, tension: 0.3 }
+        { label: forecast.method === 'holt-winters' ? 'Borne basse IC 95%' : 'Pessimiste', data: fcPess, borderColor: c.danger, borderDash: [4,4], backgroundColor: 'rgba(214,40,40,0.05)', borderWidth: 1.5, pointRadius: 0, tension: 0.3 }
       ]
     },
     options: {
