@@ -1752,6 +1752,64 @@ CALC.statutCycleVie = (client, lastDate) => {
   return '⚓ Stable';
 };
 
+// ============= DÉTECTION DE PATTERN COMMERCIAL =============
+// Analyse le profil de récurrence d'un client à partir de ses transactions
+// historiques. Retourne un objet { code, label, color, action }.
+//
+// Patterns détectés :
+//   - 🔁 Récurrent      : facture régulièrement (≥ 9 mois actifs/an, faible volatilité)
+//   - 🎯 Saisonnier     : concentré sur quelques mois (ex. cacao Oct-Mars)
+//   - 🚀 Project-based  : gros pic ponctuel puis silence (1 mois > 3× la moyenne)
+//   - ⚡ Erratique       : irrégulier sans logique saisonnière (forte volatilité)
+//   - 🌱 Démarrage      : trop peu d'historique pour conclure (< 6 mois actifs)
+CALC.detectPattern = (client, allRows) => {
+  if (!client || !client.CLIENT) return { code:'demarrage', label:'🌱 Démarrage', color:'#7F7F7F', action:'Pas assez d\'historique' };
+  // Récupère toutes les transactions historiques de ce client (toutes années)
+  const tx = allRows.filter(r => r.CLIENT === client.CLIENT && r.MONTANT > 0);
+  if (tx.length < 3) return { code:'demarrage', label:'🌱 Démarrage', color:'#7F7F7F', action:'Pas assez d\'historique commercial' };
+  // Agréger par année-mois
+  const monthly = {};
+  tx.forEach(r => {
+    const k = r.ANNEE * 12 + (r.MOIS - 1);
+    monthly[k] = (monthly[k] || 0) + r.MONTANT;
+  });
+  const months = Object.values(monthly);
+  const nMonths = months.length;
+  if (nMonths < 6) return { code:'demarrage', label:'🌱 Démarrage', color:'#7F7F7F', action:'Trop peu de mois actifs (<6) — phase d\'observation' };
+  const avg = months.reduce((s,v) => s + v, 0) / nMonths;
+  if (avg <= 0) return { code:'demarrage', label:'🌱 Démarrage', color:'#7F7F7F', action:'CA marginal' };
+  // Coefficient de variation (écart-type / moyenne)
+  const variance = months.reduce((s,v) => s + (v - avg) * (v - avg), 0) / nMonths;
+  const stddev = Math.sqrt(variance);
+  const cv = stddev / avg;
+  // Pic max / moyenne
+  const maxMonth = months.reduce((m,v) => v > m ? v : m, 0);
+  const peakRatio = maxMonth / avg;
+  // Mois actifs sur dernière année
+  const lastY = Math.max(...tx.map(r => r.ANNEE));
+  const monthsLastYear = new Set(tx.filter(r => r.ANNEE === lastY).map(r => r.MOIS)).size;
+  // Concentration saisonnière : mois actifs concentrés sur 4-6 mois consécutifs ?
+  const monthsOfYear = {};
+  tx.forEach(r => { monthsOfYear[r.MOIS] = (monthsOfYear[r.MOIS] || 0) + r.MONTANT; });
+  const monthlyCA = Array(12).fill(0);
+  Object.entries(monthsOfYear).forEach(([m, v]) => { monthlyCA[parseInt(m) - 1] = v; });
+  const totalY = monthlyCA.reduce((s,v) => s + v, 0);
+  // Saisonnalité = part max d'une fenêtre glissante de 4 mois
+  let maxWindow = 0;
+  for (let i = 0; i < 12; i++) {
+    let sum = 0;
+    for (let j = 0; j < 4; j++) sum += monthlyCA[(i + j) % 12];
+    if (sum > maxWindow) maxWindow = sum;
+  }
+  const seasonalConc = totalY > 0 ? maxWindow / totalY : 0;
+  // Décision
+  if (peakRatio >= 4 && cv >= 1.2) return { code:'projet', label:'🚀 Projet ponctuel', color:'#1F77B4', action:'Pic massif unique — anticiper le prochain projet, ne pas attendre.' };
+  if (seasonalConc >= 0.65) return { code:'saisonnier', label:'🎯 Saisonnier', color:'#D4A24E', action:'Concentré sur une fenêtre courte (cacao, agrumes…) — préparer la haute saison à l\'avance.' };
+  if (monthsLastYear >= 9 && cv < 0.6) return { code:'recurrent', label:'🔁 Récurrent', color:'#0B6E4F', action:'Client régulier toute l\'année — sécuriser via contrat-cadre pluriannuel.' };
+  if (cv >= 0.9) return { code:'erratique', label:'⚡ Erratique', color:'#D62828', action:'Profil instable — risque de churn. Investiguer la cause auprès du KAM.' };
+  return { code:'recurrent', label:'🔁 Récurrent', color:'#52B788', action:'Profil stable — fidéliser et pousser le cross-sell.' };
+};
+
 // ============= HEALTH SCORE =============
 CALC.healthScore = (client, allRows) => {
   let score = 0;
@@ -2183,13 +2241,17 @@ function applyFilters() {
   const startMonth = (f.PERIODE_MODE === 'mois') ? refM : 1;
   // Période courante : [refY-startMonth → refY-refM]
   const periodStartKey = refY * 100 + startMonth;
-  // Fenêtre lookback : 12 mois précédant le début de la période courante
+  // Fenêtre lookback 12 mois (anciennes définitions, conservée pour compat)
   const lookbackStartKey = (refY - 1) * 100 + startMonth;
-  // (lookbackStartKey inclus, periodStartKey exclu)
+  // Fenêtre lookback 36 mois — règle métier AGL : un client absent depuis 36 mois revient
+  // dans la catégorie "vraiment nouveau" (revient comme un prospect frais).
+  const newLookbackKey = (refY - 3) * 100 + startMonth;
 
   const firstByClient = {};
   const lastByClient = {};
-  const lookbackByClient = {};   // a facturé au moins 1 fois dans la fenêtre lookback
+  const lookbackByClient = {};       // a facturé au moins 1 fois dans les 12 derniers mois
+  const lookback36ByClient = {};     // a facturé au moins 1 fois dans les 36 derniers mois précédant la période
+  const histMetiersByClient = {};    // ensemble des métiers facturés AVANT la période courante
   for (let i = 0; i < APP.data.fact.length; i++) {
     const r = APP.data.fact[i];
     if (!r.CLIENT) continue;
@@ -2197,6 +2259,11 @@ function applyFilters() {
     if (!firstByClient[r.CLIENT] || key < firstByClient[r.CLIENT]) firstByClient[r.CLIENT] = key;
     if (!lastByClient[r.CLIENT] || key > lastByClient[r.CLIENT]) lastByClient[r.CLIENT] = key;
     if (key >= lookbackStartKey && key < periodStartKey) lookbackByClient[r.CLIENT] = true;
+    if (key >= newLookbackKey && key < periodStartKey) lookback36ByClient[r.CLIENT] = true;
+    if (key < periodStartKey && r.METIER) {
+      if (!histMetiersByClient[r.CLIENT]) histMetiersByClient[r.CLIENT] = new Set();
+      histMetiersByClient[r.CLIENT].add(r.METIER);
+    }
   }
 
   // Pré-calcul percentiles + stats (une fois pour tous les clients)
@@ -2210,6 +2277,7 @@ function applyFilters() {
     c.quadrant = CALC.quadrant9Box(c, p80, p20);
     c.quadrantColor = CALC.quadrantColor(c.quadrant);
     c.statut = CALC.statutCycleVie(c);
+    c.pattern = CALC.detectPattern(c, APP.data.fact);
     c.healthScore = CALC.healthScore(c, APP.data.fact);
     c.healthStatus = CALC.healthStatus(c.healthScore);
 
@@ -2233,19 +2301,32 @@ function applyFilters() {
       c.firstYearMonth = null; c.firstMonth = null;
     }
 
-    // Activité dans la fenêtre lookback (12 mois précédant la période courante)
+    // Activité dans les 12 et 36 mois précédant la période courante
     c.activeInLookback = !!lookbackByClient[c.CLIENT];
+    c.activeInLookback36 = !!lookback36ByClient[c.CLIENT];
 
-    // Définitions strictes :
-    //   isTrueNew     : sa TOUTE première facture est dans la période courante
-    //                   (= aucune transaction passée, de toute l'histoire)
-    //   isReactivated : a facturé avant la fenêtre lookback, RIEN sur les 12
-    //                   mois précédant la période, et facture maintenant
-    //   isTrueLost    : était actif dans la fenêtre lookback (12 derniers mois
-    //                   précédant la période) et ne facture rien sur la période
-    c.isTrueNew     = c.CA_N > 0 && c.firstYearMonth !== null && c.firstYearMonth >= periodStartKey;
-    c.isReactivated = c.CA_N > 0 && c.firstYearMonth !== null && c.firstYearMonth < lookbackStartKey && !c.activeInLookback;
-    c.isTrueLost    = c.CA_N === 0 && c.activeInLookback;
+    // ===== DÉFINITIONS MÉTIER AGL (règle Olivier) =====
+    //   isTrueNew  : actif sur la période ET aucune activité dans les 36 derniers
+    //                mois précédant la période. Inclut donc les "vraiment nouveaux"
+    //                (jamais facturé) ET les "réactivés long-dormants" (3+ ans
+    //                d'absence) — assimilés à des prospects frais commercialement.
+    //   isTrueLost : aucune activité sur la période courante ET dernière facture
+    //                remontant à plus de 9 mois (pas de transaction depuis 9+ mois).
+    //   isReactivated : actif sur la période, aucune activité 12 derniers mois
+    //                MAIS activité dans la fenêtre 12-36 mois (court-dormant).
+    //                Maintenu pour analyse fine (entre récurrent et vrai nouveau).
+    c.isTrueNew     = c.CA_N > 0 && !c.activeInLookback36;
+    c.isReactivated = c.CA_N > 0 && !c.activeInLookback && c.activeInLookback36;
+    c.isTrueLost    = c.CA_N === 0 && c.monthsSinceLastTx !== null && c.monthsSinceLastTx > 9;
+
+    // Cross-selling NOUVEAU : métiers facturés sur la période et JAMAIS facturés avant
+    if (c.CA_N > 0) {
+      const hist = histMetiersByClient[c.CLIENT];
+      const currentMet = c.metiers || new Set();
+      c.newMetiers = [...currentMet].filter(m => !hist || !hist.has(m));
+    } else {
+      c.newMetiers = [];
+    }
   });
 
   // ========== TIERS PAR PERCENTILE (calibration relative au portefeuille AGL) ==========
@@ -2306,6 +2387,18 @@ function applyFilters() {
 }
 
 // Affichage des étoiles cross-sell + libellé (calibré métiers AGL)
+// Affichage compact des départements consommés par un client
+// Limite à 4 visibles + "(+N)" pour les autres, info-bulle complète au survol
+function formatLibelles(c, max) {
+  const list = c.libelles ? [...c.libelles].sort() : [];
+  if (list.length === 0) return '<span class="text-muted">—</span>';
+  const limit = max || 4;
+  if (list.length <= limit) return `<span class="text-sm">${list.join(', ')}</span>`;
+  const visible = list.slice(0, limit).join(', ');
+  const all = list.join(', ').replace(/"/g, '&quot;');
+  return `<span class="text-sm" title="${all}">${visible} <span class="text-muted">(+${list.length - limit})</span></span>`;
+}
+
 function crossSellStars(c) {
   const lvl = c.crossSellLvl || 1;
   const labels = { 5:'Élite', 4:'Multi-métier', 3:'Bi-métier', 2:'Mono élargi', 1:'Mono / Spot' };
@@ -2847,7 +2940,7 @@ function render_cockpit() {
               <div class="divider"></div>
               <div class="text-sm" style="line-height:1.7;">
                 <div><strong style="color:var(--gold-700);">${trueNewList.length}</strong> vrais nouveaux clients <span class="text-muted">(1ʳᵉ facture jamais émise)</span></div>
-                <div><strong style="color:var(--evol-new);">${reactivatedList.length}</strong> clients réactivés <span class="text-muted">(${fmt.pct(pctReact)} du CA — déjà facturé avant, hiatus ≥ 12 mois)</span></div>
+                <div><strong style="color:var(--evol-new);">${reactivatedList.length}</strong> clients réactivés <span class="text-muted">(${fmt.pct(pctReact)} du CA — déjà facturé avant, absence 12 à 36 mois)</span></div>
               </div>
               <div class="text-sm text-muted" style="margin-top:8px;font-style:italic;">Fenêtre de vérification : ${lookbackLabel()}</div>
             `;
@@ -2872,12 +2965,13 @@ function render_cockpit() {
           <div class="card-body" style="padding:0;">
             <div class="tbl-wrap" style="max-height:380px;">
               <table class="data">
-                <thead><tr><th>#</th><th>Client</th><th>Métier</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture</th></tr></thead>
+                <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture</th></tr></thead>
                 <tbody>
-                  ${trueNewList.length === 0 ? '<tr><td colspan=5 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNewList.slice(0, 100).map((c, i) => `<tr>
+                  ${trueNewList.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNewList.slice(0, 100).map((c, i) => `<tr>
                     <td class="text-muted">${i+1}</td>
                     <td><strong>${c.CLIENT}</strong></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
+                    <td>${formatLibelles(c)}</td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
                     <td class="text-sm">${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</td>
                   </tr>`).join('')}
@@ -2890,17 +2984,18 @@ function render_cockpit() {
         <div class="card">
           <div class="card-header">
             <div class="card-title" style="color:var(--evol-new);">♻ Clients réactivés</div>
-            <div class="text-sm text-muted">${reactList.length} clients — déjà facturé avant, hiatus ≥ 12 mois</div>
+            <div class="text-sm text-muted">${reactList.length} clients — absence de 12 à 36 mois (hiatus court)</div>
           </div>
           <div class="card-body" style="padding:0;">
             <div class="tbl-wrap" style="max-height:380px;">
               <table class="data">
-                <thead><tr><th>#</th><th>Client</th><th>Métier</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture historique</th></tr></thead>
+                <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CAP ${y}</th><th>1ʳᵉ facture historique</th></tr></thead>
                 <tbody>
-                  ${reactList.length === 0 ? '<tr><td colspan=5 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun client réactivé sur la période</td></tr>' : reactList.slice(0, 100).map((c, i) => `<tr>
+                  ${reactList.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun client réactivé sur la période</td></tr>' : reactList.slice(0, 100).map((c, i) => `<tr>
                     <td class="text-muted">${i+1}</td>
                     <td><strong>${c.CLIENT}</strong></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
+                    <td>${formatLibelles(c)}</td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
                     <td class="text-sm text-muted">${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</td>
                   </tr>`).join('')}
@@ -3301,6 +3396,7 @@ function render_customers() {
           <table class="data">
             <thead><tr>
               <th>#</th><th>Client</th><th>Tier</th><th>Métier</th>
+              <th>Département(s)</th>
               <th class="num">CAP ${APP.filters.ANNEE}</th>
               <th>Cross-sell ★</th>
               <th class="num">% services</th>
@@ -3312,6 +3408,7 @@ function render_customers() {
                   <td><strong>${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
                   <td class="text-sm">${c.METIER || '—'}</td>
+                  <td>${formatLibelles(c)}</td>
                   <td class="num">${fmt.money(c.CA_N)}</td>
                   <td>${crossSellStars(c)}</td>
                   <td class="num">${fmt.pct(c.crossSellRate)}</td>
@@ -3335,6 +3432,7 @@ function render_customers() {
           <table class="data">
             <thead><tr>
               <th>#</th><th>Client</th><th>Tier</th><th>Métier</th>
+              <th>Département(s)</th>
               <th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">CAP ${APP.filters.ANNEE-1}</th>
               <th class="num">Évol.</th><th class="num">Score</th>
               <th>Cross-sell</th><th>Case stratégique</th><th>Statut</th>
@@ -3346,6 +3444,7 @@ function render_customers() {
                   <td><strong>${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
                   <td class="text-sm">${c.METIER || '—'}</td>
+                  <td>${formatLibelles(c)}</td>
                   <td class="num">${fmt.money(c.CA_N)}</td>
                   <td class="num text-muted">${fmt.money(c.CA_N1)}</td>
                   <td class="num">${c.evol === null ? '—' : `<span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed(c.evol*100)}</span>`}</td>
@@ -3439,13 +3538,14 @@ function render_growth() {
           <div class="kpi-label">Vrais nouveaux clients</div>
           <div class="kpi-value">${trueNew.length}</div>
           <div class="kpi-bench" style="margin-top:6px;font-weight:600;color:var(--evol-new);">${fmt.money(newCA)} XOF (${fmt.pct(totalAct ? newCA/totalAct : 0)})</div>
-          <div class="kpi-bench">+ ${reactivated.length} réactivés — ${fmt.money(reactCA)} XOF</div>
+          <div class="kpi-bench">aucune activité dans les 36 mois précédant la période</div>
+          <div class="kpi-bench">+ ${reactivated.length} réactivés (12-36 mois d'absence)</div>
         </div>
         <div class="kpi" style="border-top:3px solid var(--evol-lost);">
           <div class="kpi-label">Vrais clients perdus</div>
           <div class="kpi-value">${trueLost.length}</div>
           <div class="kpi-bench" style="margin-top:6px;font-weight:600;color:var(--evol-lost);">${fmt.money(lostCA)} XOF de CAP perdu</div>
-          <div class="kpi-bench">actifs dans ${lookback}, plus rien sur ${lbl.longue}</div>
+          <div class="kpi-bench">aucune activité depuis &gt; 9 mois (règle AGL)</div>
         </div>
       </div>`;
     })()}
@@ -3457,27 +3557,69 @@ function render_growth() {
       ${listCardLong('⚠ Clients en baisse — action urgente', decliners, 'evol')}
     </div>
 
-    
+    ${(() => {
+      // ===== CROSS-SELLING NOUVEAU =====
+      // Clients ayant facturé sur la période un métier qu'ils n'avaient JAMAIS facturé auparavant.
+      // Signal commercial très fort : la relation s'élargit côté offre.
+      const xsellNew = APP.clientsAgg
+        .filter(c => c.CA_N > 0 && c.newMetiers && c.newMetiers.length > 0)
+        .sort((a,b) => b.CA_N - a.CA_N);
+      if (xsellNew.length === 0) return '';
+      const totalNewMetiersCA = xsellNew.reduce((s,c) => s + c.CA_N, 0);
+      const distinctNewMetiers = new Set();
+      xsellNew.forEach(c => c.newMetiers.forEach(m => distinctNewMetiers.add(m)));
+      return `
+      <div class="card mt-3" style="border-left:3px solid var(--gold-500);">
+        <div class="card-header">
+          <div class="card-title" style="color:var(--gold-700);">💎 Cross-selling NOUVEAU — clients ayant ouvert un nouveau métier sur ${lbl.longue}</div>
+          <div class="text-sm text-muted">${xsellNew.length} clients ont facturé un métier qu'ils n'avaient JAMAIS facturé auparavant — ${distinctNewMetiers.size} métiers distincts ouverts — ${fmt.money(totalNewMetiersCA)} XOF de CAP concerné. Trié par CAP décroissant.</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap" style="max-height:500px;">
+            <table class="data">
+              <thead><tr>
+                <th>#</th><th>Client</th><th>Tier</th>
+                <th>Nouveau(x) métier(s) ouvert(s)</th>
+                <th>Métier historique principal</th>
+                <th class="num">CAP ${lbl.courte}</th>
+              </tr></thead>
+              <tbody>
+                ${xsellNew.slice(0, 100).map((c, i) => `<tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                  <td><span style="color:var(--gold-700);font-weight:600;">${c.newMetiers.join(', ')}</span></td>
+                  <td class="text-sm text-muted">${c.METIER || '—'}</td>
+                  <td class="num">${fmt.money(c.CA_N)}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+          ${xsellNew.length > 100 ? `<div style="padding:8px;text-align:center;color:var(--grey-500);font-size:11px;">${xsellNew.length - 100} clients supplémentaires non affichés</div>` : ''}
+        </div>
+      </div>`;
+    })()}
 
     <div class="grid grid-2 mt-3">
       <div class="card">
         <div class="card-header">
           <div class="card-title">🆕 Vrais nouveaux clients</div>
-          <div class="text-sm text-muted">${trueNew.length} clients — 1ʳᵉ facture sur ${lbl.longue} — triés par CA décroissant</div>
+          <div class="text-sm text-muted">${trueNew.length} clients — aucune activité 36 mois précédents — triés par CA décroissant</div>
         </div>
         <div class="card-body" style="padding:0;">
           <div class="tbl-wrap" style="max-height:520px;">
             <table class="data">
-              <thead><tr><th>#</th><th>Client</th><th>Métier</th><th class="num">CA ${lbl.courte}</th><th>1ʳᵉ facture</th></tr></thead>
+              <thead><tr><th>#</th><th>Client</th><th>Métier</th><th>Département(s)</th><th class="num">CA ${lbl.courte}</th><th>1ʳᵉ facture</th></tr></thead>
               <tbody>
-                ${trueNew.length === 0 ? '<tr><td colspan=5 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNew.map((c, i) => {
+                ${trueNew.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNew.map((c, i) => {
                   const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
                   return `<tr>
                     <td class="text-muted">${i+1}</td>
                     <td><strong>${c.CLIENT}</strong></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
+                    <td>${formatLibelles(c)}</td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
-                    <td class="text-sm">${moisAbr[c.firstMonth - 1]} ${c.firstYear}</td>
+                    <td class="text-sm">${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
@@ -3521,7 +3663,7 @@ function render_growth() {
     <div class="card mt-3">
       <div class="card-header">
         <div class="card-title">♻ Clients réactivés — déjà clients par le passé, reviennent</div>
-        <div class="text-sm text-muted">${reactivated.length} clients — hiatus ≥ 12 mois — triés par CA décroissant</div>
+        <div class="text-sm text-muted">${reactivated.length} clients — absence de 12 à 36 mois (hiatus court) — triés par CA décroissant</div>
       </div>
       <div class="card-body" style="padding:0;">
         <div class="tbl-wrap" style="max-height:400px;">
