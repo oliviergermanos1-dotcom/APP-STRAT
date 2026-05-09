@@ -1961,7 +1961,9 @@ const PAGES = [
   { id: 'corridor', num: '12', title: 'Corridors logistiques', subtitle: 'Flux Abidjan ↔ Mali / Burkina / Liberia', section: 'Intelligence',
     explanation: "Analyse des corridors logistiques régionaux : volume CAP par corridor (origine site × destination filière), évolution annuelle, clients structurants. Idéal pour la stratégie commerciale régionale et l'arbitrage des moyens." },
   { id: 'strategie', num: '13', title: 'Suivi stratégie AGL', subtitle: 'Objectifs annuels vs réalisé', section: 'Intelligence',
-    explanation: "Tableau de bord du suivi des objectifs stratégiques AGL définis manuellement (cible CA, cible métier, cible géographique). Mesure en temps réel l'écart entre la trajectoire et les ambitions, avec projection de fin d'année." }
+    explanation: "Tableau de bord du suivi des objectifs stratégiques AGL définis manuellement (cible CA, cible métier, cible géographique). Mesure en temps réel l'écart entre la trajectoire et les ambitions, avec projection de fin d'année." },
+  { id: 'briefing', num: '14', title: 'Briefing exécutif COMEX', subtitle: 'Note 1-page consolidée — toutes les pages en synthèse', section: 'Pilotage',
+    explanation: "Synthèse exécutive consolidée 1-page format note de cabinet : photographie de la période, signaux faibles, alertes prioritaires, opportunités et Top 5 des actions à mener. Idéal pour une revue COMEX rapide ou un brief direction." }
 ];
 
 function buildApp() {
@@ -2302,6 +2304,45 @@ function applyFilters() {
     c.quadrantColor = CALC.quadrantColor(c.quadrant);
     c.statut = CALC.statutCycleVie(c);
     c.pattern = CALC.detectPattern(c, APP.data.fact);
+    // ===== CHURN RISK SCORE 0-100 (probabilité de perdre le client dans 12 mois) =====
+    // Heuristique pondérée : Health Score (signaux faibles), inactivité récente,
+    // évolution N vs N-1, pattern erratique. Score 0 = client extrêmement
+    // sécurisé, 100 = perte quasi-certaine.
+    let risk = 50;
+    if (c.healthScore !== undefined && c.healthScore !== null) risk -= c.healthScore * 6;  // healthScore +5 = -30, -7 = +42
+    if (c.monthsSinceLastTx !== null) risk += Math.max(0, c.monthsSinceLastTx - 2) * 4;     // hiatus 6 mois = +16, 12 mois = +40
+    if (c.evol !== null) {
+      if (c.evol < -0.20) risk += 20;
+      else if (c.evol < -0.10) risk += 12;
+      else if (c.evol < -0.05) risk += 5;
+      else if (c.evol > 0.10) risk -= 8;
+    }
+    if (c.pattern && c.pattern.code === 'erratique') risk += 12;
+    if (c.pattern && c.pattern.code === 'recurrent') risk -= 10;
+    if ((c.nbMetiers || 0) >= 3) risk -= 10;  // multi-métier = ancré
+    if ((c.nbMetiers || 0) <= 1) risk += 8;   // mono = fragile
+    c.churnRisk = Math.max(0, Math.min(100, Math.round(risk)));
+
+    // ===== CUSTOMER LIFETIME VALUE prévisionnel sur 36 mois =====
+    // Formule : CLV = CA annualisé × probabilité rétention × facteur croissance × 3 ans
+    // Annualisation : si on filtre sur 4 mois, on multiplie par 12/4 = 3.
+    // Probabilité rétention dérivée du churn risk (1 - risk/100, plancher 5%).
+    // Facteur croissance : 1 + evol (si négatif, on cap à 0.7 = -30% min sur 3 ans).
+    const moisCouverts = (APP.filters.PERIODE_MODE === 'mois') ? 1 : (APP.filters.MOIS_MAX || 12);
+    const annualizeFactor = moisCouverts > 0 ? 12 / moisCouverts : 1;
+    const caAnnualise = c.CA_N * annualizeFactor;
+    const probRetention = Math.max(0.05, 1 - c.churnRisk / 100);
+    let growthFactor = c.evol !== null ? Math.max(0.7, Math.min(1.5, 1 + c.evol)) : 1.0;
+    // CLV = CA annualisé × prob × somme géométrique sur 3 ans avec growthFactor
+    // Approximation : valeur cumulée sur 3 ans = CA_an × (1 + g + g²)
+    // pondérée par probabilité de rétention chaque année (compoundée)
+    let clv = 0;
+    let p = 1;
+    for (let yy = 0; yy < 3; yy++) {
+      p *= probRetention;
+      clv += caAnnualise * Math.pow(growthFactor, yy + 1) * p;
+    }
+    c.clv = Math.round(clv);
     c.healthScore = CALC.healthScore(c, APP.data.fact);
     c.healthStatus = CALC.healthStatus(c.healthScore);
 
@@ -2435,6 +2476,16 @@ function formatLibelles(c, max) {
   const visible = list.slice(0, limit).join(', ');
   const all = list.join(', ').replace(/"/g, '&quot;');
   return `<span class="text-sm" title="${all}">${visible} <span class="text-muted">(+${list.length - limit})</span></span>`;
+}
+
+// Affichage visuel du Churn Risk (badge coloré 0-100)
+function churnRiskBadge(c) {
+  const r = c.churnRisk || 0;
+  let color = '#0B6E4F', label = 'Faible';
+  if (r >= 75) { color = '#D62828'; label = 'Critique'; }
+  else if (r >= 55) { color = '#F77F00'; label = 'Élevé'; }
+  else if (r >= 35) { color = '#F4D35E'; label = 'Modéré'; }
+  return `<span class="evol-cell" style="background:${color};color:${r >= 35 && r < 55 ? '#000' : 'white'};min-width:64px;">${r} • ${label}</span>`;
 }
 
 function crossSellStars(c) {
@@ -3393,6 +3444,7 @@ function render_cockpit() {
                 <div><strong style="color:var(--evol-new);">${reactivatedList.length}</strong> clients réactivés <span class="text-muted">(${fmt.pct(pctReact)} du CA — déjà facturé avant, absence 12 à 36 mois)</span></div>
               </div>
               <div class="text-sm text-muted" style="margin-top:8px;font-style:italic;">Fenêtre de vérification : ${lookbackLabel()}</div>
+              <a href="#cockpit-new-clients-table" onclick="document.querySelector('#cockpit-new-clients-table')?.scrollIntoView({behavior:'smooth',block:'start'});return false;" style="display:inline-block;margin-top:12px;font-size:12px;color:var(--gold-700);font-weight:600;text-decoration:none;border-bottom:1px dashed var(--gold-500);cursor:pointer;">📋 Voir la liste détaillée des ${trueNewList.length + reactivatedList.length} clients ↓</a>
             `;
           })()}
         </div>
@@ -3406,7 +3458,7 @@ function render_cockpit() {
       const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
       if (trueNewList.length === 0 && reactList.length === 0) return '';
       return `
-      <div class="grid grid-2 mt-3">
+      <div id="cockpit-new-clients-table" class="grid grid-2 mt-3" style="scroll-margin-top:80px;">
         <div class="card">
           <div class="card-header">
             <div class="card-title" style="color:var(--gold-700);">🆕 Vrais nouveaux clients</div>
@@ -3955,7 +4007,9 @@ function render_customers() {
               <th>Département(s)</th>
               <th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">CAP ${APP.filters.ANNEE-1}</th>
               <th class="num">Évol.</th><th class="num">Score</th>
-              <th>Cross-sell</th><th>Pattern</th><th>Case stratégique</th><th>Statut</th>
+              <th>Cross-sell</th><th>Pattern</th>
+              <th class="num">Risque churn</th><th class="num">CLV 3 ans</th>
+              <th>Case stratégique</th><th>Statut</th>
             </tr></thead>
             <tbody>
               ${clients.slice(0, 200).map((c, i) => {
@@ -3972,6 +4026,8 @@ function render_customers() {
                   <td class="num"><strong>${c.score}</strong>/100</td>
                   <td>${crossSellStars(c)}</td>
                   <td class="text-sm" style="color:${pat.color};font-weight:600;" title="${pat.action || ''}">${pat.label}</td>
+                  <td class="num">${churnRiskBadge(c)}</td>
+                  <td class="num"><strong style="color:var(--gold-700);">${fmt.money(c.clv)}</strong></td>
                   <td class="text-sm"><span style="display:inline-block;width:6px;height:6px;background:${c.quadrantColor};border-radius:50%;margin-right:4px;"></span>${c.quadrant}</td>
                   <td class="text-sm">${c.statut}</td>
                 </tr>`;
@@ -5706,6 +5762,200 @@ function editObjectif(key, currentValue) {
   obj[key].cible = n;
   localStorage.setItem('cap_strat_objectifs_' + y, JSON.stringify(obj));
   render_strategie();
+}
+
+// ============================================================
+// PAGE 14 — BRIEFING EXÉCUTIF COMEX (note 1-page consolidée)
+// Reprend les indicateurs clés de toutes les pages dans une note
+// stratégique unique, format COMEX. Aucun graphique — uniquement
+// chiffres + analyse texte type cabinet.
+// ============================================================
+function render_briefing() {
+  const p = PAGES[14];
+  const el = document.getElementById('page-briefing');
+  const rows = APP.filtered;
+  const all = APP.data.fact;
+  const y = APP.filters.ANNEE;
+  const lbl = periodLabel();
+
+  // Métriques globales
+  const capN = CALC.cap(rows);
+  const capN1 = CALC.capN_1(rows, all, y);
+  const evol = CALC.evolutionPct(capN, capN1);
+  const nbClients = CALC.nbClients(rows);
+  const hhi = CALC.HHI(rows);
+  const top10 = CALC.top10Dependency(rows);
+  const nrr = CALC.NRR(rows, all, y);
+  const churn = CALC.churnRate(rows, all, y);
+
+  // Acquisition / churn
+  const trueNew = APP.clientsAgg.filter(c => c.isTrueNew);
+  const reactivated = APP.clientsAgg.filter(c => c.isReactivated);
+  const trueLost = APP.clientsAgg.filter(c => c.isTrueLost);
+  const lostCA = trueLost.reduce((s,c) => s + (c.CA_N1||0), 0);
+
+  // Cross-selling
+  const xsellNew = APP.clientsAgg.filter(c => c.CA_N > 0 && c.newMetiers && c.newMetiers.length > 0);
+
+  // Tiers
+  const byTier = { S: [], A: [], B: [], C: [], D: [] };
+  APP.clientsAgg.forEach(c => byTier[c.tier].push(c));
+  const sCA = byTier.S.reduce((s,c) => s + (c.CA_N||0), 0);
+  const aCA = byTier.A.reduce((s,c) => s + (c.CA_N||0), 0);
+  const totalCA = APP.clientsAgg.reduce((s,c) => s + (c.CA_N||0), 0);
+
+  // Risque
+  const critical = APP.clientsAgg.filter(c => c.healthScore <= -4 && c.CA_N > 0);
+  const criticalCA = critical.reduce((s,c) => s + c.CA_N, 0);
+
+  // Top filière
+  const filiereStats = {};
+  APP.clientsAgg.forEach(c => {
+    if (c.CA_N <= 0) return;
+    const f = CALC.detectFiliere(c.CLIENT);
+    if (!filiereStats[f.code]) filiereStats[f.code] = { meta: f, ca: 0, n: 0 };
+    filiereStats[f.code].ca += c.CA_N;
+    filiereStats[f.code].n++;
+  });
+  const topFil = Object.values(filiereStats).sort((a,b) => b.ca - a.ca).slice(0, 3);
+
+  // Top 5 clients par CAP
+  const top5 = [...APP.clientsAgg].filter(c => c.CA_N > 0).sort((a,b) => b.CA_N - a.CA_N).slice(0, 5);
+  const top5CA = top5.reduce((s,c) => s + c.CA_N, 0);
+
+  // Risque churn élevé
+  const highRisk = APP.clientsAgg.filter(c => c.churnRisk >= 75 && c.CA_N > 0).sort((a,b) => b.CA_N - a.CA_N).slice(0, 5);
+
+  // CLV total prévisionnel
+  const clvTotal = APP.clientsAgg.reduce((s,c) => s + (c.clv || 0), 0);
+
+  // ===== Construction du briefing =====
+  // Verdict global
+  let verdict = '🟢 SAIN', verdictColor = '#0B6E4F';
+  let critIssues = 0;
+  if (nrr !== null && nrr < 0.85) critIssues++;
+  if (churn !== null && churn >= 0.20) critIssues++;
+  if (top10 >= 0.7) critIssues++;
+  if (hhi >= 2500) critIssues++;
+  if (evol !== null && evol < -0.05) critIssues++;
+  if (critIssues >= 3) { verdict = '🔴 CRITIQUE'; verdictColor = '#D62828'; }
+  else if (critIssues >= 1) { verdict = '🟠 VIGILANCE'; verdictColor = '#F77F00'; }
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    <div style="background:white;border:1px solid var(--gold-500);border-radius:12px;padding:0;box-shadow:var(--shadow-lg);overflow:hidden;">
+
+      <!-- En-tête style cabinet -->
+      <div style="background:linear-gradient(135deg,var(--navy-900),var(--navy-700));color:white;padding:24px 32px;border-bottom:4px solid var(--gold-500);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+          <div>
+            <div style="font-size:11px;letter-spacing:2px;color:var(--gold-300);text-transform:uppercase;font-weight:600;margin-bottom:6px;">Note de cabinet — confidentiel COMEX</div>
+            <div style="font-family:var(--font-display);font-size:24px;font-weight:700;color:white;line-height:1.2;">Briefing Exécutif AGL — ${lbl.longue}</div>
+            <div style="font-size:12px;color:var(--navy-100);margin-top:8px;font-style:italic;">Lecture COMEX consolidée 1-page · à imprimer ou présenter en réunion direction</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:var(--gold-300);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;margin-bottom:4px;">Verdict période</div>
+            <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:${verdictColor};background:white;padding:8px 16px;border-radius:6px;display:inline-block;">${verdict}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Corps du briefing -->
+      <div style="padding:28px 32px;">
+
+        <!-- Section 1 : Résumé chiffré -->
+        <div style="margin-bottom:24px;">
+          <div style="font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--navy-900);text-transform:uppercase;letter-spacing:1.5px;border-bottom:2px solid var(--gold-500);padding-bottom:6px;margin-bottom:14px;">§ 1 — Photographie de la période</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;font-size:12px;line-height:1.5;">
+            <div><div style="color:var(--grey-500);font-size:10px;text-transform:uppercase;letter-spacing:1px;">CAP réalisé</div><div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--gold-700);">${fmt.money(capN)} XOF</div><div style="color:${evol === null ? 'var(--grey-500)' : evol >= 0 ? 'var(--evol-strong-up)' : 'var(--evol-strong-dn)'};font-weight:600;">${evol === null ? '—' : (evol >= 0 ? '+' : '') + (evol*100).toFixed(1) + '% vs ' + lbl.ref}</div></div>
+            <div><div style="color:var(--grey-500);font-size:10px;text-transform:uppercase;letter-spacing:1px;">Clients actifs</div><div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--navy-900);">${nbClients}</div><div style="color:var(--grey-700);">+ ${trueNew.length} vrais nouveaux · ${trueLost.length} perdus</div></div>
+            <div><div style="color:var(--grey-500);font-size:10px;text-transform:uppercase;letter-spacing:1px;">Concentration HHI</div><div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:${hhi >= 2500 ? 'var(--evol-strong-dn)' : hhi >= 1500 ? 'var(--evol-down)' : 'var(--evol-strong-up)'};">${Math.round(hhi)}</div><div style="color:var(--grey-700);">Top 10 = ${fmt.pct(top10)} du CA</div></div>
+            <div><div style="color:var(--grey-500);font-size:10px;text-transform:uppercase;letter-spacing:1px;">Rétention nette</div><div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:${nrr === null ? 'var(--grey-500)' : nrr >= 1.0 ? 'var(--evol-strong-up)' : nrr >= 0.85 ? 'var(--evol-down)' : 'var(--evol-strong-dn)'};">${fmt.pct(nrr)}</div><div style="color:var(--grey-700);">Churn ${fmt.pct(churn)}</div></div>
+          </div>
+        </div>
+
+        <!-- Section 2 : Lecture stratégique -->
+        <div style="margin-bottom:24px;">
+          <div style="font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--navy-900);text-transform:uppercase;letter-spacing:1.5px;border-bottom:2px solid var(--gold-500);padding-bottom:6px;margin-bottom:14px;">§ 2 — Lecture stratégique</div>
+          <div style="font-size:13px;line-height:1.75;color:var(--grey-900);">
+            <p style="margin:0 0 12px 0;"><strong>Performance.</strong>
+              ${evol === null ? 'Pas de comparaison N-1 disponible.' :
+                evol >= 0.10 ? `Le CAP progresse de ${(evol*100).toFixed(1)}% sur la période, soit ${fmt.money(capN - capN1)} XOF de gain net — au-dessus du rythme historique typique du secteur logistique africain (~+5%/an).` :
+                evol >= 0 ? `Le CAP progresse modestement de ${(evol*100).toFixed(1)}%, en ligne avec l'inflation. Peu de gain réel.` :
+                evol >= -0.05 ? `Le CAP recule légèrement de ${(evol*100).toFixed(1)}% — stagnation à diagnostiquer.` :
+                `Le CAP recule de ${(evol*100).toFixed(1)}% — décrochage commercial significatif (${fmt.money(Math.abs(capN - capN1))} XOF perdus).`}
+              ${trueNew.length > 0 ? ` Le moteur d'acquisition a livré <strong>${trueNew.length} vrais nouveaux clients</strong> (1ʳᵉ facture jamais émise).` : ''}
+              ${xsellNew.length > 0 ? ` <strong>${xsellNew.length} clients</strong> ont ouvert un nouveau métier sur la période — signal commercial positif d'élargissement de la relation.` : ''}
+            </p>
+
+            <p style="margin:0 0 12px 0;"><strong>Structure du portefeuille.</strong>
+              Le portefeuille concentre ${fmt.pct((sCA + aCA)/totalCA || 0)} du CA sur les ${byTier.S.length + byTier.A.length} clients Tier S+A premium, ${byTier.B.length} clients Tier B en cœur, ${byTier.C.length} en longue traîne et ${byTier.D.length} en zone d'arbitrage.
+              ${hhi >= 2500 ? `<strong>L'indice HHI à ${Math.round(hhi)} signale une concentration excessive</strong> : la perte d'un seul gros compte aurait un impact direct massif.` :
+                hhi >= 1500 ? `La concentration (HHI ${Math.round(hhi)}) reste maîtrisée mais à surveiller.` :
+                `La diversification est excellente (HHI ${Math.round(hhi)}) — atout différenciant rare en logistique africaine.`}
+              Top 5 clients = <strong>${fmt.pct(top5CA / totalCA || 0)}</strong> du CA (${top5.map(c => c.CLIENT).slice(0, 3).join(', ')}…).
+            </p>
+
+            <p style="margin:0 0 12px 0;"><strong>Solidité commerciale.</strong>
+              ${nrr === null ? 'Données de rétention insuffisantes.' :
+                nrr >= 1.05 ? `La rétention nette à ${fmt.pct(nrr)} confirme une <strong>dynamique d'upsell saine</strong> chez les clients existants.` :
+                nrr >= 0.95 ? `La rétention nette à ${fmt.pct(nrr)} indique une stabilité sans expansion réelle — la croissance dépend trop de l'acquisition pure.` :
+                nrr >= 0.85 ? `La rétention nette à ${fmt.pct(nrr)} traduit une <strong>contraction de ${((1-nrr)*100).toFixed(1)} pts</strong> chez les existants : fragilité à corriger.` :
+                `La rétention nette à ${fmt.pct(nrr)} signale une <strong>érosion critique</strong> du portefeuille existant.`}
+              Le taux de perte client (${fmt.pct(churn)}) est ${churn === null ? 'non disponible' : churn < 0.10 ? '<strong>sous le seuil cible</strong> de 10% — bon standard.' : churn < 0.20 ? '<strong>au-dessus de la cible</strong> de 10%.' : '<strong>au-dessus du seuil critique</strong> de 20% — hémorragie à stopper.'}
+              ${trueLost.length > 0 ? ` ${trueLost.length} clients perdus (sans activité &gt; 9 mois) cumulent ${fmt.money(lostCA)} XOF de CAP perdu.` : ''}
+            </p>
+
+            ${topFil.length > 0 ? `<p style="margin:0 0 12px 0;"><strong>Exposition sectorielle.</strong>
+              Les 3 premières filières clientes sont ${topFil.map((f,i) => `<strong>${f.meta.label}</strong> (${fmt.money(f.ca)}, ${f.n} clients)`).join(', ')}.
+              ${topFil[0].ca / totalCA >= 0.30 ? ` <strong>Sur-exposition à ${topFil[0].meta.label}</strong> (${fmt.pct(topFil[0].ca / totalCA)}) — vulnérable aux cycles spécifiques de ce secteur.` : ' Diversification sectorielle correcte.'}
+            </p>` : ''}
+
+            ${critical.length > 0 ? `<p style="margin:0;color:var(--evol-strong-dn);"><strong>⚠ Alerte risque.</strong>
+              <strong>${critical.length} clients en alerte critique</strong> (Health Score ≤ -4) totalisent <strong>${fmt.money(criticalCA)} XOF</strong> de CA en jeu immédiat. Sans intervention sous 30 jours, basculement probable en perte.
+            </p>` : `<p style="margin:0;color:var(--evol-strong-up);"><strong>✓ Risque maîtrisé.</strong> Aucun client en alerte critique sur la période — base saine.</p>`}
+          </div>
+        </div>
+
+        <!-- Section 3 : CLV global -->
+        <div style="margin-bottom:24px;background:rgba(212,162,78,0.08);border-left:3px solid var(--gold-500);padding:16px 20px;border-radius:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:11px;color:var(--gold-700);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-bottom:4px;">Customer Lifetime Value cumulée 3 ans</div>
+              <div style="font-family:var(--font-display);font-size:28px;font-weight:700;color:var(--navy-900);">${fmt.money(clvTotal)} XOF</div>
+              <div style="font-size:12px;color:var(--grey-700);margin-top:4px;">Valeur cumulée projetée du portefeuille filtré sur 3 ans · CA annualisé × probabilité rétention × croissance</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:1px;">CLV moyen / client</div>
+              <div style="font-size:18px;font-weight:700;color:var(--gold-700);">${fmt.money(nbClients > 0 ? clvTotal / nbClients : 0)}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4 : Top 5 actions priorisées -->
+        <div style="margin-bottom:8px;">
+          <div style="font-family:var(--font-display);font-size:14px;font-weight:700;color:var(--navy-900);text-transform:uppercase;letter-spacing:1.5px;border-bottom:2px solid var(--gold-500);padding-bottom:6px;margin-bottom:14px;">§ 3 — Top 5 actions à activer cette période</div>
+          <ol style="margin:0;padding-left:24px;font-size:13px;line-height:1.7;color:var(--grey-900);">
+            ${critical.length > 0 ? `<li><strong>${critical.length} clients en alerte critique</strong> — visite KAM senior dans les 7 jours, plan de redressement formel à présenter au COMEX (CA en jeu : ${fmt.money(criticalCA)} XOF).</li>` : ''}
+            ${(nrr !== null && nrr < 0.85) ? `<li><strong>Audit de rétention</strong> — la NRR à ${fmt.pct(nrr)} signale que les clients existants se contractent. Revue tier-by-tier des Tier S/A pour identifier la cause (offre, prix, qualité, concurrent) sous 30 jours.</li>` : ''}
+            ${highRisk.length > 0 ? `<li><strong>${highRisk.length} clients à risque churn élevé</strong> (score ≥ 75) — campagne de fidélisation prioritaire : ${highRisk.slice(0,3).map(c => c.CLIENT).join(', ')}${highRisk.length > 3 ? '…' : ''}.</li>` : ''}
+            ${trueLost.filter(c => c.monthsSinceLastTx <= 6).length > 0 ? `<li><strong>Reconquête prioritaire</strong> — appels KAM sur les ${trueLost.filter(c => c.monthsSinceLastTx <= 6).length} clients perdus &lt; 6 mois (fenêtre de retour encore ouverte).</li>` : ''}
+            ${xsellNew.length > 0 ? `<li><strong>Consolidation cross-sell</strong> — visites de consolidation sur les ${xsellNew.length} clients ayant ouvert un nouveau métier sur la période, pour cartographier les besoins logistiques globaux.</li>` : ''}
+            ${top10 >= 0.7 ? `<li><strong>De-risking Top 10</strong> — sécurisation contractuelle pluriannuelle des 5 plus gros comptes pour réduire la sur-dépendance (${fmt.pct(top10)} du CA).</li>` : ''}
+            ${trueNew.length > 0 ? `<li><strong>On-boarding nouveaux clients</strong> — programme de fidélisation des ${trueNew.length} vrais nouveaux pour les pousser en Tier B/C dans les 12 mois.</li>` : ''}
+          </ol>
+        </div>
+
+      </div>
+
+      <!-- Pied de page note -->
+      <div style="background:var(--grey-50);padding:12px 32px;border-top:1px solid var(--grey-200);font-size:10px;color:var(--grey-500);font-style:italic;display:flex;justify-content:space-between;">
+        <span>Source : CAP Strategic Analytics · données filtrées : ${APP.filtered.length.toLocaleString('fr-FR')} transactions · ${nbClients} clients</span>
+        <span>Généré le ${new Date().toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' })} · imprimer via Ctrl+P</span>
+      </div>
+    </div>
+  `;
 }
 </script>
 
