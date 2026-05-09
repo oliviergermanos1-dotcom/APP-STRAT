@@ -1016,6 +1016,17 @@ table.data tr.highlight { background: var(--gold-50); }
   <!-- Le contenu sera injecté par JavaScript -->
 </div>
 
+<!-- Modal drill-through client (caché par défaut) -->
+<div id="client-modal" style="display:none;position:fixed;inset:0;background:rgba(10,37,64,0.75);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:32px;">
+  <div style="background:white;width:100%;max-width:1200px;border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,0.4);overflow:hidden;">
+    <div style="background:linear-gradient(135deg,var(--navy-900),var(--navy-700));color:white;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;">
+      <div id="client-modal-title" style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--gold-300);"></div>
+      <button onclick="closeClientModal()" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:white;font-size:18px;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:700;">✕ Fermer</button>
+    </div>
+    <div id="client-modal-body" style="padding:24px 28px;max-height:calc(100vh - 160px);overflow-y:auto;"></div>
+  </div>
+</div>
+
 <!-- Upload Screen (visible au démarrage) -->
 <div id="upload-screen" class="upload-screen">
   <div class="upload-card">
@@ -2572,6 +2583,308 @@ function analyse(insights, titre) {
   </div>`;
 }
 
+// SYNTHÈSE STRATÉGIQUE STRUCTURÉE (mode brief Senior Partner)
+// Produit UN SEUL bloc dense, structuré en sections claires (Performance,
+// Solidité, Dynamique, Vigilance, Leviers, Top 3 priorités). Préférable
+// quand on veut une lecture COMPLÈTE en un seul coup d'œil — au lieu d'une
+// multitude d'encarts colorés qui fragmentent la pensée.
+//
+// `s` = {
+//   headline:    "Phrase d'accroche en or qui résume la période",
+//   performance: "Paragraphe sur CAP, croissance, contexte",
+//   solidite:    "Paragraphe sur rétention, churn, concentration",
+//   dynamique:   "Paragraphe sur acquisition, cross-sell, attrition",
+//   vigilance:   ["point 1", "point 2", ...] (alertes, risques)
+//   leviers:     ["levier 1", ...] (opportunités, gisements)
+//   priorites:   ["priorité 1", "priorité 2", "priorité 3"]
+// }
+function synthese(s, titre) {
+  const sec = (label, content) => content ? `
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10.5px;font-weight:700;color:var(--gold-300);letter-spacing:1.8px;text-transform:uppercase;margin-bottom:6px;">${label}</div>
+      <div style="font-size:13px;line-height:1.7;color:rgba(255,255,255,0.92);">${content}</div>
+    </div>` : '';
+  const list = (label, color, items) => (items && items.length) ? `
+    <div style="background:rgba(255,255,255,0.04);border-left:3px solid ${color};padding:12px 16px;border-radius:0 6px 6px 0;">
+      <div style="font-size:10.5px;font-weight:700;color:${color};letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;">${label}</div>
+      <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.65;color:rgba(255,255,255,0.92);">
+        ${items.filter(Boolean).map(x => `<li style="margin-bottom:4px;">${x}</li>`).join('')}
+      </ul>
+    </div>` : '';
+  return `<div style="margin:0 0 24px 0;background:linear-gradient(135deg,var(--navy-900) 0%,var(--navy-800) 70%,var(--navy-700) 100%);color:var(--white);padding:28px 32px;border-radius:12px;box-shadow:var(--shadow-lg);position:relative;overflow:hidden;">
+    <div style="position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--gold-700),var(--gold-300),var(--gold-700));"></div>
+    <div style="position:absolute;top:18px;right:24px;font-size:60px;opacity:0.05;font-family:var(--font-display);font-weight:900;color:var(--gold-300);">AGL</div>
+
+    <div style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--gold-300);letter-spacing:1.2px;margin-bottom:6px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:22px;">🎯</span>${titre || 'Synthèse stratégique'}
+    </div>
+    <div style="font-size:11px;color:var(--navy-100);font-style:italic;letter-spacing:0.5px;margin-bottom:18px;border-bottom:1px solid rgba(212,162,78,0.25);padding-bottom:12px;">
+      Lecture COMEX consolidée — note de cabinet
+    </div>
+
+    ${s.headline ? `<div style="font-family:var(--font-display);font-size:15px;font-weight:500;line-height:1.65;color:var(--gold-100);background:rgba(212,162,78,0.08);border-left:3px solid var(--gold-500);padding:14px 18px;border-radius:0 6px 6px 0;margin-bottom:20px;">${s.headline}</div>` : ''}
+
+    ${sec('📈 Performance & contexte', s.performance)}
+    ${sec('🛡 Solidité du portefeuille', s.solidite)}
+    ${sec('🔄 Dynamique commerciale', s.dynamique)}
+
+    ${(s.vigilance && s.vigilance.length) || (s.leviers && s.leviers.length) ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;">
+      ${list('⚠ Points de vigilance', '#F77F00', s.vigilance)}
+      ${list('💡 Leviers à activer', '#52B788', s.leviers)}
+    </div>` : ''}
+
+    ${s.priorites && s.priorites.length ? `
+    <div style="background:linear-gradient(135deg,rgba(212,162,78,0.20),rgba(212,162,78,0.08));border:1px solid var(--gold-500);border-radius:8px;padding:16px 22px;">
+      <div style="font-size:10.5px;font-weight:700;color:var(--gold-300);letter-spacing:1.8px;text-transform:uppercase;margin-bottom:10px;">⚡ Top 3 priorités de la période</div>
+      <ol style="margin:0;padding-left:22px;color:var(--white);font-size:13px;line-height:1.75;font-weight:500;">
+        ${s.priorites.filter(Boolean).map(p => `<li style="margin-bottom:5px;">${p}</li>`).join('')}
+      </ol>
+    </div>` : ''}
+  </div>`;
+}
+
+// ============================================================
+// DRILL-THROUGH CLIENT — modal vue 360° complète
+// Click sur un nom de client (toute classe .client-link) → ouvre modal
+// ============================================================
+function openClientModal(clientName) {
+  const c = APP.clientsAgg.find(x => x.CLIENT === clientName);
+  if (!c) return;
+  const modal = document.getElementById('client-modal');
+  const title = document.getElementById('client-modal-title');
+  const body  = document.getElementById('client-modal-body');
+  const filiere = CALC.detectFiliere(c.CLIENT);
+  const pat = c.pattern || { label:'—', color:'#7F7F7F', action:'' };
+
+  title.innerHTML = `<span class="tier-${c.tier}" style="margin-right:10px;">${c.tier}</span>${c.CLIENT} <span style="font-size:11px;color:var(--gold-100);font-weight:400;letter-spacing:0.5px;margin-left:12px;">${filiere.label} · ${c.METIER || '—'}</span>`;
+
+  // Sparkline mensuel — récupère les 24 derniers mois de transactions
+  const txAll = APP.data.fact.filter(r => r.CLIENT === clientName);
+  const monthlyMap = {};
+  txAll.forEach(r => {
+    if (!r.MONTANT) return;
+    const k = r.ANNEE * 100 + r.MOIS;
+    monthlyMap[k] = (monthlyMap[k] || 0) + r.MONTANT;
+  });
+  const sortedKeys = Object.keys(monthlyMap).map(k => +k).sort();
+  const histMin = sortedKeys[0] || 0, histMax = sortedKeys[sortedKeys.length - 1] || 0;
+  const moisAbr = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
+  const sparkLabels = [], sparkVals = [];
+  if (sortedKeys.length > 0) {
+    let kk = histMin;
+    while (kk <= histMax) {
+      const yy = Math.floor(kk / 100), mm = kk % 100;
+      sparkLabels.push(`${moisAbr[mm-1]} ${String(yy).slice(-2)}`);
+      sparkVals.push(monthlyMap[kk] || 0);
+      kk = mm === 12 ? (yy+1)*100 + 1 : kk + 1;
+    }
+  }
+
+  // Libellés consommés sur la période courante (avec leur poids)
+  const filteredTx = APP.filtered.filter(r => r.CLIENT === clientName);
+  const libCA = {};
+  filteredTx.forEach(r => { if (r.LIBELLE) libCA[r.LIBELLE] = (libCA[r.LIBELLE] || 0) + (r.MONTANT || 0); });
+  const libsSorted = Object.entries(libCA).sort((a,b) => b[1] - a[1]);
+  const totalLibCA = libsSorted.reduce((s, e) => s + e[1], 0);
+  // Sites
+  const siteCA = {};
+  filteredTx.forEach(r => { if (r.SITE) siteCA[r.SITE] = (siteCA[r.SITE] || 0) + (r.MONTANT || 0); });
+  // Métiers
+  const metierCA = {};
+  filteredTx.forEach(r => { if (r.METIER) metierCA[r.METIER] = (metierCA[r.METIER] || 0) + (r.MONTANT || 0); });
+  const metiersSorted = Object.entries(metierCA).sort((a,b) => b[1] - a[1]);
+
+  // Health Score décomposé (récupéré de CALC)
+  const hScore = c.healthScore;
+  const hStatus = c.healthStatus;
+
+  // Score 0-100 dimensions (pour radar 6D)
+  const stats = CALC.precomputeStats(APP.clientsAgg);
+  const sTaille = c.CA_N > 0 && stats.maxCA > 0 ? Math.log(c.CA_N + 1) / Math.log(stats.maxCA + 1) * 100 : 0;
+  let sCroissance = 50;
+  if (c.evol !== null) {
+    if (c.evol >= 0.50) sCroissance = 100;
+    else if (c.evol >= 0.20) sCroissance = 85;
+    else if (c.evol >= 0.10) sCroissance = 70;
+    else if (c.evol >= 0.00) sCroissance = 55;
+    else if (c.evol >= -0.10) sCroissance = 35;
+    else if (c.evol >= -0.20) sCroissance = 20;
+    else sCroissance = 5;
+  }
+  const sRegularite = Math.min(c.nbMois, 12) / 12 * 100;
+  const sDiversite = stats.maxLib > 0 ? c.nbLibelles / stats.maxLib * 100 : 0;
+  const sCrossSell = (c.crossSellLvl || 1) / 5 * 100;
+  // Risque (inversé : score haut = peu risqué)
+  const sRisque = Math.max(0, Math.min(100, 100 + (hScore || 0) * 12));
+
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:18px;">
+      <div class="kpi"><div class="kpi-label">CAP ${APP.filters.ANNEE}</div><div class="kpi-value gold">${fmt.money(c.CA_N)}<span class="kpi-unit">XOF</span></div>${evolHTML(c.evol)}</div>
+      <div class="kpi"><div class="kpi-label">CAP ${APP.filters.ANNEE - 1}</div><div class="kpi-value small">${fmt.money(c.CA_N1)}<span class="kpi-unit">XOF</span></div></div>
+      <div class="kpi"><div class="kpi-label">Score / Tier</div><div class="kpi-value"><span class="tier-${c.tier}">${c.tier}</span> ${c.score}/100</div><div class="kpi-bench">Case : ${c.quadrant}</div></div>
+      <div class="kpi"><div class="kpi-label">Health Score</div><div class="kpi-value">${hScore}</div><div class="kpi-bench">${hStatus}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Profil 6 dimensions (radar)</div>
+          <div class="text-sm text-muted">Note 0-100 sur chaque axe stratégique</div>
+        </div>
+        <div class="card-body" style="padding:8px;">
+          <div style="height:340px;"><canvas id="client-radar"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Cycle de vie & profil commercial</div>
+        </div>
+        <div class="card-body">
+          <div style="font-size:13px;line-height:1.8;">
+            <div><strong>Statut :</strong> ${c.statut}</div>
+            <div><strong>Pattern :</strong> <span style="color:${pat.color};font-weight:600;">${pat.label}</span></div>
+            <div><strong>Action recommandée :</strong> <span class="text-sm">${pat.action || '—'}</span></div>
+            <div><strong>1ʳᵉ facture :</strong> ${c.firstMonth ? moisAbr[c.firstMonth - 1] + ' ' + c.firstYear : '—'}</div>
+            <div><strong>Dernière facture :</strong> ${c.lastMonth ? moisAbr[c.lastMonth - 1] + ' ' + c.lastYear : '—'} ${c.monthsSinceLastTx > 0 ? `<span class="text-muted">(${c.monthsSinceLastTx} mois)</span>` : ''}</div>
+            <div><strong>Mois actifs cumulés :</strong> ${c.nbMois}</div>
+            <div><strong>Métiers ouverts :</strong> ${c.nbMetiers || 0} / ${APP.totalMetiersInScope || 10}</div>
+            <div><strong>Services consommés :</strong> ${c.nbLibelles || 0}</div>
+            <div><strong>Sites utilisés :</strong> ${c.nbSites || 0} (${[...(c.sites||[])].join(', ')})</div>
+            ${c.newMetiers && c.newMetiers.length > 0 ? `<div style="margin-top:10px;padding:10px;background:rgba(212,162,78,0.1);border-left:3px solid var(--gold-500);border-radius:6px;"><strong style="color:var(--gold-700);">💎 Cross-sell ouvert :</strong> ${c.newMetiers.join(', ')} <span class="text-sm text-muted">(nouveau(x) métier(s) sur la période)</span></div>` : ''}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-2">
+      <div class="card-header">
+        <div class="card-title">Évolution mensuelle du CA — historique complet</div>
+        <div class="text-sm text-muted">${sortedKeys.length} mois actifs sur l'historique</div>
+      </div>
+      <div class="card-body" style="padding:8px;"><div style="height:200px;"><canvas id="client-spark"></canvas></div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:18px;">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Départements (libellés) consommés sur la période</div><div class="text-sm text-muted">${libsSorted.length} libellés actifs</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap" style="max-height:280px;">
+            <table class="data">
+              <thead><tr><th>Libellé</th><th class="num">CAP</th><th class="num">% CAP client</th></tr></thead>
+              <tbody>
+                ${libsSorted.length === 0 ? '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:16px;">Aucun libellé sur la période</td></tr>' : libsSorted.map(([l,v]) => `<tr><td>${l}</td><td class="num">${fmt.money(v)}</td><td class="num">${totalLibCA > 0 ? fmt.pct(v/totalLibCA) : '—'}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Métiers</div></div>
+        <div class="card-body" style="padding:0;">
+          <table class="data">
+            <thead><tr><th>Métier</th><th class="num">CAP</th></tr></thead>
+            <tbody>
+              ${metiersSorted.length === 0 ? '<tr><td colspan=2 style="text-align:center;color:var(--grey-500);padding:16px;">—</td></tr>' : metiersSorted.map(([m,v]) => `<tr><td class="text-sm">${m}</td><td class="num">${fmt.money(v)}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Sites</div></div>
+        <div class="card-body" style="padding:0;">
+          <table class="data">
+            <thead><tr><th>Site</th><th class="num">CAP</th></tr></thead>
+            <tbody>
+              ${Object.entries(siteCA).sort((a,b)=>b[1]-a[1]).map(([s,v]) => `<tr><td><strong>${s}</strong></td><td class="num">${fmt.money(v)}</td></tr>`).join('') || '<tr><td colspan=2 style="text-align:center;color:var(--grey-500);padding:16px;">—</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+
+  // Render charts
+  setTimeout(() => {
+    if (typeof Chart === 'undefined') return;
+    // Radar 6D
+    const radarCtx = document.getElementById('client-radar');
+    if (radarCtx) {
+      new Chart(radarCtx, {
+        type: 'radar',
+        data: {
+          labels: ['Volume', 'Croissance', 'Régularité', 'Diversité', 'Cross-sell', 'Profil risque'],
+          datasets: [{
+            label: c.CLIENT,
+            data: [sTaille, sCroissance, sRegularite, sDiversite, sCrossSell, sRisque],
+            fill: true,
+            backgroundColor: 'rgba(212,162,78,0.20)',
+            borderColor: '#D4A24E',
+            borderWidth: 2,
+            pointBackgroundColor: '#D4A24E',
+            pointRadius: 4
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            r: {
+              min: 0, max: 100,
+              ticks: { display: false, stepSize: 20 },
+              grid: { color: 'rgba(10,37,64,0.10)' },
+              angleLines: { color: 'rgba(10,37,64,0.10)' },
+              pointLabels: { font: { size: 11, family: 'Inter', weight: 600 }, color: '#0A2540' }
+            }
+          }
+        }
+      });
+    }
+    // Sparkline mensuel
+    const sparkCtx = document.getElementById('client-spark');
+    if (sparkCtx) {
+      new Chart(sparkCtx, {
+        type: 'line',
+        data: {
+          labels: sparkLabels,
+          datasets: [{ data: sparkVals, borderColor: '#0A2540', backgroundColor: 'rgba(10,37,64,0.08)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.3 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => fmt.money(ctx.parsed.y) + ' XOF' } } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: '#EAEAEA' }, ticks: { font: { size: 9 }, callback: v => fmt.money(v) } },
+            x: { grid: { display: false }, ticks: { font: { size: 9 }, autoSkip: true, maxTicksLimit: 12 } }
+          }
+        }
+      });
+    }
+  }, 50);
+}
+
+function closeClientModal() {
+  document.getElementById('client-modal').style.display = 'none';
+}
+
+// Click delegation : ouvre le modal sur clic d'un nom de client
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('.client-link');
+  if (link && link.dataset.client) {
+    e.preventDefault();
+    e.stopPropagation();
+    openClientModal(link.dataset.client);
+  }
+});
+// Fermeture par touche Échap
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeClientModal(); });
+// Fermeture par clic sur le fond
+document.addEventListener('click', (e) => {
+  const modal = document.getElementById('client-modal');
+  if (modal && modal.style.display !== 'none' && e.target === modal) closeClientModal();
+});
+
 function destroyChart(key) {
   if (APP.charts[key]) {
     try { APP.charts[key].destroy(); } catch(e) {}
@@ -2741,58 +3054,111 @@ function render_cockpit() {
 
     ${(() => {
       // ============================================================
-      // SYNTHÈSE STRATÉGIQUE CONSOLIDÉE — toutes les analyses du Cockpit
-      // sont rassemblées ici, EN HAUT, AVANT tous les chiffres.
+      // SYNTHÈSE STRATÉGIQUE CONSOLIDÉE — UN SEUL BLOC structuré
+      // (mode brief Senior Partner cabinet — lecture COMEX en 60 secondes)
       // ============================================================
-      const insights = [];
       const lbl = periodLabel();
+      const evolPct = evol !== null ? (evol*100).toFixed(1) : null;
+      const evolArpuPct = evolArpu !== null ? (evolArpu*100).toFixed(1) : null;
+      const deltaClients = nbClients - nbClientsN1;
+      const trendCAP = evol === null ? 'stable' : (evol >= 0.10 ? 'forte hausse' : evol >= 0.0 ? 'modeste hausse' : evol >= -0.05 ? 'légère baisse' : 'recul marqué');
+      const tagCAP = evol === null ? '' : (evol >= 0.10 ? '🟢' : evol >= 0.0 ? '🟡' : evol >= -0.05 ? '🟠' : '🔴');
 
-      // 1. Évolution CAP
+      // === HEADLINE ===
+      let headline = '';
       if (evol !== null) {
-        if (evol >= 0.10) insights.push({ type:'positif', constat:`Le CAP progresse de <strong>${(evol*100).toFixed(1)}%</strong> sur ${lbl.longue} vs ${lbl.ref} (${fmt.money(capN - capN1)} XOF additionnels).`, implication:`Croissance solide, au-dessus du rythme historique typique du secteur logistique africain (≈ +5%/an).`, action:`Capitaliser : identifier les 3 leviers responsables (nouveaux clients, expansion existants, hausse de prix) pour consolider.` });
-        else if (evol >= 0.0) insights.push({ type:'neutre', constat:`Le CAP progresse modestement de <strong>${(evol*100).toFixed(1)}%</strong> sur la période — ${fmt.money(capN - capN1)} XOF de gain net.`, implication:`Croissance en ligne avec l'inflation, peu de gain réel.`, action:`Identifier 1-2 leviers de relance (cross-sell, conquête, prix) à activer dès le prochain trimestre.` });
-        else if (evol >= -0.05) insights.push({ type:'attention', constat:`Le CAP recule légèrement de <strong>${(evol*100).toFixed(1)}%</strong> vs ${lbl.ref}.`, implication:`Stagnation sous l'effet de la décroissance de quelques clients existants ou de l'absence de nouveaux logos significatifs.`, action:`Examiner la liste "Top 5 alertes" plus bas et la page Risques pour cibler les actions de redressement.` });
-        else insights.push({ type:'risque', constat:`Le CAP recule fortement de <strong>${(evol*100).toFixed(1)}%</strong> vs ${lbl.ref} — ${fmt.money(Math.abs(capN - capN1))} XOF perdus net.`, implication:`Décrochage commercial significatif. Décélération brutale ou perte de gros comptes structurants.`, action:`Audit immédiat des Top 5 alertes + revue avec la Direction Commerciale.` });
+        const dir = evol >= 0 ? 'progresse' : 'recule';
+        headline = `Sur <strong>${lbl.longue}</strong>, le CAP s'établit à <strong>${fmt.money(capN)} XOF</strong>${evolPct ? ` et ${dir} de <strong>${evolPct}%</strong> vs ${lbl.ref}` : ''}, avec <strong>${nbClients}</strong> clients actifs (${deltaClients >= 0 ? '+' : ''}${deltaClients} vs N-1).`;
+        if (nrr !== null && nrr < 0.85) headline += ` <span style="color:var(--evol-strong-dn);">⚠ Mais la rétention nette est en zone critique (${fmt.pct(nrr)})</span> — le portefeuille existant fond plus vite que la conquête ne compense.`;
+        else if (top10 >= 0.7) headline += ` <span style="color:var(--evol-down);">⚠ Concentration top 10 = ${fmt.pct(top10)}, niveau de dépendance critique.</span>`;
       }
 
-      // 2. Variation portefeuille clients (volume)
-      if (evolNbClients !== null) {
-        const delta = nbClients - nbClientsN1;
-        if (Math.abs(evolNbClients) >= 0.05) insights.push({ type: evolNbClients >= 0 ? 'positif' : 'attention', constat:`<strong>${nbClients} clients actifs</strong> sur la période vs <strong>${nbClientsN1}</strong> en N-1 (${delta >= 0 ? '+' : ''}${delta} clients, ${(evolNbClients*100).toFixed(1)}%).`, implication: evolNbClients >= 0 ? `Le portefeuille s'élargit en volume — bonne dynamique d'acquisition nette.` : `Le portefeuille se contracte en volume — l'érosion clients dépasse la conquête.`, action: evolNbClients >= 0 ? `Vérifier la qualité de l'acquisition (Tier des nouveaux) — masse n'est pas valeur.` : `Audit du pipeline d'acquisition + plan rétention immédiat.` });
+      // === PERFORMANCE ===
+      let performance = '';
+      if (evol !== null) {
+        const trendDesc = evol >= 0.10 ? 'une croissance solide, au-dessus du rythme historique typique du secteur logistique africain (≈ +5%/an)'
+          : evol >= 0 ? 'une croissance modeste, en ligne avec l\'inflation et donc peu de gain réel en valeur'
+          : evol >= -0.05 ? 'une stagnation sous l\'effet de la décroissance de clients existants ou de l\'absence de nouveaux logos significatifs'
+          : 'un décrochage commercial qui suggère soit une décélération brutale, soit la perte de gros comptes structurants';
+        performance = `La période traduit <strong>${trendDesc}</strong> (${fmt.money(capN - capN1)} XOF de gain net vs N-1). `;
+      }
+      if (evolArpu !== null && Math.abs(evolArpu) >= 0.05) {
+        performance += evolArpu >= 0
+          ? `Le panier moyen par client (${fmt.money(arpu)} XOF, +${evolArpuPct}%) <strong>monte en valeur</strong> — signal d'upsell ou d'effet mix favorable. `
+          : `Le panier moyen par client recule à ${fmt.money(arpu)} XOF (${evolArpuPct}%) — effet mix défavorable, ou perte de gros comptes au profit de plus petits. <strong>À investiguer</strong> pour s'assurer que la dégradation n'est pas concentrée sur les Tier S/A premium. `;
       }
 
-      // 3. CAP moyen par client
-      if (evolArpu !== null && Math.abs(evolArpu) >= 0.05) insights.push({ type: evolArpu >= 0 ? 'positif' : 'attention', constat:`CAP moyen par client = <strong>${fmt.money(arpu)}</strong> XOF (vs ${fmt.money(arpuN1)} en N-1, ${evolArpu >= 0 ? '+' : ''}${(evolArpu*100).toFixed(1)}%).`, implication: evolArpu >= 0 ? `Les clients consomment plus en moyenne — le mix monte en valeur.` : `Le panier moyen baisse : effet mix défavorable, ou perte de gros comptes au profit de plus petits.`, action: evolArpu >= 0 ? `Documenter ce qui pousse le panier (cross-sell, prix) pour répliquer.` : `Vérifier si les pertes sont concentrées sur les Tier S/A premium.` });
-
-      // 4. Acquisition vrais nouveaux
-      if (trueNewList.length > 0 && newPctCA >= 0.05) insights.push({ type:'opportunite', constat:`<strong>${trueNewList.length} vrais nouveaux clients</strong> (1ʳᵉ facture jamais émise) apportent <strong>${fmt.pct(newPctCA)}</strong> du CA de la période — soit ${fmt.money(trueNewCA)} XOF.`, implication:`Acquisition active, signal positif pour le pipeline commercial. À distinguer des "réactivés" qui sont du recyclage de portefeuille.`, action:`Suivre leur conversion vers Tier B/C dans les 12 prochains mois (objectif fidélisation).` });
-
-      // 5. Concentration HHI
-      if (hhi >= 2500) insights.push({ type:'risque', constat:`Indice de concentration HHI = <strong>${Math.round(hhi)}</strong>, au-dessus du seuil de risque (2500) — top 10 clients = ${fmt.pct(top10)} du CA.`, implication:`Le portefeuille dépend trop d'une poignée de clients. La perte d'un seul peut faire mal au CA global.`, action:`Plan de diversification : pousser le Tier B en priorité, accélérer la conquête mid-market.` });
-      else if (hhi >= 1500) insights.push({ type:'attention', constat:`Indice HHI = <strong>${Math.round(hhi)}</strong> — concentration modérée, top 10 clients = ${fmt.pct(top10)} du CA.`, implication:`Niveau de dépendance acceptable mais à surveiller, surtout si l'évolution se concentre sur les Tier S/A.`, action:`Suivre l'évolution mensuelle du HHI et éviter qu'il franchisse 2500.` });
-      else insights.push({ type:'positif', constat:`Indice HHI = <strong>${Math.round(hhi)}</strong> — portefeuille bien diversifié (top 10 = ${fmt.pct(top10)} seulement).`, implication:`Risque de dépendance faible. Profil rare en logistique africaine.`, action:`Continuer la stratégie de diversification.` });
-
-      // 6. NRR (Rétention nette)
+      // === SOLIDITÉ ===
+      let solidite = '';
+      if (hhi < 1500) solidite += `Le portefeuille est <strong>bien diversifié</strong> (HHI = ${Math.round(hhi)}, top 10 = ${fmt.pct(top10)}). C'est un atout rare en logistique africaine et un facteur de résilience face à la perte d'un compte unique. `;
+      else if (hhi < 2500) solidite += `La concentration est <strong>modérée</strong> (HHI = ${Math.round(hhi)}, top 10 = ${fmt.pct(top10)}). Niveau acceptable mais à surveiller, surtout si l'évolution se concentre sur les Tier S/A. `;
+      else solidite += `Le portefeuille est <strong>fortement concentré</strong> (HHI = ${Math.round(hhi)} au-dessus du seuil de risque 2500, top 10 = ${fmt.pct(top10)}). La perte d'un seul gros compte aurait un impact direct massif sur le P&L. `;
       if (nrr !== null) {
-        if (nrr >= 1.10) insights.push({ type:'positif', constat:`Rétention nette = <strong>${fmt.pct(nrr)}</strong> — clients existants en expansion (+${((nrr-1)*100).toFixed(1)} pts).`, implication:`Excellente dynamique d'upsell : moteur de croissance organique solide.`, action:`Documenter et étendre la méthode "land & expand" aux nouveaux comptes.` });
-        else if (nrr >= 1.0) insights.push({ type:'neutre', constat:`Rétention nette = <strong>${fmt.pct(nrr)}</strong> — clients existants stables (+${((nrr-1)*100).toFixed(1)} pts).`, implication:`Pas d'upsell significatif. La croissance dépend trop de l'acquisition pure.`, action:`Programme d'upsell structuré sur les Tier B (cible : NRR > 105%).` });
-        else if (nrr >= 0.85) insights.push({ type:'attention', constat:`Rétention nette = <strong>${fmt.pct(nrr)}</strong> — contraction des existants de ${((1-nrr)*100).toFixed(1)} pts.`, implication:`Fragilité : la base existante érode plus vite que la conquête ne compense.`, action:`Revue tier-by-tier + actions correctrices ciblées sur les comptes en contraction.` });
-        else insights.push({ type:'risque', constat:`Rétention nette CRITIQUE = <strong>${fmt.pct(nrr)}</strong> — contraction de ${((1-nrr)*100).toFixed(1)} pts.`, implication:`Le portefeuille existant fond rapidement. Churn élevé OU baisse de consommation chez les survivants.`, action:`Audit COMEX immédiat. Examiner la page Risques.` });
+        if (nrr >= 1.05) solidite += `La rétention nette à <strong>${fmt.pct(nrr)}</strong> indique que les clients existants consomment davantage chaque année — moteur de croissance organique solide. `;
+        else if (nrr >= 1.0) solidite += `La rétention nette à <strong>${fmt.pct(nrr)}</strong> est stable mais sans upsell significatif — la croissance repose trop sur l'acquisition pure. `;
+        else if (nrr >= 0.85) solidite += `La rétention nette à <strong>${fmt.pct(nrr)}</strong> traduit une <strong>contraction de ${((1-nrr)*100).toFixed(1)} pts</strong> chez les clients existants — fragilité à corriger. `;
+        else solidite += `La rétention nette à <strong>${fmt.pct(nrr)}</strong> signale une <strong>érosion critique</strong> du portefeuille existant : la base fond rapidement, par perte de clients ou par baisse de consommation chez les survivants. `;
+      }
+      if (churn !== null) {
+        if (churn < 0.10) solidite += `Le taux de perte client (${fmt.pct(churn)}) est <strong>sous le seuil cible de 10%</strong> — bon standard sectoriel. `;
+        else if (churn < 0.20) solidite += `Le taux de perte client (${fmt.pct(churn)}) est <strong>au-dessus de la cible de 10%</strong> — la conquête doit constamment compenser cette fuite. `;
+        else solidite += `Le taux de perte client (${fmt.pct(churn)}) est <strong>au-dessus du seuil critique de 20%</strong> : 1 client sur 5 disparaît, hémorragie qui rend la croissance organique illusoire. `;
       }
 
-      // 7. Top 10 dependency (si pas déjà couvert dans HHI)
-      if (top10 >= 0.7) insights.push({ type:'risque', constat:`Top 10 clients = <strong>${fmt.pct(top10)}</strong> du CA — ratio de dépendance critique.`, implication:`Si l'un des Top 10 réduit son volume de 30%, l'impact global est massif.`, action:`Plan de "de-risking" : sécurisation contractuelle des Top 5 (engagements pluriannuels).` });
+      // === DYNAMIQUE COMMERCIALE ===
+      let dynamique = '';
+      if (trueNewList.length > 0) {
+        dynamique += `Le moteur d'acquisition a livré <strong>${trueNewList.length} vrais nouveaux clients</strong> sur la période (1ʳᵉ facture après 36 mois minimum d'absence), apportant <strong>${fmt.pct(newPctCA)}</strong> du CA — soit ${fmt.money(trueNewCA)} XOF. `;
+      }
+      if (totalLostCA > 0 && lostList.length > 0) {
+        dynamique += `À l'inverse, <strong>${lostList.length} clients perdus</strong> (sans activité depuis &gt; 9 mois) cumulent ${fmt.money(totalLostCA)} XOF de CAP perdu sur l'historique récent. `;
+        if (recentLostCA > yearLostCA + oldLostCA && recentLostCA > 0) {
+          dynamique += `<strong>Le CA perdu se concentre sur les 6 derniers mois</strong> (${fmt.money(recentLostCA)} XOF) — plus que sur les 18 précédents combinés, ce qui signale un décrochage récent et accéléré, pas un phénomène ancien. `;
+        }
+      }
+      if (!dynamique) dynamique = `Pas d'évolution structurelle marquante du portefeuille sur la période. `;
 
-      // 8. Churn rate
-      if (churn !== null && churn >= 0.20) insights.push({ type:'risque', constat:`Taux de perte client = <strong>${fmt.pct(churn)}</strong> — au-dessus du seuil critique de 20%.`, implication:`1 client sur 5 disparaît. Hémorragie qui rend la croissance organique illusoire.`, action:`Analyse causale (offre, prix, qualité, concurrence) + plan d'action ciblé.` });
-      else if (churn !== null && churn >= 0.10) insights.push({ type:'attention', constat:`Taux de perte client = <strong>${fmt.pct(churn)}</strong> — au-dessus de la cible de 10%.`, implication:`Niveau préoccupant : la conquête doit en permanence compenser.`, action:`Voir la section "Clients perdus — détail" pour identifier les profils à reconquérir.` });
-      else if (churn !== null) insights.push({ type:'positif', constat:`Taux de perte client = <strong>${fmt.pct(churn)}</strong> — sous le seuil cible de 10%.`, implication:`Bon niveau de fidélisation, en ligne avec les meilleurs standards du secteur.`, action:null });
+      // === VIGILANCE & LEVIERS ===
+      const vigilance = [];
+      if (evol !== null && evol < -0.05) vigilance.push(`<strong>CAP en recul de ${evolPct}%</strong> vs ${lbl.ref} — décélération à diagnostiquer.`);
+      if (nrr !== null && nrr < 0.85) vigilance.push(`<strong>Rétention nette critique</strong> à ${fmt.pct(nrr)} — la base existante érode plus vite que la conquête ne compense.`);
+      if (churn !== null && churn >= 0.20) vigilance.push(`<strong>Taux de perte ${fmt.pct(churn)}</strong> — hémorragie clients qui plafonne mécaniquement toute croissance.`);
+      if (top10 >= 0.7) vigilance.push(`<strong>Top 10 = ${fmt.pct(top10)} du CA</strong> — sur-dépendance, plan de "de-risking" requis.`);
+      if (hhi >= 2500) vigilance.push(`<strong>HHI ${Math.round(hhi)} > 2500</strong> — concentration excessive du portefeuille.`);
+      if (lostByBucket.recent.length > 0 && recentLostCA > 100e6) vigilance.push(`<strong>${lostByBucket.recent.length} clients perdus &lt; 6 mois</strong> représentant ${fmt.money(recentLostCA)} XOF — fenêtre de reconquête encore ouverte.`);
+      if (evolArpu !== null && evolArpu < -0.05) vigilance.push(`<strong>Panier moyen ${evolArpuPct}%</strong> — vérifier la concentration de la dégradation sur les Tier S/A.`);
 
-      // 9. Hémorragie clients perdus (synthèse)
-      if (totalLostCA > 0 && lostList.length > 0) insights.push({ type:'risque', constat:`<strong>${lostList.length} clients perdus</strong> représentent <strong>${fmt.money(totalLostCA)} XOF</strong> de CAP perdu cumulé sur l'historique récent.`, implication:`Les premiers 6 mois post-perte sont la fenêtre la plus rentable de reconquête. Au-delà, le coût devient prohibitif.`, action:`Priorité immédiate sur les <strong>${lostByBucket.recent.length} clients perdus &lt; 6 mois</strong> (${fmt.money(recentLostCA)} XOF) : un appel KAM peut souvent suffire.` });
-      if (recentLostCA > yearLostCA + oldLostCA && recentLostCA > 0) insights.push({ type:'attention', constat:`Le CA perdu se concentre dans les <strong>6 derniers mois</strong> (${fmt.money(recentLostCA)} XOF) — plus que sur les 18 mois précédents combinés.`, implication:`Décrochage récent et accéléré, pas un phénomène ancien. Cause probable : événement commercial / qualité service / concurrent dans les derniers trimestres.`, action:`Investigation prioritaire des causes avec retours terrain KAM avant d'agir.` });
+      const leviers = [];
+      if (trueNewList.length > 0 && newPctCA >= 0.05) leviers.push(`<strong>${trueNewList.length} vrais nouveaux clients</strong> (${fmt.pct(newPctCA)} du CA) — à on-boarder pour les transformer en récurrents.`);
+      if (nrr !== null && nrr >= 1.05) leviers.push(`<strong>NRR ${fmt.pct(nrr)}</strong> — méthode "land & expand" qui marche, à documenter et étendre.`);
+      if (hhi < 1500) leviers.push(`<strong>Diversification déjà excellente</strong> (HHI ${Math.round(hhi)}) — atout différenciant face aux concurrents plus dépendants.`);
+      if (churn !== null && churn < 0.10) leviers.push(`<strong>Fidélisation au standard sectoriel</strong> (churn ${fmt.pct(churn)}) — base stable pour bâtir l'upsell.`);
+      if (evol !== null && evol >= 0.10) leviers.push(`<strong>Croissance ${evolPct}%</strong> — identifier les 3 leviers responsables (acquisition, expansion, prix) pour consolider.`);
 
-      return analyse(insights, `🎯 Synthèse stratégique consolidée — Cockpit ${lbl.longue}`);
+      // === TOP 3 PRIORITÉS ===
+      const priorites = [];
+      // Priorité 1 : la plus urgente (rétention/churn/critique)
+      if (nrr !== null && nrr < 0.85) priorites.push(`<strong>Audit COMEX rétention</strong> : revue tier-by-tier des clients existants pour identifier la cause de la contraction (offre, prix, qualité, concurrent).`);
+      else if (churn !== null && churn >= 0.20) priorites.push(`<strong>Plan anti-churn structurant</strong> : analyse causale et plan d'action ciblé sous 30 jours.`);
+      else if (top10 >= 0.7) priorites.push(`<strong>De-risking Top 10</strong> : sécurisation contractuelle pluriannuelle des 5 plus gros comptes.`);
+      else if (evol !== null && evol < 0) priorites.push(`<strong>Diagnostic du décrochage CAP</strong> : audit des Top 5 alertes + revue avec la Direction Commerciale dans les 15 jours.`);
+      else priorites.push(`<strong>Documenter la performance</strong> : identifier les 3 leviers responsables pour les répliquer sur d'autres segments.`);
+      // Priorité 2 : reconquête / acquisition
+      if (lostByBucket.recent.length > 0) priorites.push(`<strong>Reconquête prioritaire</strong> : plan d'appels KAM sur les ${lostByBucket.recent.length} clients perdus depuis &lt; 6 mois (${fmt.money(recentLostCA)} XOF récupérables).`);
+      else if (trueNewList.length > 0) priorites.push(`<strong>On-boarding nouveaux clients</strong> : suivre les ${trueNewList.length} vrais nouveaux pour les fidéliser et les pousser en Tier B/C dans les 12 mois.`);
+      // Priorité 3 : cross-sell / valeur
+      if (evolArpu !== null && evolArpu < -0.05) priorites.push(`<strong>Stabiliser le panier moyen</strong> : audit de mix client (vérifier que la baisse n'est pas concentrée sur les Tier S/A).`);
+      else priorites.push(`<strong>Activer le cross-sell</strong> : programme dédié sur les Tier B mono-métier — c'est le levier d'expansion le plus rentable.`);
+
+      return synthese({
+        headline,
+        performance,
+        solidite,
+        dynamique,
+        vigilance,
+        leviers,
+        priorites: priorites.slice(0, 3)
+      }, `Synthèse stratégique — Cockpit ${lbl.longue}`);
     })()}
 
     <div class="grid grid-4 mt-2">
@@ -2900,7 +3266,7 @@ function render_cockpit() {
                   const m = c.monthsSinceLastTx;
                   const meta = m <= 6 ? bucketsMeta[0] : m <= 12 ? bucketsMeta[1] : m <= 24 ? bucketsMeta[2] : bucketsMeta[3];
                   return `<tr>
-                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td><span class="tier-${c.tier}">${c.tier}</span></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
                     <td class="num">${fmt.money(c.CA_N1 || 0)}</td>
@@ -2979,7 +3345,7 @@ function render_cockpit() {
                 <tbody>
                   ${trueNewList.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun vrai nouveau client</td></tr>' : trueNewList.slice(0, 100).map((c, i) => `<tr>
                     <td class="text-muted">${i+1}</td>
-                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
                     <td>${formatLibelles(c)}</td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
@@ -3003,7 +3369,7 @@ function render_cockpit() {
                 <tbody>
                   ${reactList.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun client réactivé sur la période</td></tr>' : reactList.slice(0, 100).map((c, i) => `<tr>
                     <td class="text-muted">${i+1}</td>
-                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
                     <td>${formatLibelles(c)}</td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
@@ -3030,7 +3396,7 @@ function render_cockpit() {
               <tbody>
                 ${sortedDecline.length ? sortedDecline.map(c => `
                   <tr>
-                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
                     <td class="num"><span class="evol-cell" style="background:${c.color};color:white;">${fmt.signed(c.evol*100)}</span></td>
                   </tr>`).join('') : '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:24px;">Aucune alerte critique</td></tr>'}
@@ -3050,7 +3416,7 @@ function render_cockpit() {
               <tbody>
                 ${sortedGrowth.length ? sortedGrowth.map(c => `
                   <tr>
-                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
                     <td class="num"><span class="evol-cell" style="background:${c.color};color:white;">${fmt.signed(c.evol*100)}</span></td>
                   </tr>`).join('') : '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:24px;">Aucune star détectée</td></tr>'}
@@ -3200,7 +3566,7 @@ function render_portfolio() {
                           <tbody>
                             ${list.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:16px;">Aucun client dans cette case</td></tr>' : list.slice(0, 50).map((c,i) => `<tr>
                               <td class="text-muted">${i+1}</td>
-                              <td><strong>${c.CLIENT}</strong></td>
+                              <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                               <td><span class="tier-${c.tier}">${c.tier}</span></td>
                               <td class="text-sm">${c.METIER || '—'}</td>
                               <td class="num">${fmt.money(c.CA_N)}</td>
@@ -3345,11 +3711,7 @@ function render_customers() {
     ${pageHeader(p)}
 
     ${(() => {
-      // ============================================================
-      // SYNTHÈSE STRATÉGIQUE CONSOLIDÉE — Vue 360° clients
-      // (structure portefeuille + cross-sell par métier)
-      // ============================================================
-      const insights = [];
+      // SYNTHÈSE STRUCTURÉE — Vue 360° clients (mode brief Senior Partner)
       const sList = clients.filter(c => c.tier === 'S');
       const aList = clients.filter(c => c.tier === 'A');
       const bList = clients.filter(c => c.tier === 'B');
@@ -3361,30 +3723,67 @@ function render_customers() {
       const sPct = totalCA > 0 ? sCA/totalCA : 0;
       const saPct = totalCA > 0 ? (sCA + aCA)/totalCA : 0;
       const sabPct = totalCA > 0 ? (sCA + aCA + bCA)/totalCA : 0;
-
-      // 1. Structure portefeuille
-      insights.push({ type: 'neutre', constat: `Sur ${clients.length} clients, le top 20% (Tier S + A = ${sList.length + aList.length} comptes) génère <strong>${fmt.pct(saPct)}</strong> du CA (${fmt.money(sCA + aCA)} XOF).`, implication: `Distribution typique d'un portefeuille B2B logistique. Le rapport effort commercial / contribution CA penche fortement vers les top tiers.`, action: `Concentrer 70% du temps KAM senior sur les ${sList.length} clients Tier S et 20% sur les ${aList.length} Tier A. Les ${cList.length} Tier C ne doivent pas absorber plus de 5% du temps relationnel.` });
-      if (sPct >= 0.40) insights.push({ type:'risque', constat:`Le seul Tier S concentre <strong>${fmt.pct(sPct)}</strong> du CA — sur-dépendance au top 5%.`, implication:`Risque de stabilité élevé : la perte d'un seul client S impacte massivement le P&L AGL.`, action:`Plan de continuité commerciale et contractualisation pluriannuelle avec ces ${sList.length} comptes.` });
-      if (sabPct >= 0.85) insights.push({ type:'attention', constat:`Tier S + A + B = <strong>${fmt.pct(sabPct)}</strong> du CA — la longue traîne (C + D) ne pèse quasiment rien.`, implication:`Volume de petits comptes considérable mais valeur économique négligeable. Question : industrialiser (offre standardisée) ou abandonner ?`, action:`Définir un seuil de "service minimum rentable" (CA × marge) et arbitrer.` });
-
-      // 2. Cross-sell par métier
+      // Cross-sell stats
       const distLvl = { 5:0, 4:0, 3:0, 2:0, 1:0 };
-      let monoMetierCA = 0, multiMetierCA = 0;
+      let monoMetierCA = 0;
+      let totalActiveCA = 0;
       clients.forEach(c => {
         if (c.CA_N <= 0) return;
+        totalActiveCA += c.CA_N;
         distLvl[c.crossSellLvl || 1]++;
         if ((c.nbMetiers || 0) <= 1) monoMetierCA += c.CA_N;
-        else multiMetierCA += c.CA_N;
       });
-      const totalCA2 = monoMetierCA + multiMetierCA;
-      const monoPct = totalCA2 > 0 ? monoMetierCA / totalCA2 : 0;
+      const monoPct = totalActiveCA > 0 ? monoMetierCA / totalActiveCA : 0;
       const monoCount = distLvl[1] + distLvl[2];
       const eliteCount = distLvl[5] + distLvl[4];
-      insights.push({ type: 'neutre', constat: `Cross-sell : <strong>${monoCount} clients mono-métier</strong> (★/★★) génèrent ${fmt.pct(monoPct)} du CA, contre <strong>${eliteCount} multi-métiers</strong> (★★★★/★★★★★) qui en font ${fmt.pct(1 - monoPct)}.`, implication: `Caractéristique typique : peu de comptes utilisent à la fois Transit + Aérien + Manutention + Logistique. Chaque cross-sell réussi crée un client structurellement plus solide.`, action: `Identifier 10 comptes "mono élargi" (★★) à fort CA et lancer un programme de bascule vers le bi-métier sur 6 mois — c'est le levier le plus rentable.` });
-      if (eliteCount === 0) insights.push({ type:'risque', constat:`Aucun client n'atteint le niveau Élite (★★★★★, 5+ métiers).`, implication:`Aucun compte n'est ancré sur la totalité de la chaîne logistique AGL. Risque face à un concurrent capable d'orchestrer une offre intégrée.`, action:`Identifier les Top 10 clients par CA et construire une offre "AGL 360°" pour 2-3 d'entre eux dans les 12 mois.` });
-      else if (eliteCount <= 3) insights.push({ type:'opportunite', constat:`Seulement <strong>${eliteCount} clients Élite</strong> (★★★★★) — gisement réel d'expansion.`, implication:`Ces clients sont les vrais "captifs" et les plus rentables. Un client Élite vaut typiquement 3-5× un mono-métier.`, action:`Doubler le nombre de clients Élite sur 18 mois — viser les Champions et Vaches à lait actuels.` });
 
-      return analyse(insights, '🎯 Synthèse stratégique consolidée — Vue 360° clients');
+      // HEADLINE
+      const headline = `Le portefeuille AGL filtré compte <strong>${clients.length} clients</strong>, dont <strong>${sList.length + aList.length} premium</strong> (Tier S + A) qui génèrent <strong>${fmt.pct(saPct)}</strong> du CA (${fmt.money(sCA + aCA)} XOF). Le cross-sell est <strong>très inégal</strong> : ${monoCount} clients mono ou peu diversifiés (★/★★) pèsent ${fmt.pct(monoPct)} du CA, contre seulement ${eliteCount} clients Élite multi-métiers.`;
+
+      // PERFORMANCE / structure portefeuille
+      let performance = `La distribution du portefeuille suit la loi attendue d'un B2B logistique : <strong>les ${sList.length} clients Tier S représentent ${fmt.pct(sPct)} du CA</strong> à eux seuls, les ${aList.length} Tier A ajoutent ${fmt.pct(saPct - sPct)}, et les ${bList.length} Tier B complètent jusqu'à ${fmt.pct(sabPct)}. Les ${cList.length} Tier C constituent une longue traîne dont la valeur économique est marginale. `;
+      if (sPct >= 0.40) performance += `<strong>Attention : la sur-dépendance au Tier S (${fmt.pct(sPct)})</strong> rend le P&L vulnérable à la perte d'un seul gros compte. `;
+      else if (sabPct >= 0.85) performance += `La concentration sur les Tier S+A+B (${fmt.pct(sabPct)}) pose la question stratégique : <strong>industrialiser ou abandonner</strong> la longue traîne (C+D) qui mobilise du temps commercial sans contrepartie économique. `;
+
+      // CROSS-SELL & ANCRAGE
+      let solidite = `Sur le cross-sell, <strong>${monoCount} clients consomment 1 ou peu de métiers AGL</strong> (★/★★) — ils représentent ${fmt.pct(monoPct)} du CA mais sont structurellement les plus fragiles : un concurrent qui leur propose une offre intégrée peut les capter facilement. `;
+      if (eliteCount === 0) solidite += `<strong>Aucun client Élite</strong> (★★★★★, 5+ métiers) n'a été identifié — aucun compte n'est aujourd'hui ancré sur la totalité de la chaîne logistique AGL. `;
+      else if (eliteCount <= 3) solidite += `À l'inverse, seulement <strong>${eliteCount} clients Élite</strong> (★★★★★) représentent les vrais comptes captifs — ils valent typiquement 3-5× un mono-métier en marge cumulée et résistent mieux aux cycles. `;
+      else solidite += `<strong>${eliteCount} clients Élite ou Multi-métiers</strong> (★★★★+) constituent le socle de l'ancrage AGL — base solide à développer. `;
+
+      // DYNAMIQUE
+      const champCount = clients.filter(c => c.quadrant === 'Champions').length;
+      const dangerCount = clients.filter(c => c.quadrant === 'Gros clients en danger').length;
+      let dynamique = `La matrice 9-cases (page Portefeuille) compte <strong>${champCount} Champions</strong> en forte croissance et <strong>${dangerCount} gros clients en danger</strong> en baisse marquée. `;
+      const losingTopTiers = sList.concat(aList).filter(c => c.evol !== null && c.evol < -0.10).length;
+      if (losingTopTiers > 0) dynamique += `<strong>${losingTopTiers} clients Tier S+A perdent &gt; 10%</strong> vs N-1 — c'est le signal le plus préoccupant à creuser, car ces comptes pèsent un poids disproportionné sur le P&L. `;
+
+      // VIGILANCE & LEVIERS
+      const vigilance = [];
+      if (sPct >= 0.40) vigilance.push(`Sur-dépendance Tier S (${fmt.pct(sPct)}) — sécuriser les ${sList.length} comptes en pluriannuel.`);
+      if (eliteCount === 0) vigilance.push(`Aucun client Élite — risque concurrentiel sur l'offre intégrée.`);
+      if (losingTopTiers > 0) vigilance.push(`<strong>${losingTopTiers} Tier S+A en baisse &gt; 10%</strong> — investigation prioritaire.`);
+      if (monoPct >= 0.50) vigilance.push(`<strong>${fmt.pct(monoPct)} du CA chez les mono-métier</strong> — fragiles face à un concurrent intégré.`);
+      if (sabPct >= 0.90) vigilance.push(`Longue traîne (C+D) marginale — décision à prendre : industrialiser ou arbitrer.`);
+
+      const leviers = [];
+      if (champCount > 0) leviers.push(`<strong>${champCount} Champions</strong> — sécuriser via engagement pluriannuel + KAM senior dédié.`);
+      if (eliteCount > 0) leviers.push(`<strong>${eliteCount} clients Élite/Multi-métier</strong> — répliquer la méthode sur les Vaches à lait actuelles.`);
+      const monoElargi = distLvl[2];
+      if (monoElargi > 0) leviers.push(`<strong>${monoElargi} clients "Mono élargi" (★★)</strong> — gisement n°1 de cross-sell : leur ouvrir un 2ᵉ métier sur 6 mois.`);
+      if (bList.length >= 50) leviers.push(`<strong>${bList.length} Tier B</strong> — programme upsell ciblé pour les faire monter en Tier A.`);
+
+      // PRIORITÉS
+      const priorites = [];
+      if (losingTopTiers > 0) priorites.push(`<strong>Audit immédiat des ${losingTopTiers} Tier S+A en baisse</strong> — visite KAM senior dans les 15 jours pour chacun.`);
+      else if (sPct >= 0.40) priorites.push(`<strong>Plan de "de-risking" Tier S</strong> : engagements pluriannuels avec les ${sList.length} comptes pour réduire la dépendance.`);
+      else priorites.push(`<strong>Documenter le profil des Champions</strong> — pratiques commerciales gagnantes à généraliser.`);
+      if (monoElargi > 0) priorites.push(`<strong>Programme "2ᵉ métier" sur les ${monoElargi} Mono élargi (★★)</strong> à fort CA — c'est le levier d'expansion le plus rentable du portefeuille.`);
+      else priorites.push(`<strong>Cibler 10 Tier B mono-métier</strong> à fort CA pour les faire basculer vers le bi-métier sur 6 mois.`);
+      if (eliteCount <= 3) priorites.push(`<strong>Construire une offre "AGL 360°"</strong> pour 2-3 Top 10 actuels — viser à doubler le nombre de clients Élite sur 18 mois.`);
+      else priorites.push(`<strong>Maintenir le pipeline d'acquisition Tier S/A</strong> — la valeur du portefeuille s'y joue.`);
+
+      return synthese({ headline, performance, solidite, dynamique, vigilance, leviers, priorites: priorites.slice(0, 3) }, 'Synthèse stratégique — Vue 360° clients');
     })()}
 
     <div class="grid grid-5">
@@ -3419,7 +3818,7 @@ function render_customers() {
               ${topCrossSell.map((c, i) => `
                 <tr>
                   <td class="text-muted">${i+1}</td>
-                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
                   <td class="text-sm">${c.METIER || '—'}</td>
                   <td>${formatLibelles(c)}</td>
@@ -3456,7 +3855,7 @@ function render_customers() {
                 const pat = c.pattern || { label:'—', color:'#7F7F7F' };
                 return `<tr>
                   <td class="text-muted">${i+1}</td>
-                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
                   <td class="text-sm">${c.METIER || '—'}</td>
                   <td>${formatLibelles(c)}</td>
@@ -3602,7 +4001,7 @@ function render_growth() {
               <tbody>
                 ${xsellNew.slice(0, 100).map((c, i) => `<tr>
                   <td class="text-muted">${i+1}</td>
-                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
                   <td><span style="color:var(--gold-700);font-weight:600;">${c.newMetiers.join(', ')}</span></td>
                   <td class="text-sm text-muted">${c.METIER || '—'}</td>
@@ -3631,7 +4030,7 @@ function render_growth() {
                   const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
                   return `<tr>
                     <td class="text-muted">${i+1}</td>
-                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td class="text-sm">${c.METIER || '—'}</td>
                     <td>${formatLibelles(c)}</td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
@@ -3658,7 +4057,7 @@ function render_growth() {
                   const dot = m <= 6 ? 'var(--evol-down)' : m <= 12 ? 'var(--evol-strong-dn)' : m <= 24 ? '#7F7F7F' : '#B0B0B0';
                   return `<tr>
                     <td class="text-muted">${i+1}</td>
-                    <td><strong>${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
+                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
                     <td class="num text-muted">${fmt.money(c.CA_N1 || 0)}</td>
                     <td class="text-sm">
                       <span style="display:inline-block;width:6px;height:6px;background:${dot};border-radius:50%;margin-right:6px;"></span>
@@ -3690,7 +4089,7 @@ function render_growth() {
                 const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
                 return `<tr>
                   <td class="text-muted">${i+1}</td>
-                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                   <td class="text-sm">${c.METIER || '—'}</td>
                   <td class="num">${fmt.money(c.CA_N)}</td>
                   <td class="text-sm text-muted">1ʳᵉ facture historique : ${moisAbr[c.firstMonth - 1]} ${c.firstYear}</td>
@@ -3721,7 +4120,7 @@ function listCardLong(title, list, displayMode) {
               ${list.length === 0 ? `<tr><td colspan=4 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun client</td></tr>` : list.map((c, i) => `
                 <tr>
                   <td class="text-muted">${i+1}</td>
-                  <td><strong>${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
                   <td class="num">${fmt.money(c.CA_N)}</td>
                   ${displayMode === 'evol' ? `<td class="num"><span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed((c.evol || 0)*100)}</span></td>` : ''}
                 </tr>
@@ -3747,7 +4146,7 @@ function listCard(title, list, sortKey, displayMode) {
             <tbody>
               ${list.length === 0 ? '<tr><td colspan=3 style="text-align:center;color:var(--grey-500);padding:24px;">Aucune donnée</td></tr>' : list.map(c => `
                 <tr>
-                  <td><strong>${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong>${c.METIER ? `<br><span class="text-sm text-muted">${c.METIER}</span>` : ''}</td>
                   ${displayMode === 'evol' ? `<td class="num">${fmt.money(c.CA_N)}</td><td class="num"><span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed(c.evol*100)}</span></td>` : displayMode === 'ca' ? `<td class="num">${fmt.money(c.CA_N)}</td>` : `<td class="num text-muted">${fmt.money(c.CA_N1)}</td>`}
                 </tr>
               `).join('')}
@@ -3842,7 +4241,7 @@ function render_crosssell() {
               <tbody>
                 ${topWhitespace.map(c => `
                   <tr>
-                    <td><strong>${c.CLIENT}</strong></td>
+                    <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                     <td><span class="tier-${c.tier}">${c.tier}</span></td>
                     <td class="num">${fmt.money(c.CA_N)}</td>
                     <td class="num">${c.nbLibelles}/${totalLib}</td>
@@ -4230,7 +4629,7 @@ function render_risk() {
             <tbody>
               ${critical.length === 0 ? '<tr><td colspan=7 style="text-align:center;color:var(--evol-strong-up);padding:24px;">✓ Aucun client en alerte critique</td></tr>' : critical.map(c => `
                 <tr>
-                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
                   <td class="num">${fmt.money(c.CA_N)}</td>
                   <td class="num">${c.evol === null ? '—' : `<span class="evol-cell" style="background:${c.color};color:white;">${fmt.signed(c.evol*100)}</span>`}</td>
@@ -4258,7 +4657,7 @@ function render_risk() {
             <tbody>
               ${atRisk.slice(0, 30).map(c => `
                 <tr>
-                  <td><strong>${c.CLIENT}</strong></td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
                   <td class="num">${fmt.money(c.CA_N)}</td>
                   <td class="num">${c.healthScore}</td>
@@ -4675,7 +5074,7 @@ function actionTable(title, list, defaultReco, mode) {
               const refCA = mode === 'lost' ? (c.CA_N1 || 0) : c.CA_N;
               return `<tr>
                 <td class="text-muted">${i+1}</td>
-                <td><strong>${c.CLIENT}</strong></td>
+                <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                 <td><span class="tier-${c.tier}">${c.tier}</span></td>
                 <td class="text-sm">${c.METIER || '—'}</td>
                 <td class="num">${fmt.money(refCA)}</td>
@@ -4938,7 +5337,7 @@ function render_filiere() {
                         <tbody>
                           ${top10.map((c,i) => `<tr>
                             <td class="text-muted">${i+1}</td>
-                            <td><strong>${c.CLIENT}</strong></td>
+                            <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                             <td><span class="tier-${c.tier}">${c.tier}</span></td>
                             <td class="text-sm">${c.METIER || '—'}</td>
                             <td class="num">${fmt.money(c.CA_N)}</td>
