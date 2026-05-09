@@ -1406,8 +1406,42 @@ function launchAnalysis() {
   applyFilters();
 }
 
+// ============================================================
+// MODE SNAPSHOT : si window.__EMBEDDED_FACT existe, on saute l'upload
+// et on charge directement les données embarquées (export interactif).
+// ============================================================
+function tryAutoLoadEmbedded() {
+  if (typeof window.__EMBEDDED_FACT === 'undefined' || !Array.isArray(window.__EMBEDDED_FACT) || window.__EMBEDDED_FACT.length === 0) return false;
+  try {
+    APP.data.fact = window.__EMBEDDED_FACT.map(r => ({
+      ...r,
+      DATE: new Date(r.ANNEE, (r.MOIS || 1) - 1, 1),
+      YEAR_MONTH: r.YEAR_MONTH || (r.ANNEE + '-' + String(r.MOIS).padStart(2, '0'))
+    }));
+    APP.schema = window.__EMBEDDED_SCHEMA || {};
+    // Bandeau "snapshot mode"
+    const meta = window.__EMBEDDED_META || {};
+    setTimeout(() => {
+      const banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:linear-gradient(90deg,var(--gold-700),var(--gold-500));color:white;padding:8px 16px;font-size:11px;text-align:center;z-index:200;font-family:var(--font-body);font-weight:600;letter-spacing:0.5px;';
+      banner.innerHTML = `📦 Rapport interactif AGL — snapshot exporté le ${meta.exportDate ? new Date(meta.exportDate).toLocaleDateString('fr-FR') : '—'} · ${meta.rows || APP.data.fact.length} transactions · ${meta.clients || '—'} clients · <span style="opacity:0.8;">données embarquées en lecture seule</span>`;
+      document.body.appendChild(banner);
+      // Décale le contenu de la hauteur du banner
+      document.body.style.paddingTop = '32px';
+    }, 200);
+    setTimeout(() => launchAnalysis(), 100);
+    return true;
+  } catch(e) {
+    console.error('Erreur chargement données embarquées :', e);
+    return false;
+  }
+}
+
 // =================== EVENT LISTENERS ===================
 document.addEventListener('DOMContentLoaded', () => {
+  // Mode snapshot : auto-load si données embarquées
+  if (tryAutoLoadEmbedded()) return;
+
   const uploadZone = document.getElementById('upload-zone');
   const fileInput = document.getElementById('file-input');
   
@@ -1979,6 +2013,7 @@ function buildApp() {
         <div class="app-title-sub">Customer Intelligence Platform · Marketing & Commercial</div>
       </div>
       <div class="header-actions">
+        <button class="btn-header gold" id="btn-export-html" title="Exporter le rapport en HTML interactif (à partager par mail/Teams — le destinataire ouvre directement, pas besoin de fichier de données)">📤 Exporter HTML interactif</button>
         <button class="btn-header" id="btn-print" title="Imprimer / Exporter PDF">📄 Export PDF</button>
         <button class="btn-header" id="btn-reload" title="Recharger un fichier">↻ Nouveau fichier</button>
       </div>
@@ -2564,8 +2599,110 @@ function renderCurrentPage() {
   if (typeof fn === 'function') fn();
 }
 
+// ============================================================
+// EXPORT HTML INTERACTIF — partage du rapport en 1 fichier autonome
+// ============================================================
+// Génère un fichier HTML contenant l'application + les données embarquées.
+// Le destinataire ouvre simplement le fichier (double-clic ou via mail) →
+// l'app se lance directement avec les données préchargées (mode snapshot).
+//
+// CONTRAINTES :
+//  - Internet requis au 1er chargement chez le destinataire (CDN Plotly /
+//    Chart.js / XLSX). Une fois le navigateur a mis en cache, ça marche
+//    offline.
+//  - Le fichier exporté est volumineux (souvent 10-15 Mo pour 156k lignes).
+//    Privilégier WeTransfer / Teams / Google Drive plutôt qu'email Gmail
+//    (limite 25 Mo).
+//  - Fonctionne via raw.githack.com (HTTP) ou serveur local. Si l'app est
+//    ouverte via file://, le fetch échoue → message d'erreur explicite.
+async function exportInteractiveHTML() {
+  if (!APP.data || !APP.data.fact || !APP.data.fact.length) {
+    alert('Aucune donnée chargée à exporter.');
+    return;
+  }
+  const btn = document.getElementById('btn-export-html');
+  const originalText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Préparation...'; }
+  try {
+    // 1. Récupérer le code HTML source de l'app
+    let html;
+    try {
+      const r = await fetch(window.location.href, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      html = await r.text();
+    } catch(fetchErr) {
+      // file:// ou autre origin — on ne peut pas refetcher la page
+      alert(`Impossible de récupérer le code source de l'application.\n\nCe bouton fonctionne quand l'app est ouverte via une URL HTTP (raw.githack.com, serveur local, hébergement web).\n\nSi vous avez ouvert le fichier en local (file://), procédez ainsi :\n\n1. Lancez un serveur local : ouvrez un terminal dans le dossier et tapez "python -m http.server 8000"\n2. Puis ouvrez http://localhost:8000 dans le navigateur\n3. Réessayez l'export\n\nOu utilisez le lien raw.githack.com pour ouvrir l'app.`);
+      throw fetchErr;
+    }
+
+    if (btn) btn.textContent = '⏳ Sérialisation données...';
+    await new Promise(resolve => setTimeout(resolve, 50));  // laisse le DOM rafraîchir le bouton
+
+    // 2. Sérialiser les données (sans Date, recalculé au chargement)
+    const factSerializable = APP.data.fact.map(r => {
+      const { DATE, ...rest } = r;  // strip Date object (recréé au chargement)
+      return rest;
+    });
+    const meta = {
+      exportDate: new Date().toISOString(),
+      exporter: 'CAP Strategic Analytics',
+      rows: factSerializable.length,
+      clients: new Set(factSerializable.map(r => r.CLIENT)).size,
+      filters: APP.filters,
+      currentPage: APP.currentPage,
+      version: '1.0'
+    };
+
+    if (btn) btn.textContent = '⏳ Construction HTML...';
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // 3. Injecter le bloc de données juste avant </head>
+    // Échapper la fin de balise script éventuelle dans les données pour éviter
+    // une erreur d'analyse HTML.
+    const factJson = JSON.stringify(factSerializable).replace(/<\/script>/gi, '<\\/script>');
+    const schemaJson = JSON.stringify(APP.schema || {}).replace(/<\/script>/gi, '<\\/script>');
+    const metaJson = JSON.stringify(meta).replace(/<\/script>/gi, '<\\/script>');
+    const dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées (snapshot ${meta.exportDate}) -->\n<script id="embedded-data">\nwindow.__EMBEDDED_FACT = ${factJson};\nwindow.__EMBEDDED_SCHEMA = ${schemaJson};\nwindow.__EMBEDDED_META = ${metaJson};\nconsole.info('🎯 CAP Strategic Analytics — Mode snapshot · ' + window.__EMBEDDED_FACT.length + ' lignes embarquées');\n<\/script>\n`;
+    html = html.replace(/<\/head>/i, dataPayload + '</head>');
+
+    if (btn) btn.textContent = '⏳ Génération du fichier...';
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // 4. Génère le Blob et déclenche le téléchargement
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const sizeMb = (blob.size / 1024 / 1024).toFixed(1);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.download = `CAP_AGL_rapport_${dateStr}.html`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1000);
+
+    if (btn) btn.textContent = '✅ Téléchargé (' + sizeMb + ' Mo)';
+    setTimeout(() => {
+      if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    }, 4000);
+
+    // Petite popup d'instructions
+    setTimeout(() => {
+      alert(`✅ Rapport interactif exporté (${sizeMb} Mo)\n\nLe fichier "CAP_AGL_rapport_${dateStr}.html" a été téléchargé.\n\n📤 Pour partager :\n• Envoyez le fichier par WeTransfer / Teams / Google Drive (mail = limite 25 Mo)\n• Le destinataire double-clique → l'app s'ouvre dans son navigateur avec les données pré-chargées\n• Aucun upload requis, aucune installation\n• Internet requis au 1er chargement (CDN libs Chart.js / Plotly)\n\n⚠ Confidentialité : ce fichier contient les données AGL sensibles. À ne pas envoyer en externe sans autorisation.`);
+    }, 200);
+  } catch(e) {
+    console.error('Export HTML failed', e);
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+  }
+}
+
 function attachEvents() {
   document.getElementById('btn-print').addEventListener('click', () => window.print());
+  const btnExport = document.getElementById('btn-export-html');
+  if (btnExport) btnExport.addEventListener('click', exportInteractiveHTML);
   document.getElementById('btn-reload').addEventListener('click', () => {
     if (confirm('Recharger un nouveau fichier ? Les données actuelles seront effacées.')) {
       location.reload();
