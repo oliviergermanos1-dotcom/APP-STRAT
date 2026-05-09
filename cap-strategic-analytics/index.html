@@ -1554,7 +1554,39 @@ function launchAnalysis() {
 // ============================================================
 // MODE SNAPSHOT : si window.__EMBEDDED_FACT existe, on saute l'upload
 // et on charge directement les données embarquées (export interactif).
+// Si window.__EMBEDDED_ENCRYPTED existe, on demande d'abord le mot de passe.
 // ============================================================
+async function tryDecryptEmbedded() {
+  if (typeof window.__EMBEDDED_ENCRYPTED !== 'string' || !window.__EMBEDDED_ENCRYPTED.length) return false;
+  const meta = window.__EMBEDDED_META || {};
+  const dateStr = meta.exportDate ? new Date(meta.exportDate).toLocaleDateString('fr-FR') : '—';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const pwd = prompt(`🔐 Snapshot CAP Strategic Analytics CHIFFRÉ\n\nDate export : ${dateStr}\nLignes : ${meta.rows || '—'} · Clients : ${meta.clients || '—'}\n\nSaisir le mot de passe (${attempt + 1}/3) :`);
+    if (pwd === null) return false;  // utilisateur annule
+    if (!pwd) continue;
+    try {
+      const plain = await decryptString(window.__EMBEDDED_ENCRYPTED, pwd);
+      const bundle = JSON.parse(plain);
+      window.__EMBEDDED_FACT = bundle.fact || [];
+      window.__EMBEDDED_SCHEMA = bundle.schema || {};
+      window.__EMBEDDED_KAM_NOTES = bundle.notes || bundle.kamNotes || {};
+      // Le merge sync de APP.kamNotes (en bas de fichier) a déjà tourné — on refait ici.
+      if (typeof APP !== 'undefined' && APP.kamNotes && window.__EMBEDDED_KAM_NOTES) {
+        Object.assign(APP.kamNotes, window.__EMBEDDED_KAM_NOTES);
+      }
+      // Effacer la version chiffrée pour éviter exposition prolongée en mémoire
+      try { delete window.__EMBEDDED_ENCRYPTED; } catch(_) { window.__EMBEDDED_ENCRYPTED = null; }
+      return true;
+    } catch(e) {
+      if (attempt === 2) {
+        alert('❌ Mot de passe incorrect après 3 tentatives. Le snapshot ne peut pas être ouvert.');
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
 function tryAutoLoadEmbedded() {
   if (typeof window.__EMBEDDED_FACT === 'undefined' || !Array.isArray(window.__EMBEDDED_FACT) || window.__EMBEDDED_FACT.length === 0) return false;
   try {
@@ -1591,8 +1623,14 @@ function tryAutoLoadEmbedded() {
 }
 
 // =================== EVENT LISTENERS ===================
-document.addEventListener('DOMContentLoaded', () => {
-  // Mode snapshot : auto-load si données embarquées
+document.addEventListener('DOMContentLoaded', async () => {
+  // Mode snapshot CHIFFRÉ : décryptage interactif si __EMBEDDED_ENCRYPTED présent
+  if (typeof window.__EMBEDDED_ENCRYPTED === 'string' && window.__EMBEDDED_ENCRYPTED.length) {
+    const ok = await tryDecryptEmbedded();
+    if (ok && tryAutoLoadEmbedded()) return;
+    // Échec → on retombe sur l'écran d'upload normal
+  }
+  // Mode snapshot CLAIR : auto-load si données embarquées en clair
   if (tryAutoLoadEmbedded()) return;
 
   const uploadZone = document.getElementById('upload-zone');
@@ -3034,6 +3072,56 @@ function renderCurrentPage() {
 //    (limite 25 Mo).
 //  - Fonctionne via raw.githack.com (HTTP) ou serveur local. Si l'app est
 //    ouverte via file://, le fetch échoue → message d'erreur explicite.
+// ============================================================
+// CHIFFREMENT AES-GCM (Web Crypto API native, sans lib externe)
+// Réponse à l'audit sécurité : risque de fuite via DevTools sur snapshot
+// envoyé par mail. Le mot de passe est partagé hors bande (SMS, oral).
+// ============================================================
+const CRYPTO_ITERS = 100000;  // PBKDF2 — assez fort sans bloquer le navigateur
+
+async function deriveAesKey(password, salt, usage) {
+  const enc = new TextEncoder();
+  const keyMat = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: CRYPTO_ITERS, hash: 'SHA-256' },
+    keyMat,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    [usage]
+  );
+}
+
+async function encryptString(plainText, password) {
+  const enc = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveAesKey(password, salt, 'encrypt');
+  const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plainText));
+  // Format : base64( salt[16] | iv[12] | ciphertext )
+  const merged = new Uint8Array(salt.byteLength + iv.byteLength + cipherBuf.byteLength);
+  merged.set(salt, 0);
+  merged.set(iv, salt.byteLength);
+  merged.set(new Uint8Array(cipherBuf), salt.byteLength + iv.byteLength);
+  // btoa peut échouer si chunk > 65k. On itère par blocs.
+  let bin = '';
+  for (let i = 0; i < merged.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, merged.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+async function decryptString(b64, password) {
+  const bin = atob(b64);
+  const merged = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) merged[i] = bin.charCodeAt(i);
+  const salt = merged.slice(0, 16);
+  const iv = merged.slice(16, 28);
+  const cipher = merged.slice(28);
+  const key = await deriveAesKey(password, salt, 'decrypt');
+  const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+  return new TextDecoder().decode(plainBuf);
+}
+
 async function exportInteractiveHTML() {
   if (!APP.data || !APP.data.fact || !APP.data.fact.length) {
     alert('Aucune donnée chargée à exporter.');
@@ -3109,14 +3197,51 @@ async function exportInteractiveHTML() {
     if (btn) btn.textContent = '⏳ Construction HTML...';
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // 3. Injecter le bloc de données juste avant </head>
-    // Échapper la fin de balise script éventuelle dans les données pour éviter
-    // une erreur d'analyse HTML.
-    const factJson = JSON.stringify(factSerializable).replace(/<\/script>/gi, '<\\/script>');
-    const schemaJson = JSON.stringify(APP.schema || {}).replace(/<\/script>/gi, '<\\/script>');
-    const metaJson = JSON.stringify(meta).replace(/<\/script>/gi, '<\\/script>');
-    const notesJson = JSON.stringify(APP.kamNotes || {}).replace(/<\/script>/gi, '<\\/script>');
-    const dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées (snapshot ${meta.exportDate}) -->\n<script id="embedded-data">\nwindow.__EMBEDDED_FACT = ${factJson};\nwindow.__EMBEDDED_SCHEMA = ${schemaJson};\nwindow.__EMBEDDED_META = ${metaJson};\nwindow.__EMBEDDED_KAM_NOTES = ${notesJson};\nconsole.info('🎯 CAP Strategic Analytics — Mode snapshot · ' + window.__EMBEDDED_FACT.length + ' lignes embarquées · ' + Object.keys(window.__EMBEDDED_KAM_NOTES||{}).length + ' notes KAM');\n<\/script>\n`;
+    // 3. Demander un mot de passe optionnel pour chiffrer (sécurité partage)
+    if (btn) btn.textContent = '⏳ Sécurité...';
+    await new Promise(resolve => setTimeout(resolve, 50));
+    let password = null;
+    if (window.crypto && window.crypto.subtle) {
+      const reply = prompt(
+        '🔐 Sécurité du rapport exporté\n\n' +
+        'Voulez-vous protéger les données par MOT DE PASSE (chiffrement AES-256) ?\n\n' +
+        '✓ Saisissez un mot de passe (8+ caractères) → données chiffrées\n' +
+        '   À partager hors-bande (SMS, oral) avec le destinataire.\n\n' +
+        '✗ Laissez VIDE et OK → export normal (données en clair, plus rapide).\n\n' +
+        'Recommandé pour partage externe ou données confidentielles AGL.',
+        ''
+      );
+      if (reply && reply.length >= 8) password = reply;
+      else if (reply && reply.length > 0 && reply.length < 8) {
+        alert('Mot de passe trop court (minimum 8 caractères). Export en clair.');
+      }
+    }
+
+    // 4. Injecter le bloc de données juste avant </head>
+    const factJson = JSON.stringify(factSerializable);
+    const schemaJson = JSON.stringify(APP.schema || {});
+    const metaJson = JSON.stringify(meta);
+    const notesJson = JSON.stringify(APP.kamNotes || {});
+
+    let dataPayload;
+    if (password) {
+      // Chiffrement AES-GCM. On chiffre fact + schema + notes (sensibles).
+      // meta reste en clair (date export + nb lignes — info technique non sensible).
+      if (btn) btn.textContent = '⏳ Chiffrement AES-256...';
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const bundle = JSON.stringify({ fact: factSerializable, schema: APP.schema || {}, notes: APP.kamNotes || {} });
+      const ciphertext = await encryptString(bundle, password);
+      const safeMeta = metaJson.replace(/<\/script>/gi, '<\\/script>');
+      const safeCipher = ciphertext.replace(/<\/script>/gi, '<\\/script>');
+      dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées CHIFFRÉES AES-256 (snapshot ${meta.exportDate}) -->\n<script id="embedded-data">\nwindow.__EMBEDDED_ENCRYPTED = "${safeCipher}";\nwindow.__EMBEDDED_META = ${safeMeta};\nconsole.info('🔐 CAP Strategic Analytics — Snapshot CHIFFRÉ · mot de passe requis pour ouverture');\n<\/script>\n`;
+    } else {
+      // Export en clair (compatible existant)
+      const safeFact = factJson.replace(/<\/script>/gi, '<\\/script>');
+      const safeSchema = schemaJson.replace(/<\/script>/gi, '<\\/script>');
+      const safeMeta = metaJson.replace(/<\/script>/gi, '<\\/script>');
+      const safeNotes = notesJson.replace(/<\/script>/gi, '<\\/script>');
+      dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées (snapshot ${meta.exportDate}) -->\n<script id="embedded-data">\nwindow.__EMBEDDED_FACT = ${safeFact};\nwindow.__EMBEDDED_SCHEMA = ${safeSchema};\nwindow.__EMBEDDED_META = ${safeMeta};\nwindow.__EMBEDDED_KAM_NOTES = ${safeNotes};\nconsole.info('🎯 CAP Strategic Analytics — Mode snapshot · ' + window.__EMBEDDED_FACT.length + ' lignes embarquées · ' + Object.keys(window.__EMBEDDED_KAM_NOTES||{}).length + ' notes KAM');\n<\/script>\n`;
+    }
     html = html.replace(/<\/head>/i, dataPayload + '</head>');
 
     if (btn) btn.textContent = '⏳ Génération du fichier...';
@@ -3145,7 +3270,10 @@ async function exportInteractiveHTML() {
     // Petite popup d'instructions
     setTimeout(() => {
       const fallbackNote = fallbackUsed ? `\n\nℹ Note : généré à partir du DOM courant (mode local file://). Si vous remarquez un visuel altéré chez le destinataire, ouvrez l'app via raw.githack.com avant d'exporter pour une version source plus propre.` : '';
-      alert(`✅ Rapport interactif exporté (${sizeMb} Mo)\n\nLe fichier "CAP_AGL_rapport_${dateStr}.html" a été téléchargé.\n\n📤 Pour partager :\n• Envoyez le fichier par WeTransfer / Teams / Google Drive (mail = limite 25 Mo)\n• Le destinataire double-clique → l'app s'ouvre dans son navigateur avec les données pré-chargées\n• Aucun upload requis, aucune installation\n• Internet requis au 1er chargement (CDN libs Chart.js / Plotly)${fallbackNote}\n\n⚠ Confidentialité : ce fichier contient les données AGL sensibles. À ne pas envoyer en externe sans autorisation.`);
+      const cryptoNote = password
+        ? `\n\n🔐 CHIFFREMENT AES-256 ACTIF\n• Données fact + schéma + notes KAM chiffrées (PBKDF2-SHA256, 100 000 itérations)\n• À l'ouverture, le destinataire devra saisir le mot de passe (3 tentatives max)\n• Partagez le mot de passe HORS BANDE : SMS, oral, jamais dans le même mail.\n• Sans mot de passe, le fichier reste illisible — y compris via DevTools.`
+        : `\n\n⚠ Confidentialité : ce fichier contient les données AGL sensibles EN CLAIR. Pour un partage externe, ré-exportez avec mot de passe (chiffrement AES-256).`;
+      alert(`✅ Rapport interactif exporté (${sizeMb} Mo)\n\nLe fichier "CAP_AGL_rapport_${dateStr}.html" a été téléchargé.\n\n📤 Pour partager :\n• Envoyez le fichier par WeTransfer / Teams / Google Drive (mail = limite 25 Mo)\n• Le destinataire double-clique → l'app s'ouvre dans son navigateur avec les données pré-chargées\n• Aucun upload requis, aucune installation\n• Internet requis au 1er chargement (CDN libs Chart.js / Plotly)${fallbackNote}${cryptoNote}`);
     }, 200);
   } catch(e) {
     console.error('Export HTML failed', e);
