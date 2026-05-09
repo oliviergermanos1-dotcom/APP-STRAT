@@ -1944,7 +1944,13 @@ const PAGES = [
   { id: 'actions', num: '09', title: 'Centre d\'action commerciale', subtitle: 'Liste actionnable triée par priorité', section: 'Pilotage',
     explanation: "Liste consolidée et priorisée des actions commerciales à mener : clients critiques à appeler, gros perdus à reconquérir, opportunités cross-sell à activer, comptes à promouvoir. Tableau de bord actionnable pour la Direction Commerciale et les KAM." },
   { id: 'heatmap', num: '10', title: 'Heatmap Mois × Métier', subtitle: 'Saisonnalité par famille d\'activité', section: 'Périmètre',
-    explanation: "Visualisation de la saisonnalité de chaque métier AGL sur les 12 mois. Permet d'identifier les pics et creux par activité (ex. Cacao en T4-T1, Aérien en T4 e-commerce) pour calibrer les ressources opérationnelles et commerciales." }
+    explanation: "Visualisation de la saisonnalité de chaque métier AGL sur les 12 mois. Permet d'identifier les pics et creux par activité (ex. Cacao en T4-T1, Aérien en T4 e-commerce) pour calibrer les ressources opérationnelles et commerciales." },
+  { id: 'filiere', num: '11', title: 'Filières clients (cacao, coton, pétrole…)', subtitle: 'Vue secteur — au-delà du métier AGL', section: 'Intelligence',
+    explanation: "Regroupe les clients par filière sectorielle (Cacao, Coton, Pétrole/Énergie, Hévéa/Caoutchouc, Distribution…) en se basant sur les noms de raison sociale. Permet de mesurer l'exposition d'AGL à chaque filière et l'impact des cycles sectoriels." },
+  { id: 'corridor', num: '12', title: 'Corridors logistiques', subtitle: 'Flux Abidjan ↔ Mali / Burkina / Liberia', section: 'Intelligence',
+    explanation: "Analyse des corridors logistiques régionaux : volume CAP par corridor (origine site × destination filière), évolution annuelle, clients structurants. Idéal pour la stratégie commerciale régionale et l'arbitrage des moyens." },
+  { id: 'strategie', num: '13', title: 'Suivi stratégie AGL', subtitle: 'Objectifs annuels vs réalisé', section: 'Intelligence',
+    explanation: "Tableau de bord du suivi des objectifs stratégiques AGL définis manuellement (cible CA, cible métier, cible géographique). Mesure en temps réel l'écart entre la trajectoire et les ambitions, avec projection de fin d'année." }
 ];
 
 function buildApp() {
@@ -3252,6 +3258,10 @@ function render_portfolio() {
 }
 
 function renderScatter(clients) {
+  // Garde-fou : si Plotly n'a pas fini de charger, on retente
+  if (typeof Plotly === 'undefined') { setTimeout(() => renderScatter(clients), 200); return; }
+  const ctx = document.getElementById('chart-scatter');
+  if (!ctx) return;
   const c = chartColors();
   const traces = {};
   clients.forEach(cli => {
@@ -4802,6 +4812,394 @@ function render_heatmap() {
       </div>
     </div>
   `;
+}
+
+// ============================================================
+// FILIÈRES CLIENTS (heuristique sur nom de raison sociale)
+// Identifie le secteur économique d'appartenance d'un client
+// à partir de mots-clés typiques de la Côte d'Ivoire / Afrique de l'Ouest.
+// ============================================================
+const FILIERE_PATTERNS = [
+  { code: 'cacao',     label: '🍫 Cacao',                 keywords: ['CACAO','CHOCO','BARRY','CARGILL','OLAM','CEMOI','CONFISERIE','TROPICAL','SOMDIAA','SCC','COCOA','CALLEBAUT','SACO','CHOCOLATERIE','ECOOKIM','CCC','CONSEIL CAFE','PROCAO','TOUTON','COFINA'] },
+  { code: 'coton',     label: '🌾 Coton',                 keywords: ['CMDT','SOFITEX','SITAB','IVOIRE COTON','CIDT','COMPAGNIE COTONNIERE','SOCOMA','COTON','KOLO COTTON','FASOCOTON','COPACO'] },
+  { code: 'cafe',      label: '☕ Café',                  keywords: ['CAFE','COFFEE','NESLE NESCAFE','CAJOU','CASHEW','COOP','SCOOPS'] },
+  { code: 'petrole',   label: '🛢 Pétrole / Énergie',     keywords: ['HALLIBURTON','SCHLUMBERGER','FOXTROT','TOTAL','VITOL','TRAFIGURA','PETRO','CNR','CIE','SODECI','BAKER HUGHES','SAUR','ENI','ADDAX','PUMA ENERGIE','CORLAY','PERENCO','OIL','GAZ','ENERGIE'] },
+  { code: 'mining',    label: '⛏ Mines',                 keywords: ['ENDEAVOUR','TIETTO','PERSEUS','BARRICK','RANDGOLD','MINE','MINING','SMI','MINIERE','GOLD','OR ','TONGON','ITY','BONIKRO','SOMIKA'] },
+  { code: 'hevea',     label: '🌳 Hévéa / Palmiers',      keywords: ['SAPH','HEVEA','PALMCI','PALMERAIES','ADAMAFRIQUE','COMPAGNIE HEVEICOLE','SAPH','SACO','COVIPHAMA','SOGB','RUBBER','LATEX','HUILERIE'] },
+  { code: 'banque',    label: '🏦 Banque / Finance',      keywords: ['BANK','BANQUE','SGB','BICICI','SIB','BNI','ECOBANK','UBA','NSIA','VERSUS BANK','BACI','ATLANTIQUE','CORIS','BOA','BMCE','BHCI','TRESOR','MICROCRED','ADVANS','COFINA','CIB','AFRICAN GUARANTEE','ASSUR','MUTUELLE'] },
+  { code: 'distrib',   label: '🛒 Distribution / Retail', keywords: ['CARREFOUR','PROSUMA','SOCOCE','HAYAT','NICETOFINE','MAGASIN','SUPERMARCHE','HYPERMARCHE','CDCI','MARCHE','BAZAR','BOUTIQUE','MERCURE','HOTEL'] },
+  { code: 'industrie', label: '🏭 Industrie / Manufacture', keywords: ['INDUSTRIES','INDUSTRIE','USINE','MANUFACTURE','UNILEVER','NESTLE','UNICAO','BOLLORE','SIEM','SIEMENS','SCHNEIDER','BOSCH','SARA','SIR','SAPMER','PROTOFEED','SIM','SOMAFE','SOTRA','CNCE'] },
+  { code: 'pharma',    label: '💊 Pharma / Santé',         keywords: ['PHARMA','LABORATOIRES','SANOFI','ROCHE','GSK','PFIZER','PHARMACIE','CIPHARM','CLINIC','HOSPITAL','PROMOPHARMA','SAGEPHA'] },
+  { code: 'btp',       label: '🏗 BTP / Infra',            keywords: ['BTP','CONSTRUCTION','SOROUBAT','PFO AFRICA','BIA','SOCATCI','ENGINEERING','BOUYGUES','ADAMA','GENIE CIVIL','TECHNIPFMC','NSE'] },
+  { code: 'agri',      label: '🌽 Agro-alimentaire',       keywords: ['SUCAF','SUCRE','PALMERAIES','BIOCAM','SIVOA','BLEDINA','SAPMER','SAPH','SUCRIVOIRE','AGRO','GRAIN','GRAINS','GRAINEX','RIZIERE','RIZ','BLE','MAIS','BRIGAUD'] },
+  { code: 'transit',   label: '🚢 Transit / Logistique',   keywords: ['TRANSIT','LOGISTIC','LOGISTICS','SHIPPING','BOLLORE LOGISTICS','MAERSK','MSC','GETMA','SAGA','LOGISTIQUE','FORWARDER'] },
+  { code: 'auto',      label: '🚗 Automobile',             keywords: ['AUTOMOBILES','RENAULT','PEUGEOT','TOYOTA','NISSAN','HYUNDAI','FORD','VOLKSWAGEN','VW','CAR ','VEHICULES','TRACAFRIQUE','TRANSCAP','MITSUBISHI','SUZUKI'] },
+  { code: 'tabac',     label: '🚬 Tabac',                  keywords: ['SITAB','BAT','BRITISH AMERICAN','TABAC','CIGARETTES'] },
+  { code: 'autre',     label: '🔹 Autres',                 keywords: [] }
+];
+
+CALC.detectFiliere = (clientName) => {
+  if (!clientName) return FILIERE_PATTERNS[FILIERE_PATTERNS.length - 1];  // Autres
+  const upper = clientName.toUpperCase();
+  for (const f of FILIERE_PATTERNS) {
+    for (const kw of f.keywords) {
+      if (upper.indexOf(kw) !== -1) return f;
+    }
+  }
+  return FILIERE_PATTERNS[FILIERE_PATTERNS.length - 1];
+};
+
+// ============================================================
+// PAGE 11 — FILIÈRES CLIENTS
+// Vue secteur : regroupe les clients par filière (cacao, coton…)
+// ============================================================
+function render_filiere() {
+  const p = PAGES[11];
+  const el = document.getElementById('page-filiere');
+  const clients = APP.clientsAgg;
+  const lbl = periodLabel();
+
+  // Agrégat par filière
+  const byFiliere = {};
+  FILIERE_PATTERNS.forEach(f => { byFiliere[f.code] = { meta: f, clients: [], caN: 0, caN1: 0, evolList: [] }; });
+  clients.forEach(c => {
+    const f = CALC.detectFiliere(c.CLIENT);
+    if (!byFiliere[f.code]) byFiliere[f.code] = { meta: f, clients: [], caN: 0, caN1: 0, evolList: [] };
+    byFiliere[f.code].clients.push(c);
+    byFiliere[f.code].caN += c.CA_N || 0;
+    byFiliere[f.code].caN1 += c.CA_N1 || 0;
+    if (c.evol !== null) byFiliere[f.code].evolList.push(c.evol);
+  });
+
+  const filieres = Object.values(byFiliere)
+    .filter(f => f.clients.length > 0)
+    .map(f => ({
+      ...f,
+      avgEvol: f.evolList.length ? f.evolList.reduce((s,v) => s+v, 0) / f.evolList.length : null,
+      evol: f.caN1 > 0 ? (f.caN - f.caN1) / f.caN1 : null
+    }))
+    .sort((a,b) => b.caN - a.caN);
+
+  const totalCA = filieres.reduce((s,f) => s + f.caN, 0);
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      if (filieres.length === 0) return '';
+      const top = filieres[0];
+      const topPct = totalCA > 0 ? top.caN / totalCA : 0;
+      ins.push({ type:'neutre', constat:`<strong>${filieres.length} filières identifiées</strong> sur le portefeuille filtré. Filière dominante : <strong>${top.meta.label}</strong> avec ${fmt.money(top.caN)} XOF (${fmt.pct(topPct)} du CA).`, implication:`Identification basée sur des mots-clés dans la raison sociale (cacao, coton, pétrole, banque, BTP…). Permet une lecture sectorielle qu'aucune segmentation par métier AGL ne peut donner.`, action:`Vérifier les filières "Autres" (clients non classifiés) et enrichir le dictionnaire si nécessaire.` });
+      if (topPct >= 0.30) ins.push({ type:'risque', constat:`Sur-exposition à la filière <strong>${top.meta.label}</strong> (${fmt.pct(topPct)} du CA).`, implication:`Vulnérable aux cycles spécifiques de ce secteur (matières premières, géopolitique, climat). Une chute du cours mondial du cacao = impact direct sur AGL.`, action:`Diversification active vers les filières secondaires. Suivre les indicateurs macro de la filière dominante.` });
+      const decline = filieres.filter(f => f.evol !== null && f.evol <= -0.10);
+      const grow = filieres.filter(f => f.evol !== null && f.evol >= 0.10);
+      if (decline.length > 0) ins.push({ type:'attention', constat:`<strong>${decline.length} filière(s) en décroissance</strong> : ${decline.map(f => f.meta.label + ' (' + (f.evol*100).toFixed(0) + '%)').join(', ')}.`, implication:`Signal sectoriel : à corréler avec les cycles de matière première / géopolitique / réglementation.`, action:`Investigation par filière en baisse — déterminer si c'est cyclique (à attendre) ou structurel (à arbitrer).` });
+      if (grow.length > 0) ins.push({ type:'opportunite', constat:`<strong>${grow.length} filière(s) en croissance</strong> &gt; +10% : ${grow.map(f => f.meta.label + ' (+' + (f.evol*100).toFixed(0) + '%)').join(', ')}.`, implication:`Opportunités d'expansion sectorielle — capitaliser sur les filières porteuses.`, action:`Renforcer la prospection commerciale sur ces filières + plan de cross-sell sur les clients existants.` });
+      return analyse(ins, '🎯 Synthèse stratégique — Filières clients');
+    })()}
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Répartition du CA par filière</div>
+        <div class="text-sm text-muted">${filieres.length} filières — clic sur une ligne pour voir les clients de cette filière</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:none;">
+          <table class="data" id="filiere-table">
+            <thead><tr>
+              <th>Filière</th>
+              <th class="num">Clients</th>
+              <th class="num">CAP ${APP.filters.ANNEE}</th>
+              <th class="num">CAP ${APP.filters.ANNEE - 1}</th>
+              <th class="num">Évol.</th>
+              <th class="num">% CA</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              ${filieres.map(f => {
+                const id = 'filiere-' + f.meta.code;
+                const top10 = [...f.clients].sort((a,b) => b.CA_N - a.CA_N).slice(0, 50);
+                return `<tr class="filiere-row" data-target="${id}" style="cursor:pointer;">
+                  <td><strong>${f.meta.label}</strong></td>
+                  <td class="num">${f.clients.length}</td>
+                  <td class="num">${fmt.money(f.caN)}</td>
+                  <td class="num text-muted">${fmt.money(f.caN1)}</td>
+                  <td class="num">${f.evol === null ? '—' : `<span class="evol-cell" style="background:${CALC.couleurEvolution(f.caN, f.caN1, f.evol)};color:${f.evol > -0.05 && f.evol < 0.05 ? '#000' : 'white'};">${fmt.signed(f.evol*100)}</span>`}</td>
+                  <td class="num">${totalCA > 0 ? fmt.pct(f.caN/totalCA) : '—'}</td>
+                  <td class="num text-muted" style="font-size:11px;">▼</td>
+                </tr>
+                <tr id="${id}" style="display:none;">
+                  <td colspan="7" style="background:var(--grey-50);padding:0;">
+                    <div style="padding:12px 24px;">
+                      <div style="font-size:11px;color:var(--grey-700);margin-bottom:8px;"><strong>${top10.length} clients</strong> de la filière ${f.meta.label} — top par CAP :</div>
+                      <table class="data" style="background:white;">
+                        <thead><tr><th>#</th><th>Client</th><th>Tier</th><th>Métier</th><th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">Évol.</th></tr></thead>
+                        <tbody>
+                          ${top10.map((c,i) => `<tr>
+                            <td class="text-muted">${i+1}</td>
+                            <td><strong>${c.CLIENT}</strong></td>
+                            <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                            <td class="text-sm">${c.METIER || '—'}</td>
+                            <td class="num">${fmt.money(c.CA_N)}</td>
+                            <td class="num">${c.evol === null ? '—' : `<span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed(c.evol*100)}</span>`}</td>
+                          </tr>`).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  setTimeout(() => {
+    document.querySelectorAll('#page-filiere .filiere-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('th')) return;
+        const detail = document.getElementById(row.dataset.target);
+        if (!detail) return;
+        const isOpen = detail.style.display !== 'none';
+        document.querySelectorAll('#page-filiere [id^="filiere-"]').forEach(d => { if (d.id !== 'filiere-table') d.style.display = 'none'; });
+        document.querySelectorAll('#page-filiere .filiere-row td:last-child').forEach(td => { td.textContent = '▼'; });
+        if (!isOpen) { detail.style.display = ''; row.querySelector('td:last-child').textContent = '▲'; }
+      });
+    });
+  }, 50);
+}
+
+// ============================================================
+// PAGE 12 — CORRIDORS LOGISTIQUES
+// Flux Origin (site AGL) → Filière cliente (matière première)
+// ============================================================
+function render_corridor() {
+  const p = PAGES[12];
+  const el = document.getElementById('page-corridor');
+  const rows = APP.filtered;
+  const all = APP.data.fact;
+  const y = APP.filters.ANNEE;
+
+  // Construction matrice site × filière
+  const matrix = {};
+  const sites = new Set();
+  const filieresSet = new Set();
+  rows.forEach(r => {
+    if (!r.SITE || !r.CLIENT) return;
+    const fil = CALC.detectFiliere(r.CLIENT);
+    sites.add(r.SITE);
+    filieresSet.add(fil.code);
+    const key = r.SITE + '|' + fil.code;
+    if (!matrix[key]) matrix[key] = { site: r.SITE, filiere: fil, ca: 0, caN1: 0, clients: new Set() };
+    matrix[key].ca += r.MONTANT || 0;
+    matrix[key].clients.add(r.CLIENT);
+  });
+  // CAP N-1 sur les mêmes filtres
+  const monthSet = APP.periodMonths;
+  for (let i = 0; i < all.length; i++) {
+    const r = all[i];
+    if (r.ANNEE !== y - 1) continue;
+    if (!monthSet.has(r.MOIS)) continue;
+    if (!r.SITE || !r.CLIENT) continue;
+    const fil = CALC.detectFiliere(r.CLIENT);
+    const key = r.SITE + '|' + fil.code;
+    if (!matrix[key]) matrix[key] = { site: r.SITE, filiere: fil, ca: 0, caN1: 0, clients: new Set() };
+    matrix[key].caN1 += r.MONTANT || 0;
+  }
+
+  const corridors = Object.values(matrix).filter(c => c.ca > 0 || c.caN1 > 0);
+  corridors.sort((a,b) => b.ca - a.ca);
+  const totalCA = corridors.reduce((s,c) => s + c.ca, 0);
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      if (corridors.length === 0) return '';
+      const top = corridors[0];
+      const topPct = totalCA > 0 ? top.ca / totalCA : 0;
+      ins.push({ type:'neutre', constat:`<strong>${corridors.length} corridors actifs</strong> identifiés. Corridor #1 : <strong>${top.site} ↔ ${top.filiere.label}</strong> avec ${fmt.money(top.ca)} XOF (${fmt.pct(topPct)} du CA).`, implication:`Un corridor combine un site AGL (origine logistique) et une filière cliente (matière première). Permet de visualiser les flux structurants.`, action:`Cartographier les ressources opérationnelles par corridor (entrepôt, équipe, transport).` });
+      if (topPct >= 0.25) ins.push({ type:'risque', constat:`Le corridor n°1 concentre <strong>${fmt.pct(topPct)}</strong> du CA — sur-dépendance.`, implication:`Une disruption sur ce corridor (panne site, crise sectorielle) impacte directement le P&L AGL.`, action:`Plan de continuité dédié + diversification commerciale sur d'autres corridors.` });
+      // Corridors en forte croissance
+      const growing = corridors.filter(c => c.caN1 > 0 && (c.ca - c.caN1)/c.caN1 >= 0.20).sort((a,b) => ((b.ca-b.caN1)/b.caN1) - ((a.ca-a.caN1)/a.caN1));
+      if (growing.length > 0) ins.push({ type:'opportunite', constat:`<strong>${growing.length} corridor(s) en forte croissance</strong> (≥+20%). Top : ${growing.slice(0,3).map(c => c.site + ' ↔ ' + c.filiere.label.replace(/^[^\s]+\s/, '')).join(', ')}.`, implication:`Corridors porteurs où renforcer l'effort commercial / opérationnel.`, action:`Prioriser les ressources et la prospection sur ces axes.` });
+      return analyse(ins, '🎯 Synthèse stratégique — Corridors logistiques');
+    })()}
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Top corridors — Site AGL × Filière cliente</div>
+        <div class="text-sm text-muted">${corridors.length} corridors actifs sur la période, triés par CAP décroissant. CAP N-1 sur les mêmes mois.</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:600px;">
+          <table class="data">
+            <thead><tr>
+              <th>#</th>
+              <th>Site AGL</th>
+              <th>Filière cliente</th>
+              <th class="num">Clients</th>
+              <th class="num">CAP ${APP.filters.ANNEE}</th>
+              <th class="num">CAP ${APP.filters.ANNEE - 1}</th>
+              <th class="num">Évol.</th>
+              <th class="num">% CA</th>
+            </tr></thead>
+            <tbody>
+              ${corridors.slice(0, 50).map((c, i) => {
+                const evol = c.caN1 > 0 ? (c.ca - c.caN1) / c.caN1 : null;
+                const color = CALC.couleurEvolution(c.ca, c.caN1, evol);
+                return `<tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong>${c.site}</strong></td>
+                  <td>${c.filiere.label}</td>
+                  <td class="num">${c.clients.size}</td>
+                  <td class="num">${fmt.money(c.ca)}</td>
+                  <td class="num text-muted">${fmt.money(c.caN1)}</td>
+                  <td class="num">${evol === null ? '—' : `<span class="evol-cell" style="background:${color};color:${['#F4D35E'].includes(color)?'#000':'white'};">${fmt.signed(evol*100)}</span>`}</td>
+                  <td class="num">${totalCA > 0 ? fmt.pct(c.ca/totalCA) : '—'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+// PAGE 13 — SUIVI DE LA STRATÉGIE AGL
+// Tableau de bord des objectifs annuels (modifiables côté UI) vs réalisé
+// ============================================================
+function render_strategie() {
+  const p = PAGES[13];
+  const el = document.getElementById('page-strategie');
+  const rows = APP.filtered;
+  const all = APP.data.fact;
+  const y = APP.filters.ANNEE;
+  const lbl = periodLabel();
+
+  // Objectifs par défaut (modifiables — stockés en localStorage)
+  const defaultObjs = {
+    capTotal:    { label: 'CAP total annuel',           cible: 80e9,  unite:'XOF' },
+    capAerien:   { label: 'CAP Aérien (croissance ciblée +15%)', cible: 0,    metier:'AERIEN', unite:'XOF', auto:true },
+    capManut:    { label: 'CAP Manutention & Terminaux',         cible: 0,    metier:'MANUTENTION & TERMINAUX', unite:'XOF', auto:true },
+    nouveaux:    { label: 'Vrais nouveaux clients (an)', cible: 100,  unite:'clients' },
+    crossSell:   { label: 'Clients en cross-sell ouvert (nouveaux métiers)', cible: 50, unite:'clients' },
+    diversif:    { label: 'Réduction concentration HHI', cible: 1500, unite:'pts (cible max)' }
+  };
+  const stored = localStorage.getItem('cap_strat_objectifs_' + y);
+  const objs = stored ? { ...defaultObjs, ...JSON.parse(stored) } : defaultObjs;
+  // Auto-calcul des objectifs métier (cible = CA N-1 du même métier × 1.15)
+  Object.values(objs).forEach(o => {
+    if (o.auto && o.metier) {
+      const caN1Metier = all.filter(r => r.ANNEE === y - 1 && r.METIER === o.metier).reduce((s,r) => s + (r.MONTANT||0), 0);
+      o.cible = caN1Metier * 1.15;
+    }
+  });
+
+  // Réalisé sur la période courante
+  const capTotal = CALC.cap(rows);
+  const capAerien = rows.filter(r => r.METIER === 'AERIEN').reduce((s,r) => s + (r.MONTANT||0), 0);
+  const capManut  = rows.filter(r => r.METIER === 'MANUTENTION & TERMINAUX').reduce((s,r) => s + (r.MONTANT||0), 0);
+  const nouveauxN = APP.clientsAgg.filter(c => c.isTrueNew).length;
+  const xsellOuverts = APP.clientsAgg.filter(c => c.CA_N > 0 && c.newMetiers && c.newMetiers.length > 0).length;
+  const hhi = CALC.HHI(rows);
+
+  // Pour chaque objectif annuel : taux d'avancement YTD
+  const moisCible = (APP.filters.PERIODE_MODE === 'mois') ? 1 : (APP.filters.MOIS_MAX || 12);
+  const proratisationAnnuelle = moisCible / 12;
+
+  const items = [
+    { key:'capTotal',  meta: objs.capTotal,  realise: capTotal,  attendu: objs.capTotal.cible * proratisationAnnuelle, formatter: v => fmt.money(v) + ' XOF' },
+    { key:'capAerien', meta: objs.capAerien, realise: capAerien, attendu: objs.capAerien.cible * proratisationAnnuelle, formatter: v => fmt.money(v) + ' XOF' },
+    { key:'capManut',  meta: objs.capManut,  realise: capManut,  attendu: objs.capManut.cible * proratisationAnnuelle, formatter: v => fmt.money(v) + ' XOF' },
+    { key:'nouveaux',  meta: objs.nouveaux,  realise: nouveauxN, attendu: objs.nouveaux.cible * proratisationAnnuelle, formatter: v => Math.round(v) + ' clients' },
+    { key:'crossSell', meta: objs.crossSell, realise: xsellOuverts, attendu: objs.crossSell.cible * proratisationAnnuelle, formatter: v => Math.round(v) + ' clients' },
+    { key:'diversif',  meta: objs.diversif,  realise: Math.round(hhi), attendu: objs.diversif.cible, formatter: v => Math.round(v) + ' pts', invert: true }
+  ];
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      const onTrack = items.filter(it => it.invert ? it.realise <= it.attendu : it.realise >= it.attendu).length;
+      const atRisk = items.filter(it => it.invert ? it.realise > it.attendu * 1.10 : it.realise < it.attendu * 0.85).length;
+      ins.push({ type:'neutre', constat:`<strong>${items.length} objectifs stratégiques suivis</strong>. Sur la période ${lbl.longue} : <strong>${onTrack}/${items.length} en avance ou conformes</strong>, <strong>${atRisk}/${items.length} en risque</strong> (écart &gt; 15%).`, implication:`Tableau de bord du contrat moral entre la Direction et les équipes — les écarts cumulés en cours d'année sont des signaux à exploiter avant fin d'année.`, action:`Revue trimestrielle COMEX du tableau. Réajuster les ambitions ou les leviers selon les écarts.` });
+      const inRisk = items.filter(it => it.invert ? it.realise > it.attendu * 1.10 : it.realise < it.attendu * 0.85);
+      if (inRisk.length > 0) ins.push({ type:'risque', constat:`Objectifs en risque : ${inRisk.map(it => '<strong>' + it.meta.label + '</strong>').join(', ')}.`, implication:`Sans correction, fin d'année probablement sous la cible. Il faut soit ajuster la cible, soit activer des leviers.`, action:`Plan d'actions correctrices à présenter en revue trimestrielle.` });
+      return analyse(ins, '🎯 Synthèse stratégique — Suivi des objectifs AGL');
+    })()}
+
+    <div class="alert-banner info mt-3">
+      <div class="alert-banner-title">📌 Comment fonctionne ce suivi</div>
+      Les objectifs annuels sont définis ici (modifiables via le bouton ✏️ par ligne — sauvegardés en localStorage par année).
+      L'avancement attendu est <strong>proratisé</strong> au nombre de mois écoulés sur l'année (ex. fin avril = 4/12 = 33% de l'objectif annuel attendu).
+      Les objectifs marqués <em>auto</em> sont calculés automatiquement (CAP N-1 × 1.15 pour les ambitions de croissance métier).
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Tableau de bord stratégique ${y}</div>
+        <div class="text-sm text-muted">Avancement YTD vs cible proratisée — ${(proratisationAnnuelle*100).toFixed(0)}% de l'année écoulée</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:none;">
+          <table class="data">
+            <thead><tr>
+              <th>Objectif stratégique</th>
+              <th class="num">Cible annuelle ${y}</th>
+              <th class="num">Attendu YTD</th>
+              <th class="num">Réalisé YTD</th>
+              <th class="num">Avancement</th>
+              <th>Statut</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              ${items.map(it => {
+                const pct = it.attendu > 0 ? it.realise / it.attendu : (it.realise > 0 ? 1 : 0);
+                const onTrack = it.invert ? it.realise <= it.attendu : it.realise >= it.attendu * 0.85;
+                const fail = it.invert ? it.realise > it.attendu * 1.10 : it.realise < it.attendu * 0.85;
+                const statut = it.invert
+                  ? (it.realise <= it.attendu ? '🟢 Conforme' : it.realise <= it.attendu * 1.10 ? '🟡 À surveiller' : '🔴 En risque')
+                  : (pct >= 1.0 ? '🟢 En avance' : pct >= 0.85 ? '🟡 Conforme' : '🔴 En risque');
+                const color = onTrack ? 'var(--evol-strong-up)' : fail ? 'var(--evol-strong-dn)' : 'var(--evol-stable)';
+                return `<tr>
+                  <td><strong>${it.meta.label}</strong>${it.meta.auto ? ' <span class="text-sm text-muted">(auto N-1 × 1.15)</span>' : ''}</td>
+                  <td class="num">${it.formatter(it.meta.cible)}</td>
+                  <td class="num text-muted">${it.formatter(it.attendu)}</td>
+                  <td class="num"><strong>${it.formatter(it.realise)}</strong></td>
+                  <td class="num"><span class="evol-cell" style="background:${color};color:white;">${(pct*100).toFixed(0)}%</span></td>
+                  <td class="text-sm">${statut}</td>
+                  <td class="num">${it.meta.auto ? '' : `<button onclick="editObjectif('${it.key}', ${it.meta.cible})" style="font-size:11px;padding:4px 8px;background:var(--grey-100);border:1px solid var(--grey-300);border-radius:4px;cursor:pointer;">✏️</button>`}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Édition d'un objectif (stocké en localStorage)
+function editObjectif(key, currentValue) {
+  const newVal = prompt('Nouvelle cible annuelle (en valeur brute, ex: 80000000000 pour 80 Md XOF) :', currentValue);
+  if (newVal === null) return;
+  const n = parseFloat(newVal);
+  if (isNaN(n) || n < 0) { alert('Valeur invalide'); return; }
+  const y = APP.filters.ANNEE;
+  const stored = localStorage.getItem('cap_strat_objectifs_' + y);
+  const obj = stored ? JSON.parse(stored) : {};
+  if (!obj[key]) obj[key] = {};
+  obj[key].cible = n;
+  localStorage.setItem('cap_strat_objectifs_' + y, JSON.stringify(obj));
+  render_strategie();
 }
 </script>
 
