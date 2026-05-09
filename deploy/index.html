@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>CAP Strategic Analytics — AGL · Préparation</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; background: linear-gradient(135deg, #0A2540 0%, #1B3A5C 100%); color: white; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .card { background: rgba(255,255,255,0.06); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 32px 28px; max-width: 540px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.40); }
+  h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 28px; margin: 0 0 6px 0; color: #D4A24E; font-weight: 600; }
+  .sub { font-size: 13px; color: rgba(255,255,255,0.75); margin-bottom: 22px; letter-spacing: 0.3px; }
+  .step { padding: 12px 14px; background: rgba(0,0,0,0.20); border-radius: 8px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; }
+  .step b { color: #D4A24E; }
+  .footer { font-size: 11px; color: rgba(255,255,255,0.45); text-align: center; margin-top: 22px; }
+  code { background: rgba(0,0,0,0.30); padding: 2px 6px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #F4D894; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>📦 CAP Strategic Analytics</h1>
+    <div class="sub">Déploiement en attente du snapshot chiffré</div>
+    <div class="step">1. Ouvre l'app source localement, charge tes données AGL</div>
+    <div class="step">2. Clique <b>📤 Exporter HTML interactif</b> → saisis un mot de passe ≥ 8 caractères</div>
+    <div class="step">3. Renomme le fichier téléchargé en <code>index.html</code></div>
+    <div class="step">4. Remplace ce fichier dans <code>deploy/index.html</code> du repo</div>
+    <div class="step">5. <code>git push</code> → Vercel redéploie automatiquement en 30s</div>
+    <div class="footer">AGL · Africa Global Logistics — Direction Stratégie</div>
+  </div>
+</body>
+</html>
