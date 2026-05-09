@@ -1063,6 +1063,16 @@ body.is-mobile-small .grid-5,
   body:not(.is-desktop-forced) .app-content { padding: 8px; }
 }
 
+/* Mode présentation COMEX — plein écran auto-rotate */
+body.presentation-mode .app-header { background: linear-gradient(135deg, var(--navy-900), var(--navy-800)); }
+body.presentation-mode .app-sidebar { display: none !important; }
+body.presentation-mode .app-main { grid-template-columns: 1fr; }
+body.presentation-mode .app-content { padding: 24px 48px; }
+body.presentation-mode .slicer-bar { background: var(--navy-800); }
+body.presentation-mode .slicer-label { color: var(--gold-300); }
+body.presentation-mode .page-title { font-size: 30px; color: var(--navy-900); }
+body.presentation-mode .card { box-shadow: 0 8px 24px rgba(10,37,64,0.10); border-radius: 10px; }
+
 /* Print */
 @media print {
   .app-header, .slicer-bar, .app-sidebar { display: none; }
@@ -2111,7 +2121,11 @@ const PAGES = [
   { id: 'strategie', num: '13', title: 'Suivi stratégie AGL', subtitle: 'Objectifs annuels vs réalisé', section: 'Intelligence',
     explanation: "Tableau de bord du suivi des objectifs stratégiques AGL définis manuellement (cible CA, cible métier, cible géographique). Mesure en temps réel l'écart entre la trajectoire et les ambitions, avec projection de fin d'année." },
   { id: 'briefing', num: '14', title: 'Briefing exécutif COMEX', subtitle: 'Note 1-page consolidée — toutes les pages en synthèse', section: 'Pilotage',
-    explanation: "Synthèse exécutive consolidée 1-page format note de cabinet : photographie de la période, signaux faibles, alertes prioritaires, opportunités et Top 5 des actions à mener. Idéal pour une revue COMEX rapide ou un brief direction." }
+    explanation: "Synthèse exécutive consolidée 1-page format note de cabinet : photographie de la période, signaux faibles, alertes prioritaires, opportunités et Top 5 des actions à mener. Idéal pour une revue COMEX rapide ou un brief direction." },
+  { id: 'risques_strategiques', num: '15', title: 'Cartographie des risques stratégiques', subtitle: '10 risques notés et hiérarchisés', section: 'Risques',
+    explanation: "Évaluation systématique de 10 risques stratégiques (concentration géographique, sectorielle, commerciale, saisonnalité, vieillissement portefeuille, transactions exceptionnelles, churn, dépendance Top 10…). Chaque risque est noté 0-100 avec un code couleur et une action recommandée." },
+  { id: 'anomalies', num: '16', title: 'Détection d\'anomalies', subtitle: 'Pics, chutes brutales, transactions suspectes', section: 'Risques',
+    explanation: "Détection algorithmique des anomalies dans les transactions : pics inhabituels (z-score > 3), chutes brutales (-50% MoM), montants extrêmes, clients ayant changé brutalement de site. Chaque anomalie est typée et expliquée." }
 ];
 
 function buildApp() {
@@ -2128,6 +2142,7 @@ function buildApp() {
         <div class="app-title-sub">Customer Intelligence Platform · Marketing & Commercial</div>
       </div>
       <div class="header-actions">
+        <button class="btn-header" id="btn-presentation" title="Mode présentation COMEX : plein écran + rotation automatique toutes les 30 secondes">▶️ Présentation</button>
         <button class="btn-header gold" id="btn-export-html" title="Exporter le rapport en HTML interactif (à partager par mail/Teams — le destinataire ouvre directement, pas besoin de fichier de données)">📤 Exporter HTML interactif</button>
         <button class="btn-header" id="btn-print" title="Imprimer / Exporter PDF">📄 Export PDF</button>
         <button class="btn-header" id="btn-reload" title="Recharger un fichier">↻ Nouveau fichier</button>
@@ -2925,10 +2940,95 @@ applyResponsiveClasses();
 window.addEventListener('resize', applyResponsiveClasses);
 window.addEventListener('orientationchange', applyResponsiveClasses);
 
+// ============================================================
+// MODE PRÉSENTATION COMEX — plein écran, auto-rotation des pages
+// ============================================================
+APP.presentation = { active: false, timer: null, intervalSec: 30 };
+
+function togglePresentationMode() {
+  if (APP.presentation.active) {
+    stopPresentationMode();
+  } else {
+    startPresentationMode();
+  }
+}
+
+function startPresentationMode() {
+  APP.presentation.active = true;
+  // Activer le plein écran navigateur
+  if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+  // Marqueur visuel sur le body
+  document.body.classList.add('presentation-mode');
+  // Mettre à jour le bouton
+  const btn = document.getElementById('btn-presentation');
+  if (btn) { btn.textContent = '⏹ Stop présentation'; btn.classList.add('gold'); }
+  // Bandeau de progression en haut
+  if (!document.getElementById('presentation-progress')) {
+    const bar = document.createElement('div');
+    bar.id = 'presentation-progress';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:3px;background:rgba(212,162,78,0.20);z-index:1000;';
+    bar.innerHTML = '<div id="presentation-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,var(--gold-700),var(--gold-300));transition:width 1s linear;"></div>';
+    document.body.appendChild(bar);
+  }
+  // Lancer la rotation
+  schedulePresentationNext();
+  // Échap pour quitter
+  document.addEventListener('keydown', presentationKeyHandler);
+}
+
+function stopPresentationMode() {
+  APP.presentation.active = false;
+  if (APP.presentation.timer) { clearTimeout(APP.presentation.timer); APP.presentation.timer = null; }
+  document.body.classList.remove('presentation-mode');
+  const btn = document.getElementById('btn-presentation');
+  if (btn) { btn.textContent = '▶️ Présentation'; btn.classList.remove('gold'); }
+  const bar = document.getElementById('presentation-progress');
+  if (bar) bar.remove();
+  if (document.exitFullscreen && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  document.removeEventListener('keydown', presentationKeyHandler);
+}
+
+function presentationKeyHandler(e) {
+  if (e.key === 'Escape') stopPresentationMode();
+  else if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); presentationGoNext(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); presentationGoPrev(); }
+}
+
+function presentationGoNext() {
+  const idx = PAGES.findIndex(p => p.id === APP.currentPage);
+  const next = (idx + 1) % PAGES.length;
+  switchPage(PAGES[next].id);
+  if (APP.presentation.active) schedulePresentationNext();
+}
+function presentationGoPrev() {
+  const idx = PAGES.findIndex(p => p.id === APP.currentPage);
+  const prev = (idx - 1 + PAGES.length) % PAGES.length;
+  switchPage(PAGES[prev].id);
+  if (APP.presentation.active) schedulePresentationNext();
+}
+
+function schedulePresentationNext() {
+  if (APP.presentation.timer) clearTimeout(APP.presentation.timer);
+  // Animation barre de progression
+  const fill = document.getElementById('presentation-progress-fill');
+  if (fill) {
+    fill.style.transition = 'none'; fill.style.width = '0%';
+    setTimeout(() => {
+      fill.style.transition = `width ${APP.presentation.intervalSec}s linear`;
+      fill.style.width = '100%';
+    }, 50);
+  }
+  APP.presentation.timer = setTimeout(() => {
+    presentationGoNext();
+  }, APP.presentation.intervalSec * 1000);
+}
+
 function attachEvents() {
   document.getElementById('btn-print').addEventListener('click', () => window.print());
   const btnExport = document.getElementById('btn-export-html');
   if (btnExport) btnExport.addEventListener('click', exportInteractiveHTML);
+  const btnPres = document.getElementById('btn-presentation');
+  if (btnPres) btnPres.addEventListener('click', togglePresentationMode);
   document.getElementById('btn-reload').addEventListener('click', () => {
     if (confirm('Recharger un nouveau fichier ? Les données actuelles seront effacées.')) {
       location.reload();
@@ -6345,6 +6445,360 @@ function render_briefing() {
       <div style="background:var(--grey-50);padding:12px 32px;border-top:1px solid var(--grey-200);font-size:10px;color:var(--grey-500);font-style:italic;display:flex;justify-content:space-between;">
         <span>Source : CAP Strategic Analytics · données filtrées : ${APP.filtered.length.toLocaleString('fr-FR')} transactions · ${nbClients} clients</span>
         <span>Généré le ${new Date().toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' })} · imprimer via Ctrl+P</span>
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+// PAGE 15 — CARTOGRAPHIE DES RISQUES STRATÉGIQUES
+// 10 risques évalués automatiquement, notés 0-100, hiérarchisés
+// ============================================================
+function render_risques_strategiques() {
+  const p = PAGES.find(x => x.id === 'risques_strategiques');
+  const el = document.getElementById('page-risques_strategiques');
+  const rows = APP.filtered;
+  const all = APP.data.fact;
+  const y = APP.filters.ANNEE;
+  const lbl = periodLabel();
+
+  const totalCA = APP.clientsAgg.reduce((s,c) => s + (c.CA_N || 0), 0);
+  const hhi = CALC.HHI(rows);
+  const top10 = CALC.top10Dependency(rows);
+  const churn = CALC.churnRate(rows, all, y);
+  const nrr = CALC.NRR(rows, all, y);
+
+  // Risque 1 : concentration géographique
+  const siteCA = {};
+  rows.forEach(r => { if (r.SITE) siteCA[r.SITE] = (siteCA[r.SITE] || 0) + (r.MONTANT || 0); });
+  const totalSiteCA = Object.values(siteCA).reduce((s,v) => s + v, 0);
+  const topSite = Object.entries(siteCA).sort((a,b) => b[1] - a[1])[0];
+  const topSiteName = topSite ? topSite[0] : '—';
+  const topSitePct = totalSiteCA > 0 ? topSite[1] / totalSiteCA : 0;
+  const r1Score = Math.min(100, Math.round(topSitePct * 100));
+
+  // Risque 2 : concentration sectorielle (filière)
+  const filiereCA = {};
+  APP.clientsAgg.forEach(c => {
+    if (c.CA_N <= 0) return;
+    const f = CALC.detectFiliere(c.CLIENT);
+    filiereCA[f.code] = (filiereCA[f.code] || 0) + c.CA_N;
+  });
+  const topFil = Object.entries(filiereCA).sort((a,b) => b[1] - a[1])[0];
+  const topFilName = topFil ? FILIERE_PATTERNS.find(f => f.code === topFil[0]).label : '—';
+  const topFilPct = totalCA > 0 ? topFil[1] / totalCA : 0;
+  const r2Score = Math.min(100, Math.round(topFilPct * 100));
+
+  // Risque 3 : concentration commerciale (Top 10)
+  const r3Score = Math.min(100, Math.round(top10 * 100));
+
+  // Risque 4 : saisonnalité excessive
+  // Coefficient max pic mensuel / moyenne (sur 12 mois)
+  const monthCA = Array(12).fill(0);
+  rows.forEach(r => { if (r.MOIS >= 1 && r.MOIS <= 12) monthCA[r.MOIS - 1] += r.MONTANT || 0; });
+  const monthMean = monthCA.reduce((s,v) => s + v, 0) / 12;
+  const monthMax = monthCA.reduce((m,v) => v > m ? v : m, 0);
+  const seasonRatio = monthMean > 0 ? monthMax / monthMean : 1;
+  // Ratio 1 = uniforme, 2 = 1 mois fait 2× la moyenne, 4+ = très saisonnier
+  const r4Score = Math.min(100, Math.round((seasonRatio - 1) / 3 * 100));
+
+  // Risque 5 : vieillissement portefeuille (% clients > 5 ans)
+  // Approximation : firstYear ≤ refY - 5
+  const veteranClients = APP.clientsAgg.filter(c => c.firstYear && (y - c.firstYear) >= 5).length;
+  const veteranPct = APP.clientsAgg.length > 0 ? veteranClients / APP.clientsAgg.length : 0;
+  // > 60% vétérans = portefeuille vieillissant, peu de renouvellement
+  const r5Score = Math.min(100, Math.round(veteranPct > 0.6 ? (veteranPct - 0.5) * 200 : 0));
+
+  // Risque 6 : Black Swan (transactions exceptionnelles non récurrentes)
+  // Détecte les clients dont 1 mois > 50% de leur CA annuel total
+  let blackSwanCA = 0;
+  let blackSwanCount = 0;
+  APP.clientsAgg.forEach(c => {
+    if (c.CA_N <= 0) return;
+    // Pour chaque client, regarder si 1 mois domine
+    const txMonthly = {};
+    rows.forEach(r => { if (r.CLIENT === c.CLIENT && r.MOIS) txMonthly[r.MOIS] = (txMonthly[r.MOIS] || 0) + r.MONTANT; });
+    const maxM = Object.values(txMonthly).reduce((m,v) => v > m ? v : m, 0);
+    if (c.CA_N > 0 && maxM / c.CA_N > 0.7 && c.nbMois <= 2) {
+      blackSwanCA += c.CA_N;
+      blackSwanCount++;
+    }
+  });
+  const blackSwanPct = totalCA > 0 ? blackSwanCA / totalCA : 0;
+  const r6Score = Math.min(100, Math.round(blackSwanPct * 200));
+
+  // Risque 7 : taux de churn
+  const r7Score = churn !== null ? Math.min(100, Math.round(churn * 250)) : 0;
+
+  // Risque 8 : HHI concentration
+  const r8Score = Math.min(100, Math.round(hhi / 35));
+
+  // Risque 9 : rétention nette en contraction
+  const r9Score = nrr !== null ? Math.min(100, Math.round(Math.max(0, (1 - nrr)) * 200)) : 0;
+
+  // Risque 10 : dépendance aux gros tiers (Tier S/A)
+  const sCA = APP.clientsAgg.filter(c => c.tier === 'S').reduce((s,c) => s + c.CA_N, 0);
+  const aCA = APP.clientsAgg.filter(c => c.tier === 'A').reduce((s,c) => s + c.CA_N, 0);
+  const saPct = totalCA > 0 ? (sCA + aCA) / totalCA : 0;
+  const r10Score = Math.min(100, Math.round(saPct * 110));
+
+  const risques = [
+    { id:'geo', titre:'Concentration géographique', score:r1Score, value:`${topSiteName} = ${fmt.pct(topSitePct)} du CA`, desc:`Site ${topSiteName} = ${fmt.pct(topSitePct)} du CA total. Une disruption locale (sociale, douanière, panne) impacte directement le P&L.`, action: r1Score >= 70 ? 'Plan continuité opérationnelle prioritaire + accélération sites secondaires' : r1Score >= 50 ? 'Surveillance mensuelle du ratio + diversification graduelle' : 'Niveau acceptable, maintien de la stratégie' },
+    { id:'sectoriel', titre:'Concentration sectorielle (filière)', score:r2Score, value:`${topFilName} = ${fmt.pct(topFilPct)} du CA`, desc:`Filière ${topFilName} domine le portefeuille. Vulnérabilité aux cycles spécifiques de ce secteur (matière première, géopolitique, climat).`, action: r2Score >= 50 ? 'Diversification active vers autres filières + suivi indicateurs macro' : 'Diversification sectorielle correcte' },
+    { id:'commercial', titre:'Concentration commerciale (Top 10)', score:r3Score, value:`Top 10 = ${fmt.pct(top10)} du CA`, desc:`Les 10 plus gros clients pèsent ${fmt.pct(top10)}. Une perte significative parmi eux a un impact massif.`, action: r3Score >= 70 ? 'De-risking urgent : sécurisation contractuelle pluriannuelle des Top 5' : r3Score >= 50 ? 'Affecter KAM senior dédié + revue mensuelle' : 'Diversification client maîtrisée' },
+    { id:'saison', titre:'Saisonnalité excessive', score:r4Score, value:`Pic mensuel = ${seasonRatio.toFixed(1)}× la moyenne`, desc:`Ratio pic mensuel / moyenne = ${seasonRatio.toFixed(1)}. Charge inégale sur l'année — sur-effectifs en haute saison, sous-utilisation hors saison.`, action: r4Score >= 60 ? 'Calibrer ressources humaines saisonnières + intérim sur les pics' : r4Score >= 30 ? 'Suivi RH adapté' : 'Charge équilibrée' },
+    { id:'age', titre:'Vieillissement du portefeuille', score:r5Score, value:`${veteranClients} clients > 5 ans (${fmt.pct(veteranPct)})`, desc:`${veteranClients} clients (${fmt.pct(veteranPct)}) sont chez nous depuis 5+ ans. ${veteranPct > 0.6 ? 'Portefeuille mûr — risque d\'inertie et de manque de renouvellement.' : 'Mix sain entre fidèles et nouveaux.'}`, action: r5Score >= 50 ? 'Accélérer la conquête de nouveaux logos pour rajeunir' : 'Mix générationnel correct' },
+    { id:'blackswan', titre:'Transactions exceptionnelles', score:r6Score, value:`${blackSwanCount} clients (${fmt.pct(blackSwanPct)} du CA)`, desc:`${blackSwanCount} clients réalisent ${fmt.pct(blackSwanPct)} du CA via des transactions ponctuelles non récurrentes. Risque de "trompe-l'œil" sur la base récurrente.`, action: r6Score >= 50 ? 'Distinguer CA récurrent / non-récurrent dans les analyses' : 'Niveau acceptable' },
+    { id:'churn', titre:'Taux de perte client', score:r7Score, value:`${fmt.pct(churn)}`, desc:`Taux de perte client = ${fmt.pct(churn)}. ${churn === null ? '—' : churn >= 0.20 ? 'Hémorragie qui empêche toute croissance organique.' : churn >= 0.10 ? 'Au-dessus du seuil cible 10%.' : 'Sous le seuil cible.'}`, action: r7Score >= 50 ? 'Audit causes + plan anti-churn structurant' : 'Standard sectoriel respecté' },
+    { id:'hhi', titre:'Concentration globale (HHI)', score:r8Score, value:`HHI = ${Math.round(hhi)}`, desc:`Indice Herfindahl-Hirschman = ${Math.round(hhi)}. ${hhi >= 2500 ? 'Concentration excessive.' : hhi >= 1500 ? 'Concentration modérée.' : 'Bien diversifié.'}`, action: r8Score >= 70 ? 'Plan diversification urgent — pousser Tier B' : 'Niveau acceptable' },
+    { id:'nrr', titre:'Contraction des clients existants', score:r9Score, value:`NRR = ${fmt.pct(nrr)}`, desc:`Rétention nette du CA = ${fmt.pct(nrr)}. ${nrr === null ? '—' : nrr < 0.85 ? 'Érosion critique de la base.' : nrr < 1.0 ? 'Contraction modérée.' : 'Expansion saine.'}`, action: r9Score >= 50 ? 'Audit COMEX + revue tier-by-tier' : 'Base existante stable ou en expansion' },
+    { id:'depTopTier', titre:'Dépendance Tiers premium (S+A)', score:r10Score, value:`Tier S+A = ${fmt.pct(saPct)} du CA`, desc:`Les Tiers premium S+A représentent ${fmt.pct(saPct)} du CA. ${saPct >= 0.80 ? 'Sur-dépendance aux comptes premium.' : 'Distribution équilibrée.'}`, action: r10Score >= 80 ? 'Sécurisation contractuelle pluriannuelle des Top 20' : 'Mix des tiers sain' }
+  ];
+
+  // Tri par score décroissant (les plus risqués en premier)
+  risques.sort((a,b) => b.score - a.score);
+
+  function riskColor(s) {
+    if (s >= 70) return { bg: 'rgba(214,40,40,0.10)', bd: '#D62828', label: '🔴 Critique', txt:'#D62828' };
+    if (s >= 50) return { bg: 'rgba(247,127,0,0.10)', bd: '#F77F00', label: '🟠 Élevé', txt:'#F77F00' };
+    if (s >= 30) return { bg: 'rgba(244,211,94,0.15)', bd: '#F4D35E', label: '🟡 Modéré', txt:'#8B6B2D' };
+    return { bg: 'rgba(11,110,79,0.10)', bd: '#0B6E4F', label: '🟢 Faible', txt:'#0B6E4F' };
+  }
+
+  const critiques = risques.filter(r => r.score >= 70);
+  const eleves = risques.filter(r => r.score >= 50 && r.score < 70);
+  const moderes = risques.filter(r => r.score >= 30 && r.score < 50);
+  const faibles = risques.filter(r => r.score < 30);
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      ins.push({ type:'neutre', constat:`Cartographie de <strong>${risques.length} risques stratégiques</strong> évalués automatiquement sur la période ${lbl.longue}.`, implication:`Score 0-100 calculé pour chaque risque. ${critiques.length} critiques · ${eleves.length} élevés · ${moderes.length} modérés · ${faibles.length} faibles.`, action:`Concentrer les efforts sur les risques 🔴 critiques en priorité absolue, puis 🟠 élevés.` });
+      if (critiques.length > 0) ins.push({ type:'risque', constat:`<strong>${critiques.length} risque(s) en zone critique</strong> : ${critiques.map(r => r.titre).join(', ')}.`, implication:`Ces risques peuvent compromettre significativement la trajectoire commerciale ou financière à 12 mois.`, action:`Plan d'action formel à présenter au COMEX dans les 30 jours pour chaque risque critique.` });
+      const top = risques[0];
+      if (top.score >= 50) ins.push({ type: top.score >= 70 ? 'risque' : 'attention', constat:`Risque #1 : <strong>${top.titre}</strong> (score ${top.score}/100).`, implication: top.desc, action: top.action });
+      return analyseToSynthese(ins, '🎯 Cartographie des risques stratégiques');
+    })()}
+
+    <div class="grid grid-4 mt-3">
+      <div class="kpi" style="border-top:3px solid #D62828;"><div class="kpi-label">🔴 Critiques</div><div class="kpi-value">${critiques.length}</div><div class="kpi-bench">score ≥ 70 — action urgente</div></div>
+      <div class="kpi" style="border-top:3px solid #F77F00;"><div class="kpi-label">🟠 Élevés</div><div class="kpi-value">${eleves.length}</div><div class="kpi-bench">score 50-69 — surveillance active</div></div>
+      <div class="kpi" style="border-top:3px solid #F4D35E;"><div class="kpi-label">🟡 Modérés</div><div class="kpi-value">${moderes.length}</div><div class="kpi-bench">score 30-49 — à monitorer</div></div>
+      <div class="kpi" style="border-top:3px solid #0B6E4F;"><div class="kpi-label">🟢 Faibles</div><div class="kpi-value">${faibles.length}</div><div class="kpi-bench">score &lt; 30 — sous contrôle</div></div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Hiérarchie des 10 risques stratégiques</div>
+        <div class="text-sm text-muted">Triés par criticité décroissante. Cliquez sur une carte pour plus de détails.</div>
+      </div>
+      <div class="card-body">
+        ${risques.map(r => {
+          const col = riskColor(r.score);
+          return `
+          <div style="background:${col.bg};border-left:4px solid ${col.bd};padding:14px 18px;border-radius:0 6px 6px 0;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+              <div style="flex:1;">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
+                  <span style="font-size:11px;font-weight:700;color:${col.txt};letter-spacing:1px;text-transform:uppercase;">${col.label}</span>
+                  <strong style="color:var(--navy-900);font-size:14px;">${r.titre}</strong>
+                </div>
+                <div style="color:var(--grey-700);font-size:12px;line-height:1.55;margin-bottom:6px;">${r.desc}</div>
+                <div style="font-size:12px;color:${col.txt};font-weight:600;">→ ${r.action}</div>
+              </div>
+              <div style="text-align:center;flex-shrink:0;min-width:140px;">
+                <div style="font-family:var(--font-display);font-size:28px;font-weight:700;color:${col.txt};">${r.score}<span style="font-size:14px;color:var(--grey-500);">/100</span></div>
+                <div style="font-size:11px;color:var(--grey-700);font-weight:600;margin-top:2px;">${r.value}</div>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+// PAGE 16 — DÉTECTION D'ANOMALIES
+// Algorithmique : pics z-score, chutes brutales, montants suspects
+// ============================================================
+function render_anomalies() {
+  const p = PAGES.find(x => x.id === 'anomalies');
+  const el = document.getElementById('page-anomalies');
+  const all = APP.data.fact;
+  const lbl = periodLabel();
+
+  // Pré-grouper rows par client × YEAR_MONTH (pour calculer evolutions)
+  const clientMonthly = {};
+  for (const r of all) {
+    if (!r.CLIENT || !r.MONTANT) continue;
+    const k = r.ANNEE * 100 + r.MOIS;
+    if (!clientMonthly[r.CLIENT]) clientMonthly[r.CLIENT] = {};
+    clientMonthly[r.CLIENT][k] = (clientMonthly[r.CLIENT][k] || 0) + r.MONTANT;
+  }
+
+  // Détection 1 : Pics inhabituels (z-score > 3)
+  const peakAnomalies = [];
+  for (const client in clientMonthly) {
+    const months = Object.values(clientMonthly[client]);
+    if (months.length < 6) continue;
+    const mean = months.reduce((s,v) => s + v, 0) / months.length;
+    const variance = months.reduce((s,v) => s + (v - mean) ** 2, 0) / months.length;
+    const stddev = Math.sqrt(variance);
+    if (stddev <= 0) continue;
+    for (const k in clientMonthly[client]) {
+      const v = clientMonthly[client][k];
+      const z = (v - mean) / stddev;
+      if (z > 3 && v > mean * 3) {
+        const yy = Math.floor(k / 100), mm = k % 100;
+        peakAnomalies.push({ client, year: yy, month: mm, value: v, mean, z: z.toFixed(1) });
+      }
+    }
+  }
+  peakAnomalies.sort((a,b) => b.value - a.value);
+
+  // Détection 2 : Chutes brutales (-50% MoM)
+  const crashAnomalies = [];
+  for (const client in clientMonthly) {
+    const sortedKeys = Object.keys(clientMonthly[client]).map(k => +k).sort();
+    for (let i = 1; i < sortedKeys.length; i++) {
+      const k1 = sortedKeys[i-1], k2 = sortedKeys[i];
+      const v1 = clientMonthly[client][k1], v2 = clientMonthly[client][k2];
+      if (v1 > 1e6 && v2 < v1 * 0.5) {  // chute > 50% à partir d'au moins 1M XOF
+        const drop = (v2 - v1) / v1;
+        const yy = Math.floor(k2 / 100), mm = k2 % 100;
+        crashAnomalies.push({ client, year: yy, month: mm, before: v1, after: v2, drop });
+      }
+    }
+  }
+  crashAnomalies.sort((a,b) => a.drop - b.drop);  // les plus fortes chutes en premier
+
+  // Détection 3 : Montants extrêmes (> 99e percentile)
+  const allMontants = [];
+  for (const r of all) if (r.MONTANT > 0) allMontants.push(r.MONTANT);
+  allMontants.sort((a,b) => a - b);
+  const p99 = allMontants[Math.floor(allMontants.length * 0.99)] || 0;
+  const extrAmounts = all.filter(r => r.MONTANT >= p99 * 1.5).slice(0, 50)
+    .sort((a,b) => b.MONTANT - a.MONTANT);
+
+  // Détection 4 : Clients ayant changé brutalement de site
+  const siteChanges = [];
+  for (const c of APP.clientsAgg) {
+    if (c.CA_N <= 0 || (c.nbSites || 0) < 2) continue;
+    // Récupérer les sites par mois pour ce client
+    const sitesByMonth = {};
+    for (const r of all) {
+      if (r.CLIENT !== c.CLIENT || !r.SITE) continue;
+      const k = r.ANNEE * 100 + r.MOIS;
+      if (!sitesByMonth[k]) sitesByMonth[k] = new Set();
+      sitesByMonth[k].add(r.SITE);
+    }
+    const monthsArr = Object.entries(sitesByMonth).sort((a,b) => +a[0] - +b[0]);
+    for (let i = 1; i < monthsArr.length; i++) {
+      const prevSites = monthsArr[i-1][1], currSites = monthsArr[i][1];
+      // Nouveau site qui n'était pas là avant
+      const newSites = [...currSites].filter(s => !prevSites.has(s));
+      // Site disparu
+      const lostSites = [...prevSites].filter(s => !currSites.has(s));
+      if (newSites.length && lostSites.length) {
+        const k = +monthsArr[i][0];
+        siteChanges.push({
+          client: c.CLIENT,
+          year: Math.floor(k / 100), month: k % 100,
+          from: lostSites.join(','), to: newSites.join(',')
+        });
+      }
+    }
+  }
+  // Limiter aux 30 cas les plus récents
+  siteChanges.sort((a,b) => (b.year * 100 + b.month) - (a.year * 100 + a.month));
+  const siteChangesTop = siteChanges.slice(0, 30);
+
+  const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      const total = peakAnomalies.length + crashAnomalies.length + extrAmounts.length + siteChangesTop.length;
+      ins.push({ type:'neutre', constat:`<strong>${total} anomalies détectées</strong> sur l'historique : ${peakAnomalies.length} pics inhabituels, ${crashAnomalies.length} chutes brutales, ${extrAmounts.length} montants extrêmes, ${siteChangesTop.length} changements de site.`, implication:`Détection algorithmique automatique (z-score &gt; 3 pour les pics, -50% MoM pour les chutes, percentile 99 × 1.5 pour les montants). À investiguer pour valider les anomalies réelles.`, action:`Pour chaque anomalie, vérifier auprès du KAM ou de la facturation si c'est légitime (gros chantier, projet ponctuel) ou suspect (erreur de saisie, doublon).` });
+      if (peakAnomalies.length > 5) ins.push({ type:'attention', constat:`<strong>${peakAnomalies.length} pics inhabituels</strong> détectés (transactions à plus de 3 écarts-types de la moyenne client).`, implication:`Soit transactions exceptionnelles légitimes (gros projet, appel d'offres gagné), soit erreurs de saisie ou anomalies données.`, action:`Examiner le top 10 ci-dessous et confirmer auprès de la BU concernée.` });
+      if (crashAnomalies.length > 5) ins.push({ type:'risque', constat:`<strong>${crashAnomalies.length} chutes brutales</strong> détectées (perte ≥ 50% mois sur mois).`, implication:`Signal commercial fort : décrochage soudain à diagnostiquer rapidement avant que la perte devienne définitive.`, action:`Audit prioritaire des Top 10 chutes — visite KAM dans les 15 jours.` });
+      return analyseToSynthese(ins, '🎯 Synthèse — Anomalies détectées');
+    })()}
+
+    <div class="grid grid-4 mt-3">
+      <div class="kpi" style="border-top:3px solid var(--gold-700);"><div class="kpi-label">🚀 Pics inhabituels</div><div class="kpi-value">${peakAnomalies.length}</div><div class="kpi-bench">z-score &gt; 3 sur le mois</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-strong-dn);"><div class="kpi-label">📉 Chutes brutales</div><div class="kpi-value">${crashAnomalies.length}</div><div class="kpi-bench">≥ -50% mois sur mois</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-down);"><div class="kpi-label">💎 Montants extrêmes</div><div class="kpi-value">${extrAmounts.length}</div><div class="kpi-bench">≥ percentile 99 × 1.5</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-new);"><div class="kpi-label">📍 Changements site</div><div class="kpi-value">${siteChangesTop.length}</div><div class="kpi-bench">migration brutale entre sites</div></div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">🚀 Top 30 — Pics inhabituels (z-score &gt; 3)</div><div class="text-sm text-muted">Transactions très au-dessus du comportement habituel du client. Probablement projets ponctuels ou anomalies à valider.</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:400px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client</th><th>Mois</th><th class="num">CAP du mois</th><th class="num">Moyenne client</th><th class="num">z-score</th><th class="num">Multiple</th></tr></thead>
+            <tbody>
+              ${peakAnomalies.length === 0 ? '<tr><td colspan=7 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun pic détecté</td></tr>' : peakAnomalies.slice(0, 30).map((a, i) => `<tr>
+                <td class="text-muted">${i+1}</td>
+                <td><strong class="client-link" data-client="${a.client}" style="cursor:pointer;color:var(--navy-700);">${a.client}</strong></td>
+                <td class="text-sm">${moisAbr[a.month - 1]} ${a.year}</td>
+                <td class="num">${fmt.money(a.value)}</td>
+                <td class="num text-muted">${fmt.money(a.mean)}</td>
+                <td class="num"><strong>${a.z}σ</strong></td>
+                <td class="num">×${(a.value / a.mean).toFixed(1)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">📉 Top 30 — Chutes brutales (-50% MoM)</div><div class="text-sm text-muted">Décrochages soudains à diagnostiquer. Signal commercial fort.</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:400px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client</th><th>Mois</th><th class="num">CAP avant</th><th class="num">CAP après</th><th class="num">Chute</th></tr></thead>
+            <tbody>
+              ${crashAnomalies.length === 0 ? '<tr><td colspan=6 style="text-align:center;color:var(--grey-500);padding:24px;">Aucune chute détectée</td></tr>' : crashAnomalies.slice(0, 30).map((a, i) => `<tr>
+                <td class="text-muted">${i+1}</td>
+                <td><strong class="client-link" data-client="${a.client}" style="cursor:pointer;color:var(--navy-700);">${a.client}</strong></td>
+                <td class="text-sm">${moisAbr[a.month - 1]} ${a.year}</td>
+                <td class="num text-muted">${fmt.money(a.before)}</td>
+                <td class="num">${fmt.money(a.after)}</td>
+                <td class="num"><span class="evol-cell" style="background:var(--evol-strong-dn);color:white;">${(a.drop * 100).toFixed(0)}%</span></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">💎 Top 30 — Montants extrêmes (≥ percentile 99 × 1.5)</div><div class="text-sm text-muted">Transactions exceptionnellement élevées. À valider auprès de la facturation.</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:400px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client</th><th>Date</th><th>Site</th><th>Métier</th><th>Libellé</th><th class="num">Montant</th></tr></thead>
+            <tbody>
+              ${extrAmounts.length === 0 ? '<tr><td colspan=7 style="text-align:center;color:var(--grey-500);padding:24px;">Aucun montant extrême</td></tr>' : extrAmounts.slice(0, 30).map((r, i) => `<tr>
+                <td class="text-muted">${i+1}</td>
+                <td><strong class="client-link" data-client="${r.CLIENT}" style="cursor:pointer;color:var(--navy-700);">${r.CLIENT}</strong></td>
+                <td class="text-sm">${moisAbr[r.MOIS - 1]} ${r.ANNEE}</td>
+                <td>${r.SITE || '—'}</td>
+                <td class="text-sm">${r.METIER || '—'}</td>
+                <td class="text-sm">${r.LIBELLE || '—'}</td>
+                <td class="num"><strong style="color:var(--gold-700);">${fmt.money(r.MONTANT)}</strong></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   `;
