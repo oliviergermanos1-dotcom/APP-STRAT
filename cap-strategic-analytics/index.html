@@ -2387,6 +2387,7 @@ function buildApp() {
         <button class="btn-header" id="btn-presentation" title="Mode présentation COMEX : plein écran + rotation automatique toutes les 30 secondes">▶️ Présentation</button>
         <button class="btn-header gold" id="btn-export-html" title="Exporter le rapport en HTML interactif (à partager par mail/Teams — le destinataire ouvre directement, pas besoin de fichier de données)">📤 Exporter HTML interactif</button>
         <button class="btn-header" id="btn-print" title="Exporter TOUTES les pages d'analyse en un seul PDF (page de garde + 19 pages, charts inclus)">📄 Export PDF complet</button>
+        <button class="btn-header" id="btn-excel" title="Exporter les tableaux de la page courante en Excel (.xlsx) — un onglet par tableau">📊 Export Excel</button>
         <button class="btn-header" id="btn-reload" title="Recharger un fichier">↻ Nouveau fichier</button>
       </div>
     </header>
@@ -3706,6 +3707,118 @@ function schedulePresentationNext() {
 }
 
 // ============================================================
+// EXPORT EXCEL — Exporte tous les tableaux de la page courante
+// Un onglet (sheet) par tableau, nommé d'après le titre/h3 le plus proche.
+// Utilise XLSX (SheetJS) déjà chargé via CDN.
+// ============================================================
+function exportPageToExcel() {
+  if (!APP.data || !APP.data.fact || !APP.data.fact.length) {
+    alert('Aucune donnée chargée à exporter.');
+    return;
+  }
+  if (typeof XLSX === 'undefined') {
+    alert('Librairie Excel non chargée. Vérifiez la connexion réseau.');
+    return;
+  }
+  const pageId = APP.currentPage;
+  const pageMeta = (typeof PAGES !== 'undefined') ? PAGES.find(p => p.id === pageId) : null;
+  const pageEl = document.getElementById('page-' + pageId);
+  if (!pageEl) { alert('Page introuvable.'); return; }
+
+  const tables = pageEl.querySelectorAll('table');
+  if (!tables.length) {
+    alert('Aucun tableau exportable sur cette page.\n\nLes pages avec uniquement des graphiques ne contiennent pas de données tabulaires à exporter.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-excel');
+  const original = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Export…'; }
+
+  try {
+    const wb = XLSX.utils.book_new();
+    const usedNames = new Set();
+
+    // Sanitise un nom d'onglet Excel (max 31 chars, caractères réservés exclus)
+    const sanitizeSheetName = (raw, fallback) => {
+      let n = (raw || fallback || 'Tableau').replace(/[\\/?*\[\]:]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!n) n = fallback || 'Tableau';
+      if (n.length > 31) n = n.slice(0, 31);
+      let unique = n, i = 2;
+      while (usedNames.has(unique.toLowerCase())) {
+        const suffix = ' (' + i + ')';
+        unique = n.slice(0, 31 - suffix.length) + suffix;
+        i++;
+      }
+      usedNames.add(unique.toLowerCase());
+      return unique;
+    };
+
+    // Cherche le titre le plus proche en remontant le DOM
+    const findNearestTitle = (table) => {
+      let prev = table.previousElementSibling;
+      while (prev) {
+        const h = prev.querySelector ? prev.querySelector('h2, h3, h4, .section-title, .chart-title') : null;
+        if (h && h.textContent.trim()) return h.textContent.trim();
+        if (['H2','H3','H4'].includes(prev.tagName) && prev.textContent.trim()) return prev.textContent.trim();
+        prev = prev.previousElementSibling;
+      }
+      // Sinon, remonter d'un niveau et chercher
+      const parent = table.parentElement;
+      if (parent) {
+        const h = parent.querySelector('h2, h3, h4, .section-title, .chart-title');
+        if (h && h.textContent.trim()) return h.textContent.trim();
+      }
+      return null;
+    };
+
+    let added = 0;
+    tables.forEach((tbl, idx) => {
+      // Ignore les tables strictement vides ou avec 0 ligne de données
+      const rows = tbl.querySelectorAll('tr');
+      if (rows.length === 0) return;
+
+      // Convertit la table HTML en sheet (préserve les en-têtes thead)
+      let ws;
+      try {
+        ws = XLSX.utils.table_to_sheet(tbl, { raw: false });
+      } catch (e) {
+        console.warn('Table non exportable', idx, e);
+        return;
+      }
+
+      const title = findNearestTitle(tbl);
+      const sheetName = sanitizeSheetName(title, 'Tableau ' + (idx + 1));
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      added++;
+    });
+
+    if (added === 0) {
+      alert('Aucun tableau valide à exporter sur cette page.');
+      return;
+    }
+
+    // Nom de fichier propre : CAP-{num}-{slug}-{date}.xlsx
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const num = pageMeta ? pageMeta.num : '';
+    const slug = (pageMeta ? pageMeta.title : pageId)
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+    const filename = `CAP-${num ? num + '-' : ''}${slug}-${dateStr}.xlsx`;
+
+    XLSX.writeFile(wb, filename);
+  } catch (e) {
+    console.error('Export Excel — erreur', e);
+    alert('Erreur lors de l\'export Excel : ' + (e && e.message ? e.message : e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+}
+
+// ============================================================
 // EXPORT PDF COMPLET — capture toutes les pages en PDF multipage
 // jsPDF + html2canvas (CDN). A4 paysage, 1 page PDF = 1 page analytique.
 // ============================================================
@@ -3867,6 +3980,8 @@ async function exportFullPDF() {
 
 function attachEvents() {
   document.getElementById('btn-print').addEventListener('click', exportFullPDF);
+  const btnXls = document.getElementById('btn-excel');
+  if (btnXls) btnXls.addEventListener('click', exportPageToExcel);
   const btnExport = document.getElementById('btn-export-html');
   if (btnExport) btnExport.addEventListener('click', exportInteractiveHTML);
   const btnPres = document.getElementById('btn-presentation');
