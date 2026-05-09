@@ -2367,7 +2367,9 @@ const PAGES = [
   { id: 'rfm', num: '18', title: 'Segmentation RFM comportementale', subtitle: 'Récence × Fréquence × Monétaire — 11 segments marketing', section: 'Clients',
     explanation: "Segmentation comportementale standard du marketing relationnel : chaque client est noté 1-5 sur 3 axes (Récence depuis dernière transaction, Fréquence sur 12 mois, Monétaire cumulé). Classification automatique en 11 segments classiques (Champions, Loyal, At Risk, Lost…) chacun avec une stratégie d'action dédiée." },
   { id: 'data_quality', num: '19', title: 'Qualité des données', subtitle: 'Audit data — anomalies, doublons, complétude', section: 'Risques',
-    explanation: "Audit objectif de la qualité du dataset utilisé : volumétrie, complétude des champs, nombre de lignes négatives (avoirs), nuls, variations de noms clients, dispersion des libellés. Permet de qualifier la fiabilité des analyses produites." }
+    explanation: "Audit objectif de la qualité du dataset utilisé : volumétrie, complétude des champs, nombre de lignes négatives (avoirs), nuls, variations de noms clients, dispersion des libellés. Permet de qualifier la fiabilité des analyses produites." },
+  { id: 'compare', num: '20', title: 'Comparateur 2 périodes', subtitle: 'Analyse comparative côte-à-côte (libre)', section: 'Pilotage',
+    explanation: "Comparateur libre : choisis 2 périodes (année + mois début/fin) et l'app calcule les écarts côte-à-côte sur les KPI macro, le top clients, la répartition par métier et par site. Idéal pour une revue S1 vs S2, T1 N vs T1 N-1, ou tout autre arbitrage flexible." }
 ];
 
 function buildApp() {
@@ -8470,6 +8472,406 @@ function render_data_quality() {
       </div>
     </div>
   `;
+}
+
+// ============================================================
+// COMPARATEUR 2 PÉRIODES — analyse comparative libre côte-à-côte
+// L'utilisateur choisit 2 périodes (année + mois début/fin), l'app
+// calcule les écarts sur KPI macro, top clients, métiers, sites.
+// Les filtres globaux (Site/Métier/Département) restent appliqués.
+// ============================================================
+APP.compare = APP.compare || null;
+
+function _initComparePeriods() {
+  if (APP.compare) return APP.compare;
+  const annees = [...new Set(APP.data.fact.map(r => r.ANNEE).filter(Boolean))].sort((a,b) => b - a);
+  const yMax = annees[0] || new Date().getFullYear();
+  const yPrev = annees.find(y => y < yMax) || (yMax - 1);
+  const moisDispo = [...new Set(APP.data.fact.filter(r => r.ANNEE === yMax).map(r => r.MOIS).filter(Boolean))];
+  const moisMax = moisDispo.length ? moisDispo.reduce((m,v) => v > m ? v : m, 0) : 12;
+  APP.compare = {
+    A: { annee: yMax, moisStart: 1, moisEnd: moisMax },
+    B: { annee: yPrev, moisStart: 1, moisEnd: moisMax }
+  };
+  return APP.compare;
+}
+
+function _aggregatePeriod(period) {
+  const f = APP.filters || {};
+  const rows = APP.data.fact.filter(r => {
+    if (r.ANNEE !== period.annee) return false;
+    if (r.MOIS < period.moisStart || r.MOIS > period.moisEnd) return false;
+    if (f.SITE && f.SITE !== 'Tout' && r.SITE !== f.SITE) return false;
+    if (f.METIER && f.METIER !== 'Tout' && r.METIER !== f.METIER) return false;
+    if (f.LIBELLE && f.LIBELLE !== 'Tout' && r.LIBELLE !== f.LIBELLE) return false;
+    return true;
+  });
+  let total = 0;
+  const byClient = new Map();
+  const byMetier = new Map();
+  const bySite = new Map();
+  for (const r of rows) {
+    const m = r.MONTANT || 0;
+    total += m;
+    if (r.CLIENT) {
+      const cur = byClient.get(r.CLIENT) || { ca: 0, metier: r.METIER || '' };
+      cur.ca += m; byClient.set(r.CLIENT, cur);
+    }
+    if (r.METIER) {
+      const cur = byMetier.get(r.METIER) || { ca: 0, clients: new Set() };
+      cur.ca += m; if (r.CLIENT) cur.clients.add(r.CLIENT);
+      byMetier.set(r.METIER, cur);
+    }
+    if (r.SITE) {
+      const cur = bySite.get(r.SITE) || { ca: 0, clients: new Set() };
+      cur.ca += m; if (r.CLIENT) cur.clients.add(r.CLIENT);
+      bySite.set(r.SITE, cur);
+    }
+  }
+  const nbClients = byClient.size;
+  return {
+    total,
+    nbClients,
+    panierMoyen: nbClients > 0 ? total / nbClients : 0,
+    nbTransactions: rows.length,
+    byClient,
+    byMetier,
+    bySite
+  };
+}
+
+function _periodLabelShort(p) {
+  const m = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
+  if (p.moisStart === 1 && p.moisEnd === 12) return `${p.annee}`;
+  if (p.moisStart === p.moisEnd) return `${m[p.moisStart - 1]} ${p.annee}`;
+  return `${m[p.moisStart - 1]} → ${m[p.moisEnd - 1]} ${p.annee}`;
+}
+
+function _delta(a, b) {
+  if (b === 0 || b == null) return null;
+  return (a - b) / Math.abs(b);
+}
+
+function _deltaCell(a, b) {
+  const d = _delta(a, b);
+  if (d === null) return '<td class="num text-muted">—</td>';
+  const cls = d > 0.05 ? 'evol-up' : d < -0.05 ? 'evol-dn' : 'evol-stable';
+  const sign = d > 0 ? '+' : '';
+  return `<td class="num" style="color:var(--${cls === 'evol-up' ? 'evol-strong-up' : cls === 'evol-dn' ? 'evol-strong-dn' : 'evol-stable'});font-weight:600;">${sign}${(d*100).toFixed(1)}%</td>`;
+}
+
+function render_compare() {
+  const p = PAGES.find(x => x.id === 'compare');
+  const el = document.getElementById('page-compare');
+  if (!el) return;
+  if (!APP.data.fact || !APP.data.fact.length) {
+    el.innerHTML = `${pageHeader(p)}<div class="card mt-3"><div class="card-body" style="text-align:center;padding:40px;color:var(--grey-500);">Aucune donnée chargée.</div></div>`;
+    return;
+  }
+
+  const state = _initComparePeriods();
+  const annees = [...new Set(APP.data.fact.map(r => r.ANNEE).filter(Boolean))].sort((a,b) => b - a);
+  const moisLabels = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+  const aggA = _aggregatePeriod(state.A);
+  const aggB = _aggregatePeriod(state.B);
+  const labelA = _periodLabelShort(state.A);
+  const labelB = _periodLabelShort(state.B);
+
+  // Top 20 clients (union des 2 périodes par CA cumulé)
+  const allClients = new Set([...aggA.byClient.keys(), ...aggB.byClient.keys()]);
+  const clientRows = [];
+  for (const name of allClients) {
+    const cA = aggA.byClient.get(name) || { ca: 0, metier: '' };
+    const cB = aggB.byClient.get(name) || { ca: 0, metier: '' };
+    clientRows.push({
+      name,
+      metier: cA.metier || cB.metier || '',
+      caA: cA.ca,
+      caB: cB.ca,
+      total: cA.ca + cB.ca
+    });
+  }
+  clientRows.sort((a,b) => b.total - a.total);
+  const topClients = clientRows.slice(0, 20);
+
+  // Métiers
+  const allMetiers = new Set([...aggA.byMetier.keys(), ...aggB.byMetier.keys()]);
+  const metierRows = [...allMetiers].map(name => {
+    const a = aggA.byMetier.get(name) || { ca: 0, clients: new Set() };
+    const b = aggB.byMetier.get(name) || { ca: 0, clients: new Set() };
+    return { name, caA: a.ca, caB: b.ca, nbA: a.clients.size, nbB: b.clients.size };
+  }).sort((a,b) => (b.caA + b.caB) - (a.caA + a.caB));
+
+  // Sites
+  const allSites = new Set([...aggA.bySite.keys(), ...aggB.bySite.keys()]);
+  const siteRows = [...allSites].map(name => {
+    const a = aggA.bySite.get(name) || { ca: 0, clients: new Set() };
+    const b = aggB.bySite.get(name) || { ca: 0, clients: new Set() };
+    return { name, caA: a.ca, caB: b.ca, nbA: a.clients.size, nbB: b.clients.size };
+  }).sort((a,b) => (b.caA + b.caB) - (a.caA + a.caB));
+
+  // Synthèse insights
+  const ins = [];
+  const dCA = _delta(aggA.total, aggB.total);
+  if (dCA !== null) {
+    const dir = dCA > 0 ? 'progresse' : 'recule';
+    ins.push({
+      type: dCA > 0.05 ? 'opportunite' : dCA < -0.05 ? 'risque' : 'neutre',
+      constat: `Sur la période <strong>${labelA}</strong>, le CAP <strong>${dir} de ${(dCA*100).toFixed(1)}%</strong> vs <strong>${labelB}</strong> (${fmt.money(aggA.total)} vs ${fmt.money(aggB.total)} XOF).`,
+      implication: `${aggA.nbClients} clients actifs en ${labelA} vs ${aggB.nbClients} en ${labelB} (${aggA.nbClients - aggB.nbClients >= 0 ? '+' : ''}${aggA.nbClients - aggB.nbClients}).`,
+      action: `Analyser les contributions par métier / site ci-dessous pour identifier les leviers.`
+    });
+  }
+  const dPanier = _delta(aggA.panierMoyen, aggB.panierMoyen);
+  if (dPanier !== null) {
+    ins.push({
+      type: dPanier > 0.05 ? 'opportunite' : dPanier < -0.05 ? 'attention' : 'neutre',
+      constat: `Panier moyen par client : <strong>${fmt.money(aggA.panierMoyen)} XOF</strong> en ${labelA} vs ${fmt.money(aggB.panierMoyen)} XOF en ${labelB} (${dPanier > 0 ? '+' : ''}${(dPanier*100).toFixed(1)}%).`,
+      implication: dPanier > 0.05 ? `Effet upsell ou montée en gamme — la base est plus rentable par client.` : dPanier < -0.05 ? `Dilution du panier — soit nouveaux clients plus petits, soit perte de gros comptes.` : `Stable — pas d'effet mix significatif.`,
+      action: dPanier < 0 ? `Identifier les clients dont le panier a chuté entre les 2 périodes.` : `Capitaliser sur l'effet upsell pour étendre à d'autres comptes.`
+    });
+  }
+
+  // Trouve le métier le plus contributeur à l'écart
+  if (metierRows.length > 0) {
+    const sortedByDiff = [...metierRows].map(m => ({...m, diff: m.caA - m.caB})).sort((a,b) => Math.abs(b.diff) - Math.abs(a.diff));
+    const top = sortedByDiff[0];
+    if (top && Math.abs(top.diff) > 1e6) {
+      ins.push({
+        type: top.diff > 0 ? 'opportunite' : 'risque',
+        constat: `<strong>${top.name}</strong> est le métier qui ${top.diff > 0 ? 'tire' : 'pèse'} le plus l'écart : ${top.diff > 0 ? '+' : ''}${fmt.money(top.diff)} XOF entre les 2 périodes.`,
+        implication: top.diff > 0 ? `Cette BU est le moteur de la croissance — à sécuriser et à pousser.` : `Cette BU est en repli — investiguer la cause (perte de clients ? érosion volumes ? saisonnalité ?).`,
+        action: top.diff > 0 ? `Allouer des ressources commerciales supplémentaires pour amplifier.` : `Plan de redressement dédié avec le responsable de BU.`
+      });
+    }
+  }
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    <div class="card mt-3" style="background:linear-gradient(135deg,#FBF3DD,#FFFFFF);border:1px solid var(--gold-300);">
+      <div class="card-header"><div class="card-title">⚙️ Paramétrage des 2 périodes à comparer</div></div>
+      <div class="card-body">
+        <div class="grid grid-2" style="gap:20px;">
+          <div style="border:1px solid var(--gold-500);border-radius:8px;padding:14px;background:white;">
+            <div style="font-family:var(--font-display);font-weight:700;color:var(--gold-700);font-size:14px;margin-bottom:10px;">📅 Période A (référence)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+              <div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--grey-500);margin-bottom:3px;">Année</div>
+                <select id="cmp-a-annee" style="width:100%;padding:6px;border:1px solid var(--grey-200);border-radius:5px;font-size:12px;">
+                  ${annees.map(y => `<option value="${y}" ${y === state.A.annee ? 'selected' : ''}>${y}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--grey-500);margin-bottom:3px;">Mois début</div>
+                <select id="cmp-a-mstart" style="width:100%;padding:6px;border:1px solid var(--grey-200);border-radius:5px;font-size:12px;">
+                  ${moisLabels.map((lbl,i) => `<option value="${i+1}" ${(i+1) === state.A.moisStart ? 'selected' : ''}>${lbl}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--grey-500);margin-bottom:3px;">Mois fin</div>
+                <select id="cmp-a-mend" style="width:100%;padding:6px;border:1px solid var(--grey-200);border-radius:5px;font-size:12px;">
+                  ${moisLabels.map((lbl,i) => `<option value="${i+1}" ${(i+1) === state.A.moisEnd ? 'selected' : ''}>${lbl}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div style="margin-top:10px;font-size:11px;color:var(--grey-600);"><strong>Période A retenue :</strong> ${labelA}</div>
+          </div>
+          <div style="border:1px solid var(--navy-700);border-radius:8px;padding:14px;background:white;">
+            <div style="font-family:var(--font-display);font-weight:700;color:var(--navy-700);font-size:14px;margin-bottom:10px;">📅 Période B (comparée)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+              <div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--grey-500);margin-bottom:3px;">Année</div>
+                <select id="cmp-b-annee" style="width:100%;padding:6px;border:1px solid var(--grey-200);border-radius:5px;font-size:12px;">
+                  ${annees.map(y => `<option value="${y}" ${y === state.B.annee ? 'selected' : ''}>${y}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--grey-500);margin-bottom:3px;">Mois début</div>
+                <select id="cmp-b-mstart" style="width:100%;padding:6px;border:1px solid var(--grey-200);border-radius:5px;font-size:12px;">
+                  ${moisLabels.map((lbl,i) => `<option value="${i+1}" ${(i+1) === state.B.moisStart ? 'selected' : ''}>${lbl}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--grey-500);margin-bottom:3px;">Mois fin</div>
+                <select id="cmp-b-mend" style="width:100%;padding:6px;border:1px solid var(--grey-200);border-radius:5px;font-size:12px;">
+                  ${moisLabels.map((lbl,i) => `<option value="${i+1}" ${(i+1) === state.B.moisEnd ? 'selected' : ''}>${lbl}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div style="margin-top:10px;font-size:11px;color:var(--grey-600);"><strong>Période B retenue :</strong> ${labelB}</div>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-secondary" data-cmp-preset="s1s2">S1 vs S2 (année courante)</button>
+          <button class="btn-secondary" data-cmp-preset="ytd">YTD vs YTD N-1</button>
+          <button class="btn-secondary" data-cmp-preset="lastytd">N vs N-1 (année complète)</button>
+          <button class="btn-secondary" data-cmp-preset="swap" title="Inverser A et B">↔ Inverser A/B</button>
+        </div>
+      </div>
+    </div>
+
+    ${analyseToSynthese(ins, '🎯 Synthèse comparative')}
+
+    <!-- KPI macro -->
+    <div class="grid grid-3 mt-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">CAP total</div></div>
+        <div class="card-body">
+          <table class="data" style="width:100%;">
+            <thead><tr><th>Période</th><th class="num">CAP (XOF)</th></tr></thead>
+            <tbody>
+              <tr><td><strong style="color:var(--gold-700);">${labelA}</strong></td><td class="num"><strong>${fmt.money(aggA.total)}</strong></td></tr>
+              <tr><td><strong style="color:var(--navy-700);">${labelB}</strong></td><td class="num">${fmt.money(aggB.total)}</td></tr>
+              <tr style="background:var(--grey-50);"><td><strong>Δ %</strong></td>${_deltaCell(aggA.total, aggB.total)}</tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Clients actifs</div></div>
+        <div class="card-body">
+          <table class="data" style="width:100%;">
+            <thead><tr><th>Période</th><th class="num">Nombre</th></tr></thead>
+            <tbody>
+              <tr><td><strong style="color:var(--gold-700);">${labelA}</strong></td><td class="num"><strong>${aggA.nbClients}</strong></td></tr>
+              <tr><td><strong style="color:var(--navy-700);">${labelB}</strong></td><td class="num">${aggB.nbClients}</td></tr>
+              <tr style="background:var(--grey-50);"><td><strong>Δ</strong></td><td class="num"><strong>${aggA.nbClients - aggB.nbClients >= 0 ? '+' : ''}${aggA.nbClients - aggB.nbClients}</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Panier moyen</div></div>
+        <div class="card-body">
+          <table class="data" style="width:100%;">
+            <thead><tr><th>Période</th><th class="num">CAP / client</th></tr></thead>
+            <tbody>
+              <tr><td><strong style="color:var(--gold-700);">${labelA}</strong></td><td class="num"><strong>${fmt.money(aggA.panierMoyen)}</strong></td></tr>
+              <tr><td><strong style="color:var(--navy-700);">${labelB}</strong></td><td class="num">${fmt.money(aggB.panierMoyen)}</td></tr>
+              <tr style="background:var(--grey-50);"><td><strong>Δ %</strong></td>${_deltaCell(aggA.panierMoyen, aggB.panierMoyen)}</tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top 20 clients -->
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">Top 20 clients — comparaison ${labelA} vs ${labelB}</div><div class="text-sm text-muted">Trié par CAP cumulé sur les 2 périodes. Cliquez sur un client pour ouvrir sa fiche 360°.</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>#</th><th>Client</th><th>Métier</th>
+                <th class="num">${labelA}</th>
+                <th class="num">${labelB}</th>
+                <th class="num">Δ Abs</th>
+                <th class="num">Δ %</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${topClients.length === 0 ? '<tr><td colspan="7" style="text-align:center;color:var(--grey-500);padding:20px;">Aucun client dans le périmètre des 2 périodes.</td></tr>' :
+                topClients.map((c, i) => {
+                  const dAbs = c.caA - c.caB;
+                  const dAbsTxt = (dAbs >= 0 ? '+' : '') + fmt.money(dAbs);
+                  const dColor = dAbs > 0 ? 'var(--evol-strong-up)' : dAbs < 0 ? 'var(--evol-strong-dn)' : 'var(--grey-600)';
+                  return `<tr>
+                    <td class="text-muted">${i+1}</td>
+                    <td><strong class="client-link" data-client="${c.name.replace(/"/g,'&quot;')}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.name}</strong></td>
+                    <td class="text-sm text-muted">${c.metier || '—'}</td>
+                    <td class="num">${fmt.money(c.caA)}</td>
+                    <td class="num">${fmt.money(c.caB)}</td>
+                    <td class="num" style="color:${dColor};font-weight:600;">${dAbsTxt}</td>
+                    ${_deltaCell(c.caA, c.caB)}
+                  </tr>`;
+                }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Métiers + Sites -->
+    <div class="grid grid-2 mt-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Par Métier</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Métier</th><th class="num">${labelA}</th><th class="num">${labelB}</th><th class="num">Δ %</th></tr></thead>
+              <tbody>
+                ${metierRows.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--grey-500);padding:16px;">—</td></tr>' :
+                  metierRows.map(m => `<tr>
+                    <td><strong>${m.name}</strong></td>
+                    <td class="num">${fmt.money(m.caA)}</td>
+                    <td class="num">${fmt.money(m.caB)}</td>
+                    ${_deltaCell(m.caA, m.caB)}
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Par Site</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Site</th><th class="num">${labelA}</th><th class="num">${labelB}</th><th class="num">Δ %</th></tr></thead>
+              <tbody>
+                ${siteRows.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--grey-500);padding:16px;">—</td></tr>' :
+                  siteRows.map(s => `<tr>
+                    <td><strong>${s.name}</strong></td>
+                    <td class="num">${fmt.money(s.caA)}</td>
+                    <td class="num">${fmt.money(s.caB)}</td>
+                    ${_deltaCell(s.caA, s.caB)}
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Wire les selects
+  const wire = (id, fn) => {
+    const sel = document.getElementById(id);
+    if (sel) sel.addEventListener('change', e => { fn(e.target.value); render_compare(); });
+  };
+  wire('cmp-a-annee',  v => state.A.annee = parseInt(v));
+  wire('cmp-a-mstart', v => state.A.moisStart = parseInt(v));
+  wire('cmp-a-mend',   v => state.A.moisEnd = parseInt(v));
+  wire('cmp-b-annee',  v => state.B.annee = parseInt(v));
+  wire('cmp-b-mstart', v => state.B.moisStart = parseInt(v));
+  wire('cmp-b-mend',   v => state.B.moisEnd = parseInt(v));
+
+  // Presets rapides
+  el.querySelectorAll('[data-cmp-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const preset = btn.dataset.cmpPreset;
+      const yMaxLocal = annees[0];
+      const yPrevLocal = annees.find(y => y < yMaxLocal) || (yMaxLocal - 1);
+      const moisDispo = [...new Set(APP.data.fact.filter(r => r.ANNEE === yMaxLocal).map(r => r.MOIS).filter(Boolean))];
+      const moisMaxLocal = moisDispo.length ? moisDispo.reduce((m,v) => v > m ? v : m, 0) : 12;
+      if (preset === 's1s2') {
+        APP.compare.A = { annee: yMaxLocal, moisStart: 1, moisEnd: 6 };
+        APP.compare.B = { annee: yMaxLocal, moisStart: 7, moisEnd: 12 };
+      } else if (preset === 'ytd') {
+        APP.compare.A = { annee: yMaxLocal, moisStart: 1, moisEnd: moisMaxLocal };
+        APP.compare.B = { annee: yPrevLocal, moisStart: 1, moisEnd: moisMaxLocal };
+      } else if (preset === 'lastytd') {
+        APP.compare.A = { annee: yMaxLocal, moisStart: 1, moisEnd: 12 };
+        APP.compare.B = { annee: yPrevLocal, moisStart: 1, moisEnd: 12 };
+      } else if (preset === 'swap') {
+        const tmp = APP.compare.A; APP.compare.A = APP.compare.B; APP.compare.B = tmp;
+      }
+      render_compare();
+    });
+  });
 }
 </script>
 
