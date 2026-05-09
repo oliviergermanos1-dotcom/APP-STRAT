@@ -1,0 +1,1730 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGL Data Prep — Préparation données IRIS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root {
+  --navy-900: #0A2540;
+  --navy-800: #102E4F;
+  --navy-700: #1B3A5C;
+  --navy-100: #B7C5D6;
+  --gold-700: #B0832C;
+  --gold-500: #D4A24E;
+  --gold-300: #F4D894;
+  --gold-50:  #FBF3DD;
+  --grey-50:  #F8F9FA;
+  --grey-100: #F1F3F5;
+  --grey-200: #E9ECEF;
+  --grey-300: #DEE2E6;
+  --grey-400: #CED4DA;
+  --grey-500: #ADB5BD;
+  --grey-600: #6C757D;
+  --grey-700: #495057;
+  --grey-900: #212529;
+  --white:    #FFFFFF;
+  --evol-strong-up:  #0B6E4F;
+  --evol-up:         #52B788;
+  --evol-stable:     #F4D35E;
+  --evol-down:       #F77F00;
+  --evol-strong-dn:  #D62828;
+  --shadow-sm: 0 1px 3px rgba(10,37,64,0.08);
+  --shadow-md: 0 4px 12px rgba(10,37,64,0.10);
+  --shadow-lg: 0 8px 24px rgba(10,37,64,0.16);
+  --font-display: 'Playfair Display', serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-body);
+  background: var(--grey-50);
+  color: var(--grey-900);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+/* HEADER */
+.app-header {
+  background: linear-gradient(135deg, var(--navy-900), var(--navy-700));
+  color: white;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 3px solid var(--gold-500);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: var(--shadow-md);
+}
+.app-logo { display: flex; align-items: center; gap: 10px; }
+.app-title-main {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: 0.5px;
+  color: var(--gold-300);
+}
+.app-title-sub {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--navy-100);
+  font-weight: 600;
+}
+.header-actions { margin-left: auto; display: flex; gap: 8px; }
+.btn-header {
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(212,162,78,0.35);
+  color: white;
+  padding: 7px 13px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.btn-header:hover { background: rgba(212,162,78,0.25); border-color: var(--gold-500); }
+.btn-header.gold { background: var(--gold-500); color: var(--navy-900); border-color: var(--gold-500); }
+.btn-header.gold:hover { background: var(--gold-300); }
+
+/* CONTAINER */
+.container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+/* STEP NAVIGATION */
+.steps-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  background: white;
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+.step-btn {
+  flex: 1;
+  min-width: 140px;
+  background: var(--grey-50);
+  border: 1px solid var(--grey-200);
+  padding: 10px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s;
+  position: relative;
+  color: var(--grey-700);
+}
+.step-btn .step-num {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--grey-300);
+  color: white;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+.step-btn .step-label { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.step-btn .step-status { font-size: 10px; color: var(--grey-500); }
+.step-btn.active { background: var(--gold-50); border-color: var(--gold-500); color: var(--navy-900); }
+.step-btn.active .step-num { background: var(--gold-500); color: var(--navy-900); }
+.step-btn.done { background: rgba(11,110,79,0.05); border-color: var(--evol-strong-up); }
+.step-btn.done .step-num { background: var(--evol-strong-up); color: white; }
+.step-btn.done .step-num::before { content: '✓'; }
+.step-btn.done .step-status { color: var(--evol-strong-up); font-weight: 600; }
+.step-btn:hover:not(.active) { background: var(--grey-100); }
+
+/* PANELS */
+.panel { display: none; background: white; border-radius: 8px; box-shadow: var(--shadow-sm); padding: 24px; }
+.panel.active { display: block; animation: fadeIn 250ms ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.panel-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--navy-900);
+  margin: 0 0 4px 0;
+  border-bottom: 2px solid var(--gold-500);
+  padding-bottom: 8px;
+}
+.panel-subtitle { color: var(--grey-700); margin-bottom: 18px; font-size: 13px; }
+
+/* DROPZONE */
+.dropzone {
+  border: 2px dashed var(--grey-300);
+  border-radius: 8px;
+  padding: 32px;
+  text-align: center;
+  background: var(--grey-50);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dropzone:hover, .dropzone.dragging {
+  border-color: var(--gold-500);
+  background: var(--gold-50);
+}
+.dropzone .dz-icon { font-size: 36px; margin-bottom: 8px; }
+.dropzone .dz-text { font-weight: 600; color: var(--navy-900); margin-bottom: 4px; }
+.dropzone .dz-sub { font-size: 11px; color: var(--grey-600); }
+
+/* CARDS */
+.card {
+  background: white;
+  border: 1px solid var(--grey-200);
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin-bottom: 12px;
+}
+.card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.card-title { font-weight: 700; color: var(--navy-900); font-size: 14px; }
+.card-meta { font-size: 11.5px; color: var(--grey-600); margin-top: 2px; }
+
+/* KPI */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.kpi {
+  background: white;
+  border: 1px solid var(--grey-200);
+  border-top: 3px solid var(--gold-500);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+.kpi-label { font-size: 10px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+.kpi-value { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--navy-900); margin-top: 2px; line-height: 1.1; }
+.kpi-sub { font-size: 11px; color: var(--grey-600); margin-top: 2px; }
+
+/* TABLE */
+.tbl-wrap { overflow-x: auto; max-height: 540px; border: 1px solid var(--grey-200); border-radius: 6px; }
+table.data { width: 100%; border-collapse: collapse; font-size: 12.5px; background: white; }
+table.data thead th {
+  background: var(--navy-900);
+  color: var(--gold-300);
+  font-weight: 600;
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  position: sticky; top: 0; z-index: 10;
+  white-space: nowrap;
+}
+table.data tbody td { padding: 8px 12px; border-bottom: 1px solid var(--grey-100); }
+table.data tbody tr:hover { background: var(--gold-50); }
+table.data .num { text-align: right; font-family: var(--font-mono); font-size: 11.5px; }
+table.data .text-muted { color: var(--grey-500); }
+
+/* BUTTONS */
+.btn {
+  background: var(--navy-900);
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--navy-700); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.gold { background: var(--gold-500); color: var(--navy-900); }
+.btn.gold:hover { background: var(--gold-300); }
+.btn.outline { background: transparent; color: var(--navy-700); border: 1px solid var(--navy-700); }
+.btn.outline:hover { background: var(--navy-700); color: white; }
+.btn.danger { background: var(--evol-strong-dn); }
+.btn.danger:hover { background: #B91C1C; }
+.btn.success { background: var(--evol-strong-up); }
+.btn.success:hover { background: #095A40; }
+.btn.sm { padding: 4px 9px; font-size: 11px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* BADGES */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.badge.success { background: var(--evol-strong-up); color: white; }
+.badge.warning { background: var(--evol-down); color: white; }
+.badge.danger  { background: var(--evol-strong-dn); color: white; }
+.badge.info    { background: var(--navy-700); color: white; }
+.badge.muted   { background: var(--grey-200); color: var(--grey-700); }
+.badge.gold    { background: var(--gold-500); color: var(--navy-900); }
+
+/* FORMS */
+input[type="text"], input[type="search"], input[type="number"], textarea, select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--grey-300);
+  border-radius: 5px;
+  outline: none;
+  width: 100%;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--gold-500); }
+
+/* STATUS BAR */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--navy-900);
+  color: var(--navy-100);
+  padding: 7px 18px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  display: flex;
+  gap: 18px;
+  z-index: 50;
+  border-top: 2px solid var(--gold-500);
+}
+.status-bar .label { color: var(--gold-300); margin-right: 4px; }
+.status-bar .ok { color: var(--evol-up); }
+.status-bar .warn { color: var(--evol-stable); }
+.status-bar .err { color: var(--evol-strong-dn); }
+
+/* FUZZY PROPOSAL ITEM */
+.fuzzy-prop {
+  background: white;
+  border: 1px solid var(--grey-200);
+  border-left: 4px solid var(--gold-500);
+  border-radius: 6px;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.fuzzy-prop.severity-high { border-left-color: var(--evol-down); background: rgba(247,127,0,0.04); }
+.fuzzy-prop.severity-med  { border-left-color: var(--gold-500); }
+.fuzzy-prop.severity-low  { border-left-color: var(--evol-stable); }
+.fuzzy-prop .prop-row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; }
+.fuzzy-prop .prop-side {
+  background: var(--grey-50);
+  padding: 10px 14px;
+  border-radius: 5px;
+  border: 1px solid var(--grey-200);
+}
+.fuzzy-prop .prop-side strong { font-size: 13.5px; color: var(--navy-900); }
+.fuzzy-prop .prop-side .meta { font-size: 11px; color: var(--grey-600); margin-top: 3px; }
+.fuzzy-prop .prop-arrow {
+  font-size: 22px;
+  color: var(--gold-700);
+  font-weight: 900;
+}
+.fuzzy-prop .prop-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  border-top: 1px solid var(--grey-100);
+  padding-top: 10px;
+}
+.fuzzy-prop .prop-score {
+  display: inline-block;
+  background: var(--navy-900);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  margin-left: 8px;
+}
+.fuzzy-prop .prop-reason { font-size: 11px; color: var(--grey-600); font-style: italic; margin-top: 4px; }
+
+/* TOAST */
+#toast {
+  position: fixed;
+  top: 80px;
+  right: 16px;
+  max-width: 360px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  color: white;
+  font-size: 12.5px;
+  font-weight: 600;
+  z-index: 200;
+  display: none;
+  box-shadow: var(--shadow-lg);
+  animation: toastSlide 220ms ease-out;
+}
+@keyframes toastSlide { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+#toast.show { display: block; }
+#toast.success { background: var(--evol-strong-up); }
+#toast.error { background: var(--evol-strong-dn); }
+#toast.info { background: var(--navy-700); }
+#toast.warning { background: var(--evol-down); }
+
+/* TABS within panel */
+.subtabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 2px solid var(--grey-200); }
+.subtab-btn { padding: 8px 14px; border: none; background: transparent; cursor: pointer; font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--grey-600); border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.subtab-btn.active { color: var(--navy-900); border-bottom-color: var(--gold-500); }
+
+/* INFO BANNER */
+.info-banner {
+  background: rgba(212,162,78,0.08);
+  border-left: 3px solid var(--gold-500);
+  padding: 12px 16px;
+  border-radius: 5px;
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--grey-800);
+}
+.info-banner strong { color: var(--navy-900); }
+
+@media (max-width: 768px) {
+  .container { padding: 12px; }
+  .step-btn { min-width: 110px; font-size: 11px; }
+  .fuzzy-prop .prop-row { grid-template-columns: 1fr; }
+  .fuzzy-prop .prop-arrow { display: none; }
+  .panel { padding: 14px; }
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-logo">
+    <svg viewBox="0 0 60 60" width="36" height="36" aria-label="AGL">
+      <g fill="none" stroke="var(--gold-500)" stroke-width="1.8">
+        <circle cx="30" cy="22" r="14"/>
+        <ellipse cx="30" cy="22" rx="14" ry="5.5"/>
+        <line x1="30" y1="8" x2="30" y2="36"/>
+        <line x1="16" y1="22" x2="44" y2="22"/>
+      </g>
+      <path d="M27 13 Q31 12 33 14 Q35 18 34 22 Q33 26 31 28 Q28 27 27 23 Q26 18 27 13 Z" fill="var(--gold-500)" opacity="0.85"/>
+    </svg>
+    <div>
+      <div class="app-title-main">AGL Data Prep</div>
+      <div class="app-title-sub">Préparation & nettoyage des données IRIS</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn-header" id="btn-load-state" title="Charger un référentiel sauvegardé (JSON)">📂 Charger référentiel</button>
+    <button class="btn-header gold" id="btn-save-state" title="Sauvegarder le référentiel sur ton disque cloud MSC">💾 Sauvegarder référentiel</button>
+    <button class="btn-header" id="btn-reset-all" title="Effacer toutes les données et recommencer">↻ Réinitialiser</button>
+  </div>
+</header>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<div class="container">
+
+  <!-- Step navigation -->
+  <div class="steps-nav" id="steps-nav"></div>
+
+  <!-- Panel 1: Référentiels -->
+  <div class="panel" id="panel-ref">
+    <h2 class="panel-title">🗂 Référentiels</h2>
+    <div class="panel-subtitle">Charge tes 3 tables référentielles. Si c'est ta 1ère utilisation, démarre vide — tu enrichiras au fur et à mesure.</div>
+
+    <div class="info-banner">
+      <strong>3 tables référentielles</strong> stockées en local (navigateur). Tu peux à tout moment les <strong>exporter en JSON</strong> pour les sauvegarder sur ton disque cloud MSC, et les <strong>recharger plus tard</strong>.
+    </div>
+
+    <div class="subtabs" id="ref-subtabs">
+      <button class="subtab-btn active" data-subtab="master">Master clients (avec aliases)</button>
+      <button class="subtab-btn" data-subtab="metdept">Métier × Département</button>
+      <button class="subtab-btn" data-subtab="exclusions">Exclusions</button>
+    </div>
+
+    <div class="ref-content" id="ref-content-master"></div>
+    <div class="ref-content" id="ref-content-metdept" style="display:none;"></div>
+    <div class="ref-content" id="ref-content-exclusions" style="display:none;"></div>
+
+    <input type="file" id="json-file-input" accept=".json" style="display:none;">
+  </div>
+
+  <!-- Panel 2: Import -->
+  <div class="panel" id="panel-import">
+    <h2 class="panel-title">📥 Import du fichier IRIS</h2>
+    <div class="panel-subtitle">Glisse ton extract Excel mensuel IRIS. Format attendu : sheet <code>FACT_CAP</code> avec 10 colonnes (MONTANT, CLIENT, ANNEE, MOIS, SITE, LIBELLE, METIER, CODE_DEPAR, RUBRQ, ID).</div>
+
+    <div class="dropzone" id="dz-excel">
+      <div class="dz-icon">📊</div>
+      <div class="dz-text">Glisse ton fichier Excel IRIS ici, ou clique pour parcourir</div>
+      <div class="dz-sub">.xlsx ou .xls · sheet FACT_CAP</div>
+    </div>
+    <input type="file" id="excel-file-input" accept=".xlsx,.xls" style="display:none;">
+
+    <div id="import-result" style="margin-top:18px;"></div>
+  </div>
+
+  <!-- Panel 3: Validation Métier × Département -->
+  <div class="panel" id="panel-validation">
+    <h2 class="panel-title">🔍 Validation Métier × Département</h2>
+    <div class="panel-subtitle">Vérifie que chaque combinaison <code>(LIBELLE, METIER, CODE_DEPAR)</code> du fichier importé existe dans ton référentiel. Les mismatches sont surlignés.</div>
+    <div id="validation-result"></div>
+  </div>
+
+  <!-- Panel 4: Fuzzy clients -->
+  <div class="panel" id="panel-fuzzy">
+    <h2 class="panel-title">🔍 Fuzzy matching clients</h2>
+    <div class="panel-subtitle">L'app détecte les clients dont le nom est <strong>très proche</strong> d'un master existant. Tu valides chaque proposition manuellement. Score 100% (orthographe identique) = auto-résolu en silence.</div>
+    <div id="fuzzy-result"></div>
+  </div>
+
+  <!-- Panel 5: Exclusions -->
+  <div class="panel" id="panel-exclusions">
+    <h2 class="panel-title">🚫 Exclusions</h2>
+    <div class="panel-subtitle">Sélectionne les clients ou groupes à <strong>retirer</strong> du fichier final (ex : transactions internes, comptes "divers", entités à exclure du périmètre commercial).</div>
+    <div id="exclusions-result"></div>
+  </div>
+
+  <!-- Panel 6: Export -->
+  <div class="panel" id="panel-export">
+    <h2 class="panel-title">📤 Export Excel propre</h2>
+    <div class="panel-subtitle">Fichier final avec mêmes colonnes IRIS, prêt pour import dans CAP Strategic Analytics.</div>
+    <div id="export-result"></div>
+  </div>
+
+</div>
+
+<!-- Status bar -->
+<div class="status-bar" id="status-bar">
+  <span><span class="label">Référentiel :</span><span id="status-ref">vide</span></span>
+  <span><span class="label">Données :</span><span id="status-data">non chargées</span></span>
+  <span><span class="label">Doutes :</span><span id="status-doubts">—</span></span>
+  <span><span class="label">Décisions :</span><span id="status-decisions">0</span></span>
+  <span style="margin-left:auto;color:var(--gold-300);">AGL Data Prep V1 · 2026</span>
+</div>
+
+<script>
+// ============================================================
+// AGL DATA PREP — V1
+// Single-file HTML data preparation app for AGL IRIS data
+// Outputs Excel with exact same columns as input (FACT_CAP sheet)
+// ============================================================
+
+const APP = {
+  // Référentiels
+  ref: {
+    master: [],      // [{id, master, aliases:[], metier?, notes?}]
+    metdept: [],     // [{libelle, metier, code_depar}]
+    exclusions: []   // [{pattern, type:'exact'|'prefix'|'contains', label}]
+  },
+  // Données importées
+  data: {
+    rows: [],
+    headers: [],
+    fileName: null,
+    importDate: null
+  },
+  // Décisions de fuzzy matching
+  fuzzyDecisions: {},  // { 'client_name_input': {action:'merge'|'keep'|'new', target?:masterId} }
+  // Validation résultats (cache)
+  validationCache: null,
+  fuzzyCache: null,
+  // UI state
+  currentStep: 'ref',
+  currentSubtab: 'master'
+};
+
+const STEPS = [
+  { id: 'ref',        num: 1, label: 'Référentiels', desc: 'Charger ou créer' },
+  { id: 'import',     num: 2, label: 'Import IRIS',   desc: 'Excel mensuel' },
+  { id: 'validation', num: 3, label: 'Validation',    desc: 'Métier × Dept' },
+  { id: 'fuzzy',      num: 4, label: 'Fuzzy clients', desc: 'Propositions' },
+  { id: 'exclusions', num: 5, label: 'Exclusions',    desc: 'Filtrer' },
+  { id: 'export',     num: 6, label: 'Export propre', desc: 'Excel final' }
+];
+
+// ============================================================
+// PERSISTENCE — localStorage
+// ============================================================
+const STORAGE_KEY = 'agl_dataprep_v1';
+
+function saveLocalState() {
+  try {
+    const payload = {
+      ref: APP.ref,
+      fuzzyDecisions: APP.fuzzyDecisions,
+      version: '1.0',
+      ts: Date.now()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.warn('Save local failed', e);
+  }
+}
+
+function loadLocalState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const p = JSON.parse(raw);
+    if (p.ref) {
+      APP.ref.master      = p.ref.master      || [];
+      APP.ref.metdept     = p.ref.metdept     || [];
+      APP.ref.exclusions  = p.ref.exclusions  || [];
+    }
+    APP.fuzzyDecisions = p.fuzzyDecisions || {};
+    return true;
+  } catch (e) { return false; }
+}
+
+// Export tout le référentiel en JSON
+function downloadReferential() {
+  const payload = {
+    version: '1.0',
+    exportDate: new Date().toISOString(),
+    master: APP.ref.master,
+    metdept: APP.ref.metdept,
+    exclusions: APP.ref.exclusions,
+    fuzzyDecisions: APP.fuzzyDecisions
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `agl_dataprep_referentiel_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+  toast('💾 Référentiel sauvegardé. Glisse-le sur ton OneDrive MSC pour conservation.', 'success');
+}
+
+function loadReferentialFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const p = JSON.parse(e.target.result);
+      if (!p.version) { toast('Format JSON inattendu.', 'error'); return; }
+      APP.ref.master      = p.master      || [];
+      APP.ref.metdept     = p.metdept     || [];
+      APP.ref.exclusions  = p.exclusions  || [];
+      APP.fuzzyDecisions  = p.fuzzyDecisions || {};
+      saveLocalState();
+      renderRefPanel();
+      updateStatusBar();
+      toast(`Référentiel chargé : ${APP.ref.master.length} clients master · ${APP.ref.metdept.length} mappings métier · ${APP.ref.exclusions.length} exclusions`, 'success');
+    } catch (err) {
+      toast('Erreur lecture JSON : ' + err.message, 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ============================================================
+// FUZZY MATCHING — 5 algorithmes (port de App 2)
+// ============================================================
+function normalize(s) {
+  return (s || '').toString().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// 1. Jaccard sur sets de tokens
+function jaccard(a, b) {
+  const A = new Set(normalize(a).split(' ').filter(t => t.length >= 2));
+  const B = new Set(normalize(b).split(' ').filter(t => t.length >= 2));
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  A.forEach(t => { if (B.has(t)) inter++; });
+  return inter / new Set([...A, ...B]).size;
+}
+
+// 2. Préfixe commun (longueur normalisée)
+function prefixSim(a, b) {
+  const x = normalize(a), y = normalize(b);
+  let i = 0;
+  while (i < x.length && i < y.length && x[i] === y[i]) i++;
+  return i / Math.max(x.length, y.length, 1);
+}
+
+// 3. Premier mot identique
+function firstWordMatch(a, b) {
+  const x = normalize(a).split(' ')[0] || '';
+  const y = normalize(b).split(' ')[0] || '';
+  if (!x || !y || x.length < 3) return 0;
+  return x === y ? 1 : 0;
+}
+
+// 4. Sous-chaîne (l'un contient l'autre)
+function substringSim(a, b) {
+  const x = normalize(a), y = normalize(b);
+  if (x.length < 4 || y.length < 4) return 0;
+  if (x.includes(y) || y.includes(x)) {
+    return Math.min(x.length, y.length) / Math.max(x.length, y.length);
+  }
+  return 0;
+}
+
+// 5. Levenshtein normalisé
+function levenshtein(a, b) {
+  const x = normalize(a), y = normalize(b);
+  if (!x.length || !y.length) return 0;
+  const m = x.length, n = y.length;
+  const v0 = new Array(n + 1), v1 = new Array(n + 1);
+  for (let j = 0; j <= n; j++) v0[j] = j;
+  for (let i = 0; i < m; i++) {
+    v1[0] = i + 1;
+    for (let j = 0; j < n; j++) {
+      const cost = x[i] === y[j] ? 0 : 1;
+      v1[j + 1] = Math.min(v1[j] + 1, v0[j + 1] + 1, v0[j] + cost);
+    }
+    for (let j = 0; j <= n; j++) v0[j] = v1[j];
+  }
+  const d = v0[n];
+  return 1 - d / Math.max(m, n);
+}
+
+// Score combiné pondéré (0..1)
+function fuzzyScore(a, b) {
+  if (!a || !b) return 0;
+  const na = normalize(a), nb = normalize(b);
+  if (na === nb) return 1;
+  if (!na.length || !nb.length) return 0;
+  const sJ = jaccard(a, b);
+  const sP = prefixSim(a, b);
+  const sF = firstWordMatch(a, b);
+  const sS = substringSim(a, b);
+  const sL = levenshtein(a, b);
+  // Poids : Jaccard et Levenshtein dominants, premier mot fort signal
+  const score = sJ * 0.30 + sL * 0.30 + sP * 0.15 + sS * 0.15 + sF * 0.10;
+  return Math.min(1, Math.max(0, score));
+}
+
+function fuzzyReason(a, b) {
+  const reasons = [];
+  if (firstWordMatch(a, b) === 1) reasons.push('même 1er mot');
+  if (substringSim(a, b) > 0.5)   reasons.push('sous-chaîne forte');
+  if (jaccard(a, b) > 0.5)        reasons.push('tokens communs');
+  if (prefixSim(a, b) > 0.5)      reasons.push('préfixe commun');
+  if (levenshtein(a, b) > 0.7)    reasons.push('orthographe proche');
+  return reasons.length ? reasons.join(', ') : '—';
+}
+
+// ============================================================
+// UI — Steps navigation
+// ============================================================
+function renderSteps() {
+  const nav = document.getElementById('steps-nav');
+  nav.innerHTML = STEPS.map(s => {
+    const status = stepStatus(s.id);
+    const cls = (s.id === APP.currentStep ? 'active ' : '') + (status === 'done' ? 'done' : '');
+    return `<button class="step-btn ${cls}" data-step="${s.id}">
+      <div class="step-num">${status === 'done' ? '' : s.num}</div>
+      <div class="step-label">${s.label}</div>
+      <div class="step-status">${stepStatusText(s.id, status)}</div>
+    </button>`;
+  }).join('');
+  nav.querySelectorAll('.step-btn').forEach(b => {
+    b.addEventListener('click', () => switchStep(b.dataset.step));
+  });
+}
+
+function stepStatus(id) {
+  switch (id) {
+    case 'ref':        return APP.ref.master.length > 0 ? 'done' : 'todo';
+    case 'import':     return APP.data.rows.length > 0 ? 'done' : 'todo';
+    case 'validation': return APP.validationCache && APP.data.rows.length > 0 ? 'done' : 'todo';
+    case 'fuzzy':      return APP.fuzzyCache && APP.data.rows.length > 0 ? 'done' : 'todo';
+    case 'exclusions': return APP.data.rows.length > 0 ? 'available' : 'todo';
+    case 'export':     return APP.data.rows.length > 0 ? 'available' : 'todo';
+  }
+  return 'todo';
+}
+
+function stepStatusText(id, status) {
+  if (status === 'done') return 'Fait';
+  if (status === 'available') return 'Prêt';
+  if (id === 'ref') return APP.ref.master.length === 0 ? 'À configurer' : '';
+  return 'À faire';
+}
+
+function switchStep(id) {
+  APP.currentStep = id;
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById('panel-' + id);
+  if (panel) panel.classList.add('active');
+  renderSteps();
+  // Render contextuel
+  if (id === 'ref') renderRefPanel();
+  if (id === 'import') renderImportPanel();
+  if (id === 'validation') renderValidationPanel();
+  if (id === 'fuzzy') renderFuzzyPanel();
+  if (id === 'exclusions') renderExclusionsPanel();
+  if (id === 'export') renderExportPanel();
+  updateStatusBar();
+}
+
+// ============================================================
+// PANEL RÉFÉRENTIELS
+// ============================================================
+function renderRefPanel() {
+  // Subtab navigation
+  document.querySelectorAll('#ref-subtabs .subtab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.subtab === APP.currentSubtab);
+  });
+  document.getElementById('ref-content-master').style.display     = APP.currentSubtab === 'master'     ? '' : 'none';
+  document.getElementById('ref-content-metdept').style.display    = APP.currentSubtab === 'metdept'    ? '' : 'none';
+  document.getElementById('ref-content-exclusions').style.display = APP.currentSubtab === 'exclusions' ? '' : 'none';
+
+  if (APP.currentSubtab === 'master')     renderMasterTable();
+  if (APP.currentSubtab === 'metdept')    renderMetDeptTable();
+  if (APP.currentSubtab === 'exclusions') renderExclusionsTable();
+}
+
+function renderMasterTable() {
+  const el = document.getElementById('ref-content-master');
+  const list = APP.ref.master;
+  el.innerHTML = `
+    <div class="info-banner">
+      <strong>Master clients</strong> = liste des "vrais" clients officiels.
+      Chaque master a un nom canonique + une liste d'<strong>aliases</strong> (orthographes alternatives, raisons sociales successives).
+      Quand l'app rencontre un alias dans le fichier IRIS, elle le remplace par le master.
+      <br>Exemple : master "<em>SITAB</em>" avec aliases ["SITAB CI", "SITAB COTE D'IVOIRE", "STE INDIVOIRIENNE TABAC"].
+    </div>
+    <div class="btn-row" style="margin-bottom:12px;">
+      <button class="btn gold" id="btn-add-master">➕ Ajouter un master client</button>
+      <button class="btn outline" id="btn-import-master-csv">📋 Importer CSV (1 client par ligne)</button>
+    </div>
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      <div class="kpi"><div class="kpi-label">Masters</div><div class="kpi-value">${list.length}</div></div>
+      <div class="kpi"><div class="kpi-label">Aliases totaux</div><div class="kpi-value">${list.reduce((s,m) => s + (m.aliases||[]).length, 0)}</div></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="data">
+        <thead><tr>
+          <th>Master (nom canonique)</th>
+          <th>Aliases (orthographes alternatives)</th>
+          <th>Métier principal</th>
+          <th>Notes</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${list.length === 0 ? '<tr><td colspan="5" style="text-align:center;color:var(--grey-500);padding:24px;">Aucun master défini. Démarre en cliquant "➕ Ajouter un master client" ou en chargeant ton référentiel JSON.</td></tr>' :
+            list.map((m, i) => `<tr>
+              <td><strong>${escapeHtml(m.master)}</strong></td>
+              <td><span class="text-muted" style="font-size:11px;">${(m.aliases || []).map(escapeHtml).join(' · ') || '—'}</span></td>
+              <td><span class="badge muted">${escapeHtml(m.metier || '—')}</span></td>
+              <td class="text-muted" style="font-size:11px;">${escapeHtml(m.notes || '')}</td>
+              <td>
+                <button class="btn sm outline" data-edit-master="${i}">✏️</button>
+                <button class="btn sm danger" data-del-master="${i}">🗑</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('btn-add-master')?.addEventListener('click', () => editMasterDialog(null));
+  document.getElementById('btn-import-master-csv')?.addEventListener('click', importMasterCsv);
+  el.querySelectorAll('[data-edit-master]').forEach(b => b.addEventListener('click', () => editMasterDialog(parseInt(b.dataset.editMaster))));
+  el.querySelectorAll('[data-del-master]').forEach(b => b.addEventListener('click', () => {
+    const idx = parseInt(b.dataset.delMaster);
+    if (confirm(`Supprimer le master "${APP.ref.master[idx].master}" ?\nLes aliases seront aussi perdus.`)) {
+      APP.ref.master.splice(idx, 1);
+      saveLocalState();
+      renderMasterTable();
+      updateStatusBar();
+    }
+  }));
+}
+
+function editMasterDialog(idx) {
+  const isNew = idx === null;
+  const m = isNew ? { master: '', aliases: [], metier: '', notes: '' } : { ...APP.ref.master[idx] };
+  const masterName = prompt('Nom canonique du master client (ex: "SITAB") :', m.master);
+  if (masterName === null || !masterName.trim()) return;
+  const aliasStr = prompt('Aliases — orthographes alternatives, séparées par des virgules :\n(ex: SITAB CI, SITAB COTE D\'IVOIRE)', (m.aliases || []).join(', '));
+  if (aliasStr === null) return;
+  const metier = prompt('Métier principal (optionnel, sera utilisé si NN dans le fichier) :', m.metier || '');
+  if (metier === null) return;
+  const notes = prompt('Notes (optionnel) :', m.notes || '');
+  if (notes === null) return;
+
+  const newM = {
+    master: masterName.trim(),
+    aliases: aliasStr.split(',').map(s => s.trim()).filter(Boolean),
+    metier: metier.trim(),
+    notes: notes.trim()
+  };
+  if (isNew) APP.ref.master.push(newM);
+  else APP.ref.master[idx] = newM;
+  saveLocalState();
+  renderMasterTable();
+  updateStatusBar();
+  toast(isNew ? 'Master ajouté ✓' : 'Master modifié ✓', 'success');
+}
+
+function importMasterCsv() {
+  const txt = prompt('Colle ici une liste de clients (1 par ligne) à ajouter comme masters :\n\nFormat simple : 1 nom par ligne.\nFormat avancé : nom|alias1,alias2|métier');
+  if (!txt) return;
+  const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  let added = 0;
+  for (const line of lines) {
+    const parts = line.split('|');
+    const master = (parts[0] || '').trim();
+    if (!master) continue;
+    if (APP.ref.master.some(m => m.master.toLowerCase() === master.toLowerCase())) continue;
+    APP.ref.master.push({
+      master,
+      aliases: (parts[1] || '').split(',').map(s => s.trim()).filter(Boolean),
+      metier: (parts[2] || '').trim(),
+      notes: ''
+    });
+    added++;
+  }
+  saveLocalState();
+  renderMasterTable();
+  updateStatusBar();
+  toast(`${added} masters ajoutés (${lines.length - added} doublons ignorés)`, 'success');
+}
+
+function renderMetDeptTable() {
+  const el = document.getElementById('ref-content-metdept');
+  const list = APP.ref.metdept;
+  el.innerHTML = `
+    <div class="info-banner">
+      <strong>Référentiel Métier × Département</strong> = relation EXACTE entre un libellé d'activité, son métier (BU AGL) et son code département IRIS.
+      Lors de l'import, l'app vérifie que chaque (LIBELLE, METIER, CODE_DEPAR) existe bien dans cette table. Sinon → flag pour validation.
+      <br>Exemple : LIBELLE "<em>CONSIGNATION LR</em>" → métier "<em>CONSIGNATION MARITIME</em>" → code "<em>10A00</em>".
+    </div>
+    <div class="btn-row" style="margin-bottom:12px;">
+      <button class="btn gold" id="btn-add-metdept">➕ Ajouter une relation</button>
+      <button class="btn outline" id="btn-build-metdept">🔄 Construire depuis l'import courant</button>
+    </div>
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      <div class="kpi"><div class="kpi-label">Relations définies</div><div class="kpi-value">${list.length}</div></div>
+      <div class="kpi"><div class="kpi-label">Métiers distincts</div><div class="kpi-value">${new Set(list.map(x => x.metier)).size}</div></div>
+      <div class="kpi"><div class="kpi-label">Libellés distincts</div><div class="kpi-value">${new Set(list.map(x => x.libelle)).size}</div></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="data">
+        <thead><tr>
+          <th>LIBELLE</th>
+          <th>METIER (BU)</th>
+          <th>CODE_DEPAR</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${list.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--grey-500);padding:24px;">Aucune relation définie. Tu peux les construire automatiquement depuis ton fichier IRIS importé en cliquant "🔄 Construire depuis l\'import courant".</td></tr>' :
+            list.map((r, i) => `<tr>
+              <td>${escapeHtml(r.libelle)}</td>
+              <td><span class="badge info">${escapeHtml(r.metier)}</span></td>
+              <td><span class="badge muted">${escapeHtml(r.code_depar)}</span></td>
+              <td><button class="btn sm danger" data-del-metdept="${i}">🗑</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('btn-add-metdept')?.addEventListener('click', () => {
+    const lib = prompt('LIBELLE (ex: CONSIGNATION LR) :');
+    if (!lib) return;
+    const met = prompt('METIER / BU (ex: CONSIGNATION MARITIME) :');
+    if (!met) return;
+    const cod = prompt('CODE_DEPAR (ex: 10A00) :');
+    if (!cod) return;
+    APP.ref.metdept.push({ libelle: lib.trim(), metier: met.trim(), code_depar: cod.trim() });
+    saveLocalState();
+    renderMetDeptTable();
+    updateStatusBar();
+    toast('Relation ajoutée ✓', 'success');
+  });
+  document.getElementById('btn-build-metdept')?.addEventListener('click', () => {
+    if (APP.data.rows.length === 0) { toast('Aucun fichier importé. Va d\'abord sur "Import IRIS".', 'warning'); return; }
+    const set = new Map();
+    for (const r of APP.data.rows) {
+      const k = `${r.LIBELLE}|${r.METIER}|${r.CODE_DEPAR}`;
+      if (!set.has(k)) set.set(k, { libelle: r.LIBELLE || '', metier: r.METIER || '', code_depar: r.CODE_DEPAR || '' });
+    }
+    const newRels = [...set.values()].filter(rel => rel.libelle && rel.metier && rel.code_depar);
+    let added = 0;
+    for (const rel of newRels) {
+      const exists = APP.ref.metdept.some(x => x.libelle === rel.libelle && x.metier === rel.metier && x.code_depar === rel.code_depar);
+      if (!exists) { APP.ref.metdept.push(rel); added++; }
+    }
+    saveLocalState();
+    renderMetDeptTable();
+    updateStatusBar();
+    toast(`${added} nouvelles relations ajoutées au référentiel (${newRels.length - added} doublons ignorés)`, 'success');
+  });
+  el.querySelectorAll('[data-del-metdept]').forEach(b => b.addEventListener('click', () => {
+    const idx = parseInt(b.dataset.delMetdept);
+    APP.ref.metdept.splice(idx, 1);
+    saveLocalState();
+    renderMetDeptTable();
+    updateStatusBar();
+  }));
+}
+
+function renderExclusionsTable() {
+  const el = document.getElementById('ref-content-exclusions');
+  const list = APP.ref.exclusions;
+  el.innerHTML = `
+    <div class="info-banner">
+      <strong>Liste d'exclusions</strong> = clients ou groupes à <strong>retirer</strong> systématiquement du fichier final (transactions internes, comptes "divers", entités hors périmètre commercial…).
+      <br>3 modes : <strong>exact</strong> (match exact du nom), <strong>prefix</strong> (commence par…), <strong>contains</strong> (contient…).
+    </div>
+    <div class="btn-row" style="margin-bottom:12px;">
+      <button class="btn gold" id="btn-add-excl">➕ Ajouter une règle d'exclusion</button>
+    </div>
+    <div class="kpi-grid" style="margin-bottom:16px;">
+      <div class="kpi"><div class="kpi-label">Règles actives</div><div class="kpi-value">${list.length}</div></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="data">
+        <thead><tr>
+          <th>Pattern</th>
+          <th>Type de match</th>
+          <th>Description</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${list.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--grey-500);padding:24px;">Aucune exclusion. Tu peux aussi exclure des clients individuels au moment de l\'export (étape Exclusions).</td></tr>' :
+            list.map((r, i) => `<tr>
+              <td><strong>${escapeHtml(r.pattern)}</strong></td>
+              <td><span class="badge info">${escapeHtml(r.type)}</span></td>
+              <td class="text-muted" style="font-size:11px;">${escapeHtml(r.label || '')}</td>
+              <td><button class="btn sm danger" data-del-excl="${i}">🗑</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('btn-add-excl')?.addEventListener('click', () => {
+    const pattern = prompt('Pattern à exclure (ex: "CLIENTS AU COMPTANT", "INTERNE", "DIVERS") :');
+    if (!pattern) return;
+    const type = prompt('Type de match : exact, prefix, ou contains ?', 'contains');
+    if (!type || !['exact', 'prefix', 'contains'].includes(type.trim())) {
+      toast('Type invalide. Doit être : exact, prefix ou contains.', 'error');
+      return;
+    }
+    const label = prompt('Description (optionnel, pour mémoire) :', '') || '';
+    APP.ref.exclusions.push({ pattern: pattern.trim(), type: type.trim(), label: label.trim() });
+    saveLocalState();
+    renderExclusionsTable();
+    updateStatusBar();
+    toast('Exclusion ajoutée ✓', 'success');
+  });
+  el.querySelectorAll('[data-del-excl]').forEach(b => b.addEventListener('click', () => {
+    const idx = parseInt(b.dataset.delExcl);
+    APP.ref.exclusions.splice(idx, 1);
+    saveLocalState();
+    renderExclusionsTable();
+    updateStatusBar();
+  }));
+}
+
+// ============================================================
+// PANEL IMPORT
+// ============================================================
+function renderImportPanel() {
+  const el = document.getElementById('import-result');
+  if (APP.data.rows.length === 0) {
+    el.innerHTML = '';
+    return;
+  }
+  const headers = APP.data.headers;
+  const sample = APP.data.rows.slice(0, 5);
+  const expectedCols = ['MONTANT', 'CLIENT', 'ANNEE', 'MOIS', 'SITE', 'LIBELLE', 'METIER', 'CODE_DEPAR', 'RUBRQ', 'ID'];
+  const missingCols = expectedCols.filter(c => !headers.includes(c));
+  const yMin = APP.data.rows.reduce((m, r) => r.ANNEE && r.ANNEE < m ? r.ANNEE : m, Infinity);
+  const yMax = APP.data.rows.reduce((m, r) => r.ANNEE && r.ANNEE > m ? r.ANNEE : m, -Infinity);
+  el.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi" style="border-top-color:var(--evol-strong-up);"><div class="kpi-label">Lignes importées</div><div class="kpi-value">${APP.data.rows.length.toLocaleString('fr-FR')}</div></div>
+      <div class="kpi"><div class="kpi-label">Clients distincts</div><div class="kpi-value">${new Set(APP.data.rows.map(r => r.CLIENT)).size.toLocaleString('fr-FR')}</div></div>
+      <div class="kpi"><div class="kpi-label">Période</div><div class="kpi-value" style="font-size:18px;">${isFinite(yMin) ? yMin : '—'} → ${isFinite(yMax) ? yMax : '—'}</div></div>
+      <div class="kpi" style="border-top-color:${missingCols.length === 0 ? 'var(--evol-strong-up)' : 'var(--evol-strong-dn)'};"><div class="kpi-label">Colonnes</div><div class="kpi-value" style="font-size:16px;">${headers.length}/${expectedCols.length}</div><div class="kpi-sub">${missingCols.length === 0 ? '✓ Format IRIS valide' : '⚠ Manquantes : ' + missingCols.join(', ')}</div></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="card-row">
+        <div>
+          <div class="card-title">📄 ${escapeHtml(APP.data.fileName || 'fichier')}</div>
+          <div class="card-meta">Importé le ${APP.data.importDate || '—'}</div>
+        </div>
+        <div class="btn-row">
+          <button class="btn outline" id="btn-next-validation">Continuer → Validation</button>
+        </div>
+      </div>
+    </div>
+    <h3 style="margin-top:18px;font-family:var(--font-display);font-weight:700;color:var(--navy-900);">Aperçu (5 premières lignes)</h3>
+    <div class="tbl-wrap" style="max-height:280px;">
+      <table class="data">
+        <thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${sample.map(r => `<tr>${headers.map(h => `<td>${escapeHtml(r[h])}</td>`).join('')}</tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('btn-next-validation')?.addEventListener('click', () => switchStep('validation'));
+}
+
+function processExcelFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const sheetName = wb.SheetNames.find(n => n.toUpperCase() === 'FACT_CAP') || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
+      if (!rows.length) { toast('Fichier vide.', 'error'); return; }
+      APP.data.rows = rows;
+      APP.data.headers = Object.keys(rows[0]);
+      APP.data.fileName = file.name;
+      APP.data.importDate = new Date().toLocaleString('fr-FR');
+      APP.validationCache = null;
+      APP.fuzzyCache = null;
+      renderImportPanel();
+      renderSteps();
+      updateStatusBar();
+      toast(`✓ ${rows.length.toLocaleString('fr-FR')} lignes importées (sheet "${sheetName}")`, 'success');
+    } catch (err) {
+      toast('Erreur lecture Excel : ' + err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ============================================================
+// PANEL VALIDATION (Métier × Département)
+// ============================================================
+function renderValidationPanel() {
+  const el = document.getElementById('validation-result');
+  if (APP.data.rows.length === 0) {
+    el.innerHTML = '<div class="info-banner">Importe d\'abord un fichier Excel IRIS (étape 2).</div>';
+    return;
+  }
+  if (APP.ref.metdept.length === 0) {
+    el.innerHTML = `
+      <div class="info-banner" style="border-left-color:var(--evol-down);background:rgba(247,127,0,0.06);">
+        <strong>Aucun référentiel Métier × Département défini.</strong>
+        <br>Tu peux soit le construire automatiquement depuis ton import (recommandé pour la première fois), soit ignorer cette étape.
+      </div>
+      <div class="btn-row">
+        <button class="btn gold" id="btn-build-metdept-quick">🔄 Construire le référentiel depuis l'import</button>
+        <button class="btn outline" id="btn-skip-validation">⏭ Passer la validation</button>
+      </div>
+    `;
+    document.getElementById('btn-build-metdept-quick')?.addEventListener('click', () => {
+      APP.currentSubtab = 'metdept';
+      switchStep('ref');
+      setTimeout(() => document.getElementById('btn-build-metdept')?.click(), 100);
+    });
+    document.getElementById('btn-skip-validation')?.addEventListener('click', () => switchStep('fuzzy'));
+    return;
+  }
+
+  // Construction set des relations valides
+  const validSet = new Set(APP.ref.metdept.map(r => `${r.libelle}|${r.metier}|${r.code_depar}`));
+  // Vérifier chaque ligne
+  const mismatches = new Map();  // key -> count
+  let validCount = 0;
+  for (const r of APP.data.rows) {
+    const k = `${r.LIBELLE}|${r.METIER}|${r.CODE_DEPAR}`;
+    if (validSet.has(k)) validCount++;
+    else mismatches.set(k, (mismatches.get(k) || 0) + 1);
+  }
+  APP.validationCache = {
+    valid: validCount,
+    mismatches: [...mismatches.entries()].map(([k, n]) => {
+      const [lib, met, cod] = k.split('|');
+      return { libelle: lib, metier: met, code_depar: cod, count: n };
+    }).sort((a, b) => b.count - a.count)
+  };
+
+  const total = APP.data.rows.length;
+  const mmCount = total - validCount;
+
+  el.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi" style="border-top-color:var(--evol-strong-up);"><div class="kpi-label">Lignes valides</div><div class="kpi-value">${validCount.toLocaleString('fr-FR')}</div><div class="kpi-sub">${total > 0 ? ((validCount / total) * 100).toFixed(1) + '%' : '0%'} du total</div></div>
+      <div class="kpi" style="border-top-color:${mmCount === 0 ? 'var(--evol-strong-up)' : 'var(--evol-strong-dn)'};"><div class="kpi-label">Lignes en mismatch</div><div class="kpi-value">${mmCount.toLocaleString('fr-FR')}</div><div class="kpi-sub">${APP.validationCache.mismatches.length} combinaisons distinctes</div></div>
+      <div class="kpi"><div class="kpi-label">Référentiel</div><div class="kpi-value">${APP.ref.metdept.length}</div><div class="kpi-sub">relations définies</div></div>
+    </div>
+
+    ${mmCount === 0 ? `
+      <div class="info-banner" style="border-left-color:var(--evol-strong-up);background:rgba(11,110,79,0.06);margin-top:16px;">
+        ✅ <strong>Toutes les lignes sont valides.</strong> Toutes les combinaisons (LIBELLE, METIER, CODE_DEPAR) du fichier sont reconnues dans le référentiel.
+      </div>
+      <div class="btn-row" style="margin-top:14px;"><button class="btn gold" id="btn-next-fuzzy">Continuer → Fuzzy clients</button></div>
+    ` : `
+      <h3 style="margin-top:18px;font-family:var(--font-display);font-weight:700;color:var(--navy-900);">Combinaisons non reconnues (à valider)</h3>
+      <div class="info-banner" style="border-left-color:var(--evol-down);background:rgba(247,127,0,0.06);">
+        Ces combinaisons existent dans le fichier mais pas dans ton référentiel. Soit elles sont nouvelles (à <strong>ajouter</strong>), soit elles sont incorrectes (à <strong>corriger côté IRIS</strong>).
+      </div>
+      <div class="btn-row" style="margin-bottom:12px;">
+        <button class="btn gold" id="btn-add-all-mm">➕ Ajouter TOUTES les combinaisons au référentiel</button>
+        <button class="btn outline" id="btn-next-fuzzy">⏭ Continuer sans corriger</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr>
+            <th>LIBELLE</th>
+            <th>METIER</th>
+            <th>CODE_DEPAR</th>
+            <th class="num">Lignes concernées</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            ${APP.validationCache.mismatches.map((m, i) => `<tr>
+              <td>${escapeHtml(m.libelle)}</td>
+              <td>${escapeHtml(m.metier)}</td>
+              <td>${escapeHtml(m.code_depar)}</td>
+              <td class="num"><strong>${m.count.toLocaleString('fr-FR')}</strong></td>
+              <td><button class="btn sm gold" data-add-mm="${i}">➕ Ajouter</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+  document.getElementById('btn-next-fuzzy')?.addEventListener('click', () => switchStep('fuzzy'));
+  document.getElementById('btn-add-all-mm')?.addEventListener('click', () => {
+    if (!confirm(`Ajouter les ${APP.validationCache.mismatches.length} combinaisons au référentiel ?`)) return;
+    let added = 0;
+    for (const m of APP.validationCache.mismatches) {
+      const exists = APP.ref.metdept.some(x => x.libelle === m.libelle && x.metier === m.metier && x.code_depar === m.code_depar);
+      if (!exists) { APP.ref.metdept.push({ libelle: m.libelle, metier: m.metier, code_depar: m.code_depar }); added++; }
+    }
+    saveLocalState();
+    APP.validationCache = null;
+    renderValidationPanel();
+    updateStatusBar();
+    toast(`${added} relations ajoutées au référentiel ✓`, 'success');
+  });
+  el.querySelectorAll('[data-add-mm]').forEach(b => b.addEventListener('click', () => {
+    const idx = parseInt(b.dataset.addMm);
+    const m = APP.validationCache.mismatches[idx];
+    APP.ref.metdept.push({ libelle: m.libelle, metier: m.metier, code_depar: m.code_depar });
+    saveLocalState();
+    APP.validationCache = null;
+    renderValidationPanel();
+    updateStatusBar();
+    toast('Relation ajoutée ✓', 'success');
+  }));
+}
+
+// ============================================================
+// PANEL FUZZY MATCHING
+// ============================================================
+const FUZZY_THRESHOLD = 0.55;  // sous ce seuil, on considère "client distinct" (pas de proposition)
+
+function renderFuzzyPanel() {
+  const el = document.getElementById('fuzzy-result');
+  if (APP.data.rows.length === 0) {
+    el.innerHTML = '<div class="info-banner">Importe d\'abord un fichier Excel IRIS (étape 2).</div>';
+    return;
+  }
+  // Liste unique des clients dans le fichier
+  const clientsInFile = [...new Set(APP.data.rows.map(r => r.CLIENT).filter(Boolean))];
+
+  // Index des aliases connus → master
+  const aliasMap = new Map();  // alias normalisé → master
+  for (const m of APP.ref.master) {
+    aliasMap.set(normalize(m.master), m.master);
+    for (const a of (m.aliases || [])) aliasMap.set(normalize(a), m.master);
+  }
+
+  // Pour chaque client du fichier, déterminer le statut
+  const proposals = [];   // < 100% match, à valider
+  let autoResolved = 0;   // 100% match silent
+  let alreadyDecided = 0; // décision déjà prise
+  let newClients = 0;     // pas de match → nouveau client
+
+  for (const c of clientsInFile) {
+    const norm = normalize(c);
+    // 1. Match exact (alias ou master) → 100%, auto-résolu
+    if (aliasMap.has(norm)) { autoResolved++; continue; }
+
+    // 2. Décision déjà prise pour ce nom ?
+    if (APP.fuzzyDecisions[c]) { alreadyDecided++; continue; }
+
+    // 3. Cherche le meilleur match dans les masters
+    let best = { score: 0, master: null, type: null };
+    for (const m of APP.ref.master) {
+      const candidates = [m.master, ...(m.aliases || [])];
+      for (const cand of candidates) {
+        const s = fuzzyScore(c, cand);
+        if (s > best.score) {
+          best = { score: s, master: m.master, masterObj: m, candidate: cand, reason: fuzzyReason(c, cand) };
+        }
+      }
+    }
+
+    if (best.score >= FUZZY_THRESHOLD) {
+      proposals.push({ client: c, ...best });
+    } else {
+      newClients++;
+    }
+  }
+
+  // Tri proposals par score décroissant
+  proposals.sort((a, b) => b.score - a.score);
+  APP.fuzzyCache = { proposals, autoResolved, alreadyDecided, newClients, totalClients: clientsInFile.length };
+
+  el.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-label">Clients dans le fichier</div><div class="kpi-value">${clientsInFile.length}</div></div>
+      <div class="kpi" style="border-top-color:var(--evol-strong-up);"><div class="kpi-label">Auto-résolus (100%)</div><div class="kpi-value">${autoResolved}</div><div class="kpi-sub">orthographe identique au master</div></div>
+      <div class="kpi" style="border-top-color:var(--gold-500);"><div class="kpi-label">Propositions à valider</div><div class="kpi-value">${proposals.length}</div><div class="kpi-sub">score ≥ 55% mais &lt; 100%</div></div>
+      <div class="kpi"><div class="kpi-label">Nouveaux clients</div><div class="kpi-value">${newClients}</div><div class="kpi-sub">aucun match au-dessus du seuil</div></div>
+      <div class="kpi"><div class="kpi-label">Décisions précédentes</div><div class="kpi-value">${alreadyDecided}</div><div class="kpi-sub">enregistrées dans cette session</div></div>
+    </div>
+
+    ${proposals.length === 0 ? `
+      <div class="info-banner" style="border-left-color:var(--evol-strong-up);background:rgba(11,110,79,0.06);margin-top:16px;">
+        ✅ <strong>Aucun doute à valider.</strong> Tous les clients du fichier sont soit reconnus à 100%, soit considérés comme nouveaux (en-dessous du seuil de proximité).
+      </div>
+      <div class="btn-row" style="margin-top:14px;"><button class="btn gold" id="btn-next-excl">Continuer → Exclusions</button></div>
+    ` : `
+      <div class="info-banner" style="margin-top:16px;">
+        <strong>${proposals.length} doutes à valider.</strong> Pour chaque proposition : <strong>✓ Fusionner</strong> = ce client devient un alias du master · <strong>✗ Garder distinct</strong> = nouveau client indépendant · <strong>➕ Nouveau master</strong> = créer un nouveau master pour ce client.
+        <br>L'app <strong>ne modifie jamais sans ton accord</strong>.
+      </div>
+      <div class="btn-row" style="margin-bottom:12px;">
+        <button class="btn outline" id="btn-fuzzy-skip-all">⏭ Tout reporter (continuer sans décider)</button>
+        <button class="btn gold" id="btn-next-excl">Continuer → Exclusions</button>
+      </div>
+      <div id="fuzzy-list">
+        ${proposals.slice(0, 50).map((p, i) => renderFuzzyProposal(p, i)).join('')}
+      </div>
+      ${proposals.length > 50 ? `<div class="info-banner" style="margin-top:12px;">Affichage des 50 premières propositions (sur ${proposals.length}). Valide-les progressivement, le reste apparaîtra automatiquement.</div>` : ''}
+    `}
+  `;
+  document.getElementById('btn-next-excl')?.addEventListener('click', () => switchStep('exclusions'));
+  document.getElementById('btn-fuzzy-skip-all')?.addEventListener('click', () => switchStep('exclusions'));
+  // Wire actions
+  document.querySelectorAll('[data-fuzzy-action]').forEach(b => b.addEventListener('click', () => {
+    const idx = parseInt(b.dataset.fuzzyIdx);
+    const action = b.dataset.fuzzyAction;
+    handleFuzzyDecision(proposals[idx], action);
+  }));
+}
+
+function renderFuzzyProposal(p, i) {
+  const sevClass = p.score >= 0.85 ? 'severity-high' : p.score >= 0.70 ? 'severity-med' : 'severity-low';
+  const sevLabel = p.score >= 0.85 ? 'Très probable' : p.score >= 0.70 ? 'Probable' : 'À vérifier';
+  return `
+    <div class="fuzzy-prop ${sevClass}" id="fuzzy-prop-${i}">
+      <div class="prop-row">
+        <div class="prop-side">
+          <div style="font-size:10px;color:var(--gold-700);font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:3px;">Client dans le fichier</div>
+          <strong>${escapeHtml(p.client)}</strong>
+        </div>
+        <div class="prop-arrow">≈</div>
+        <div class="prop-side">
+          <div style="font-size:10px;color:var(--gold-700);font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:3px;">Master suggéré</div>
+          <strong>${escapeHtml(p.master)}</strong>
+          <div class="meta">candidat : <em>${escapeHtml(p.candidate)}</em></div>
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="badge ${p.score >= 0.85 ? 'danger' : p.score >= 0.70 ? 'warning' : 'gold'}">${sevLabel}</span>
+        <span class="prop-score">Score ${(p.score * 100).toFixed(0)}%</span>
+        <span class="prop-reason">${escapeHtml(p.reason)}</span>
+      </div>
+      <div class="prop-actions">
+        <button class="btn success" data-fuzzy-action="merge" data-fuzzy-idx="${i}">✓ Fusionner avec ${escapeHtml(p.master.slice(0, 24))}…</button>
+        <button class="btn outline" data-fuzzy-action="keep" data-fuzzy-idx="${i}">✗ Garder distinct</button>
+        <button class="btn gold" data-fuzzy-action="new" data-fuzzy-idx="${i}">➕ Créer nouveau master</button>
+      </div>
+    </div>
+  `;
+}
+
+function handleFuzzyDecision(p, action) {
+  if (action === 'merge') {
+    // Ajouter le nom du client comme alias du master existant
+    const m = APP.ref.master.find(x => x.master === p.master);
+    if (m && !(m.aliases || []).includes(p.client)) {
+      m.aliases = m.aliases || [];
+      m.aliases.push(p.client);
+    }
+    APP.fuzzyDecisions[p.client] = { action: 'merge', master: p.master, score: p.score, ts: Date.now() };
+    toast(`✓ "${p.client}" fusionné dans master "${p.master}"`, 'success');
+  } else if (action === 'keep') {
+    APP.fuzzyDecisions[p.client] = { action: 'keep', score: p.score, ts: Date.now() };
+    toast(`✗ "${p.client}" reste distinct`, 'info');
+  } else if (action === 'new') {
+    // Créer un nouveau master pour ce client
+    APP.ref.master.push({ master: p.client, aliases: [], metier: '', notes: 'Créé via fuzzy decision' });
+    APP.fuzzyDecisions[p.client] = { action: 'new', master: p.client, ts: Date.now() };
+    toast(`➕ Nouveau master créé : "${p.client}"`, 'success');
+  }
+  saveLocalState();
+  renderFuzzyPanel();
+  updateStatusBar();
+}
+
+// ============================================================
+// PANEL EXCLUSIONS
+// ============================================================
+function renderExclusionsPanel() {
+  const el = document.getElementById('exclusions-result');
+  if (APP.data.rows.length === 0) {
+    el.innerHTML = '<div class="info-banner">Importe d\'abord un fichier Excel IRIS (étape 2).</div>';
+    return;
+  }
+
+  // Apply current ref exclusions to compute counts
+  const excluded = new Map();   // client name → count
+  const allClients = {};
+  for (const r of APP.data.rows) {
+    if (!r.CLIENT) continue;
+    if (!allClients[r.CLIENT]) allClients[r.CLIENT] = { count: 0, ca: 0 };
+    allClients[r.CLIENT].count++;
+    allClients[r.CLIENT].ca += r.MONTANT || 0;
+  }
+  for (const c of Object.keys(allClients)) {
+    if (isExcluded(c)) excluded.set(c, allClients[c]);
+  }
+
+  const sortedClients = Object.entries(allClients).sort(([,a], [,b]) => b.ca - a.ca);
+  const totalExcluded = [...excluded.values()].reduce((s, v) => s + v.count, 0);
+
+  el.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-label">Clients distincts</div><div class="kpi-value">${Object.keys(allClients).length}</div></div>
+      <div class="kpi" style="border-top-color:var(--evol-strong-dn);"><div class="kpi-label">Clients exclus actuellement</div><div class="kpi-value">${excluded.size}</div><div class="kpi-sub">${totalExcluded.toLocaleString('fr-FR')} lignes au total</div></div>
+      <div class="kpi"><div class="kpi-label">Règles d'exclusion</div><div class="kpi-value">${APP.ref.exclusions.length}</div></div>
+    </div>
+
+    <div class="info-banner" style="margin-top:14px;">
+      Les règles d'exclusion (définies dans le référentiel) sont déjà appliquées. Tu peux ici <strong>exclure individuellement</strong> des clients supplémentaires en cliquant le bouton 🚫 dans le tableau, ou créer une nouvelle règle d'exclusion.
+    </div>
+
+    <div class="btn-row" style="margin-bottom:12px;">
+      <button class="btn gold" id="btn-add-excl-rule">➕ Ajouter une règle d'exclusion</button>
+      <button class="btn outline" id="btn-next-export">Continuer → Export</button>
+    </div>
+
+    <h3 style="font-family:var(--font-display);font-weight:700;color:var(--navy-900);">Tous les clients du fichier (Top 100 par CAP)</h3>
+    <div class="tbl-wrap">
+      <table class="data">
+        <thead><tr>
+          <th>#</th>
+          <th>Client</th>
+          <th class="num">CAP</th>
+          <th class="num">Lignes</th>
+          <th>Statut</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${sortedClients.slice(0, 100).map(([c, info], i) => {
+            const isExcl = excluded.has(c);
+            const reason = isExcl ? exclusionReason(c) : null;
+            return `<tr style="${isExcl ? 'background:rgba(214,40,40,0.04);' : ''}">
+              <td class="text-muted">${i+1}</td>
+              <td><strong>${escapeHtml(c)}</strong></td>
+              <td class="num">${(info.ca || 0).toLocaleString('fr-FR')}</td>
+              <td class="num">${info.count.toLocaleString('fr-FR')}</td>
+              <td>${isExcl ? `<span class="badge danger">EXCLU</span><div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${escapeHtml(reason || '')}</div>` : '<span class="badge muted">Inclus</span>'}</td>
+              <td>
+                ${isExcl
+                  ? `<button class="btn sm outline" data-incl-client="${escapeHtml(c).replace(/"/g, '&quot;')}">↶ Inclure</button>`
+                  : `<button class="btn sm danger" data-excl-client="${escapeHtml(c).replace(/"/g, '&quot;')}">🚫 Exclure</button>`}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('btn-next-export')?.addEventListener('click', () => switchStep('export'));
+  document.getElementById('btn-add-excl-rule')?.addEventListener('click', () => {
+    APP.currentSubtab = 'exclusions';
+    switchStep('ref');
+    setTimeout(() => document.getElementById('btn-add-excl')?.click(), 100);
+  });
+  el.querySelectorAll('[data-excl-client]').forEach(b => b.addEventListener('click', () => {
+    const c = b.dataset.exclClient.replace(/&quot;/g, '"');
+    if (!APP.ref.exclusions.some(x => x.type === 'exact' && x.pattern === c)) {
+      APP.ref.exclusions.push({ pattern: c, type: 'exact', label: 'Exclu individuellement' });
+      saveLocalState();
+      renderExclusionsPanel();
+      updateStatusBar();
+      toast(`Exclu : ${c}`, 'info');
+    }
+  }));
+  el.querySelectorAll('[data-incl-client]').forEach(b => b.addEventListener('click', () => {
+    const c = b.dataset.inclClient.replace(/&quot;/g, '"');
+    APP.ref.exclusions = APP.ref.exclusions.filter(x => !(x.type === 'exact' && x.pattern === c));
+    saveLocalState();
+    renderExclusionsPanel();
+    updateStatusBar();
+    toast(`Inclus : ${c}`, 'info');
+  }));
+}
+
+function isExcluded(clientName) {
+  if (!clientName) return false;
+  const n = normalize(clientName);
+  for (const rule of APP.ref.exclusions) {
+    const p = normalize(rule.pattern);
+    if (rule.type === 'exact'    && n === p) return true;
+    if (rule.type === 'prefix'   && n.startsWith(p)) return true;
+    if (rule.type === 'contains' && n.includes(p)) return true;
+  }
+  return false;
+}
+
+function exclusionReason(clientName) {
+  if (!clientName) return null;
+  const n = normalize(clientName);
+  for (const rule of APP.ref.exclusions) {
+    const p = normalize(rule.pattern);
+    if (rule.type === 'exact'    && n === p) return `règle exact : "${rule.pattern}"`;
+    if (rule.type === 'prefix'   && n.startsWith(p)) return `règle prefix : "${rule.pattern}"`;
+    if (rule.type === 'contains' && n.includes(p)) return `règle contains : "${rule.pattern}"`;
+  }
+  return null;
+}
+
+// ============================================================
+// PANEL EXPORT
+// ============================================================
+function renderExportPanel() {
+  const el = document.getElementById('export-result');
+  if (APP.data.rows.length === 0) {
+    el.innerHTML = '<div class="info-banner">Importe d\'abord un fichier Excel IRIS (étape 2).</div>';
+    return;
+  }
+
+  // Calcul du résultat final
+  const result = computeFinalDataset();
+
+  el.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-label">Lignes en entrée</div><div class="kpi-value">${result.rowsIn.toLocaleString('fr-FR')}</div></div>
+      <div class="kpi" style="border-top-color:var(--evol-strong-up);"><div class="kpi-label">Lignes en sortie</div><div class="kpi-value">${result.rowsOut.toLocaleString('fr-FR')}</div><div class="kpi-sub">${result.rowsIn > 0 ? ((result.rowsOut / result.rowsIn) * 100).toFixed(1) + '%' : '0%'} conservées</div></div>
+      <div class="kpi" style="border-top-color:var(--evol-strong-dn);"><div class="kpi-label">Lignes exclues</div><div class="kpi-value">${result.rowsExcluded.toLocaleString('fr-FR')}</div><div class="kpi-sub">via ${APP.ref.exclusions.length} règle(s)</div></div>
+      <div class="kpi"><div class="kpi-label">Clients résolus</div><div class="kpi-value">${result.clientsRenamed}</div><div class="kpi-sub">alias → master</div></div>
+      <div class="kpi"><div class="kpi-label">Clients distincts (sortie)</div><div class="kpi-value">${result.clientsOut}</div></div>
+    </div>
+
+    <div class="info-banner" style="margin-top:14px;">
+      <strong>Format de sortie</strong> : Excel <code>.xlsx</code>, sheet <code>FACT_CAP</code>, mêmes 10 colonnes que l'IRIS source. Fichier prêt pour import direct dans CAP Strategic Analytics.
+    </div>
+
+    <div class="card" style="background:linear-gradient(135deg, var(--gold-50), white);border-color:var(--gold-500);">
+      <div class="card-row">
+        <div>
+          <div class="card-title">📤 Prêt à exporter</div>
+          <div class="card-meta">
+            ${result.rowsOut.toLocaleString('fr-FR')} lignes · ${result.clientsOut} clients · ${result.clientsRenamed > 0 ? `dont ${result.clientsRenamed} renommés via le master référentiel` : 'aucun renommage'}
+          </div>
+        </div>
+        <button class="btn gold" id="btn-export-final" style="font-size:14px;padding:10px 20px;">📥 Télécharger le fichier propre</button>
+      </div>
+    </div>
+
+    <h3 style="margin-top:18px;font-family:var(--font-display);font-weight:700;color:var(--navy-900);">Aperçu (10 premières lignes après nettoyage)</h3>
+    <div class="tbl-wrap" style="max-height:300px;">
+      <table class="data">
+        <thead><tr>${APP.data.headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${result.rows.slice(0, 10).map(r => `<tr>${APP.data.headers.map(h => `<td>${escapeHtml(r[h])}</td>`).join('')}</tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('btn-export-final')?.addEventListener('click', () => exportCleanExcel(result));
+}
+
+function computeFinalDataset() {
+  // Construit la map alias → master (incluant les décisions fuzzy)
+  const aliasMap = new Map();
+  for (const m of APP.ref.master) {
+    aliasMap.set(normalize(m.master), m.master);
+    for (const a of (m.aliases || [])) aliasMap.set(normalize(a), m.master);
+  }
+  // Décisions fuzzy : merge → ajouter alias
+  for (const [client, dec] of Object.entries(APP.fuzzyDecisions)) {
+    if (dec.action === 'merge' && dec.master) {
+      aliasMap.set(normalize(client), dec.master);
+    }
+  }
+
+  const out = [];
+  let rowsExcluded = 0;
+  let renamedCount = 0;
+  const clientsRenamedSet = new Set();
+  for (const r of APP.data.rows) {
+    if (isExcluded(r.CLIENT)) { rowsExcluded++; continue; }
+    const norm = normalize(r.CLIENT);
+    const master = aliasMap.get(norm);
+    const cleaned = { ...r };
+    if (master && master !== r.CLIENT) {
+      cleaned.CLIENT = master;
+      if (!clientsRenamedSet.has(r.CLIENT)) {
+        clientsRenamedSet.add(r.CLIENT);
+        renamedCount++;
+      }
+    }
+    out.push(cleaned);
+  }
+  return {
+    rows: out,
+    rowsIn: APP.data.rows.length,
+    rowsOut: out.length,
+    rowsExcluded,
+    clientsRenamed: renamedCount,
+    clientsOut: new Set(out.map(r => r.CLIENT)).size
+  };
+}
+
+function exportCleanExcel(result) {
+  // Garantir l'ordre des colonnes
+  const expectedCols = ['MONTANT', 'CLIENT', 'ANNEE', 'MOIS', 'SITE', 'LIBELLE', 'METIER', 'CODE_DEPAR', 'RUBRQ', 'ID'];
+  const cols = expectedCols.filter(c => APP.data.headers.includes(c));
+  // Add any extra columns at the end
+  for (const h of APP.data.headers) if (!cols.includes(h)) cols.push(h);
+
+  const aoa = [cols, ...result.rows.map(r => cols.map(c => r[c]))];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'FACT_CAP');
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const fileName = `CAP_IRIS_propre_${dateStr}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+
+  toast(`✓ ${fileName} téléchargé · ${result.rowsOut.toLocaleString('fr-FR')} lignes propres`, 'success');
+}
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function toast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 4000);
+}
+
+function updateStatusBar() {
+  const refStatus = APP.ref.master.length === 0
+    ? '<span class="warn">vide</span>'
+    : `<span class="ok">${APP.ref.master.length} masters · ${APP.ref.metdept.length} relations · ${APP.ref.exclusions.length} exclusions</span>`;
+  document.getElementById('status-ref').innerHTML = refStatus;
+
+  const dataStatus = APP.data.rows.length === 0
+    ? '<span class="warn">non chargées</span>'
+    : `<span class="ok">${APP.data.rows.length.toLocaleString('fr-FR')} lignes</span>`;
+  document.getElementById('status-data').innerHTML = dataStatus;
+
+  const doubts = APP.fuzzyCache ? APP.fuzzyCache.proposals.length : null;
+  document.getElementById('status-doubts').innerHTML = doubts === null ? '—'
+    : doubts === 0 ? '<span class="ok">aucun</span>'
+    : `<span class="warn">${doubts}</span>`;
+
+  document.getElementById('status-decisions').textContent = Object.keys(APP.fuzzyDecisions).length;
+}
+
+// ============================================================
+// GLOBAL ERROR HANDLER
+// ============================================================
+window.addEventListener('error', e => {
+  if (e && e.target && e.target !== window && (e.target.src || e.target.href)) return;
+  console.error('Uncaught error', e);
+  toast('Erreur : ' + (e.message || e), 'error');
+});
+window.addEventListener('unhandledrejection', e => {
+  console.error('Unhandled rejection', e.reason);
+  toast('Erreur asynchrone : ' + (e.reason && e.reason.message || e.reason), 'error');
+});
+
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  // Restore local state if any
+  const restored = loadLocalState();
+
+  // Render initial UI
+  renderSteps();
+  switchStep('ref');
+  updateStatusBar();
+
+  // Header buttons
+  document.getElementById('btn-save-state').addEventListener('click', downloadReferential);
+  document.getElementById('btn-load-state').addEventListener('click', () => document.getElementById('json-file-input').click());
+  document.getElementById('btn-reset-all').addEventListener('click', () => {
+    if (!confirm('⚠ Tout effacer ? (référentiel, données importées, décisions)\n\nCette action est irréversible. Pense à exporter ton référentiel avant si tu veux le conserver.')) return;
+    APP.ref = { master: [], metdept: [], exclusions: [] };
+    APP.data = { rows: [], headers: [], fileName: null, importDate: null };
+    APP.fuzzyDecisions = {};
+    APP.validationCache = null;
+    APP.fuzzyCache = null;
+    localStorage.removeItem(STORAGE_KEY);
+    switchStep('ref');
+    updateStatusBar();
+    toast('Tout effacé', 'info');
+  });
+  document.getElementById('json-file-input').addEventListener('change', e => {
+    if (e.target.files.length) loadReferentialFile(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  // Subtabs in Référentiels
+  document.querySelectorAll('#ref-subtabs .subtab-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      APP.currentSubtab = b.dataset.subtab;
+      renderRefPanel();
+    });
+  });
+
+  // Excel dropzone
+  const dz = document.getElementById('dz-excel');
+  const fi = document.getElementById('excel-file-input');
+  dz.addEventListener('click', () => fi.click());
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragging'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragging'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('dragging');
+    if (e.dataTransfer.files.length) processExcelFile(e.dataTransfer.files[0]);
+  });
+  fi.addEventListener('change', e => {
+    if (e.target.files.length) processExcelFile(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  if (restored && APP.ref.master.length > 0) {
+    toast(`Référentiel restauré (${APP.ref.master.length} masters)`, 'info');
+  }
+});
+</script>
+</body>
+</html>
