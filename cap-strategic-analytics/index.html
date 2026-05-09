@@ -1172,6 +1172,20 @@ body.presentation-mode .card { box-shadow: 0 8px 24px rgba(10,37,64,0.10); borde
   </div>
 </div>
 
+<!-- Modal Password (snapshot chiffré) — fiable iOS / Android / desktop -->
+<div id="pwd-modal" style="display:none;position:fixed;inset:0;background:linear-gradient(135deg,#0A2540 0%,#1B3A5C 100%);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:white;border-radius:14px;max-width:420px;width:100%;padding:32px 26px;box-shadow:0 24px 60px rgba(0,0,0,0.45);font-family:Inter,-apple-system,sans-serif;">
+    <div style="text-align:center;font-size:42px;margin-bottom:8px;">🔐</div>
+    <h2 style="font-family:'Playfair Display',serif;color:#0A2540;margin:0 0 6px 0;text-align:center;font-size:22px;font-weight:600;">Rapport AGL protégé</h2>
+    <div id="pwd-modal-meta" style="text-align:center;color:#6b7280;font-size:12.5px;margin-bottom:22px;line-height:1.5;"></div>
+    <label style="display:block;font-size:12px;color:#374151;margin-bottom:6px;font-weight:600;">Mot de passe</label>
+    <input id="pwd-modal-input" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" style="width:100%;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-size:16px;font-family:Inter,sans-serif;box-sizing:border-box;outline:none;-webkit-appearance:none;" placeholder="Saisir le mot de passe…" />
+    <div id="pwd-modal-error" style="color:#D62828;font-size:12.5px;margin-top:8px;min-height:18px;font-weight:500;"></div>
+    <button id="pwd-modal-submit" style="width:100%;margin-top:14px;padding:13px;background:#0A2540;color:white;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif;-webkit-appearance:none;">Ouvrir le rapport</button>
+    <div style="text-align:center;color:#9ca3af;font-size:11px;margin-top:14px;">Chiffré AES-256 · Demandez le code à l'expéditeur</div>
+  </div>
+</div>
+
 <!-- Upload Screen (visible au démarrage) -->
 <div id="upload-screen" class="upload-screen">
   <div class="upload-card">
@@ -1556,35 +1570,81 @@ function launchAnalysis() {
 // et on charge directement les données embarquées (export interactif).
 // Si window.__EMBEDDED_ENCRYPTED existe, on demande d'abord le mot de passe.
 // ============================================================
+// Modal HTML custom — fiable iOS Safari / Android (prompt() natif est instable)
+function showPasswordModal(meta) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('pwd-modal');
+    const input = document.getElementById('pwd-modal-input');
+    const submit = document.getElementById('pwd-modal-submit');
+    const errEl = document.getElementById('pwd-modal-error');
+    const metaEl = document.getElementById('pwd-modal-meta');
+    if (!modal || !input || !submit) { resolve(null); return; }
+    const dateStr = meta.exportDate ? new Date(meta.exportDate).toLocaleDateString('fr-FR') : '—';
+    metaEl.innerHTML = `Snapshot du <b>${dateStr}</b><br>${meta.rows || '—'} transactions · ${meta.clients || '—'} clients`;
+    errEl.textContent = '';
+    input.value = '';
+    modal.style.display = 'flex';
+    // Focus avec délai pour iOS (sinon clavier ne s'ouvre pas)
+    setTimeout(() => { try { input.focus(); } catch(_) {} }, 100);
+    let attempts = 0;
+    const onSubmit = async () => {
+      const pwd = input.value;
+      if (!pwd) { errEl.textContent = 'Mot de passe requis.'; return; }
+      attempts++;
+      submit.disabled = true;
+      submit.textContent = '⏳ Vérification…';
+      errEl.textContent = '';
+      try {
+        const plain = await decryptString(window.__EMBEDDED_ENCRYPTED, pwd);
+        // succès
+        modal.style.display = 'none';
+        cleanup();
+        resolve({ ok: true, plain });
+      } catch(e) {
+        submit.disabled = false;
+        submit.textContent = 'Ouvrir le rapport';
+        if (attempts >= 3) {
+          errEl.textContent = '❌ 3 échecs. Demandez le code à l\'expéditeur et rechargez la page.';
+          submit.disabled = true;
+          input.disabled = true;
+          cleanup();
+          resolve({ ok: false });
+        } else {
+          errEl.textContent = `Mot de passe incorrect (essai ${attempts}/3).`;
+          input.value = '';
+          input.focus();
+        }
+      }
+    };
+    const onKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); onSubmit(); } };
+    function cleanup() {
+      submit.removeEventListener('click', onSubmit);
+      input.removeEventListener('keydown', onKey);
+    }
+    submit.addEventListener('click', onSubmit);
+    input.addEventListener('keydown', onKey);
+  });
+}
+
 async function tryDecryptEmbedded() {
   if (typeof window.__EMBEDDED_ENCRYPTED !== 'string' || !window.__EMBEDDED_ENCRYPTED.length) return false;
   const meta = window.__EMBEDDED_META || {};
-  const dateStr = meta.exportDate ? new Date(meta.exportDate).toLocaleDateString('fr-FR') : '—';
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const pwd = prompt(`🔐 Snapshot CAP Strategic Analytics CHIFFRÉ\n\nDate export : ${dateStr}\nLignes : ${meta.rows || '—'} · Clients : ${meta.clients || '—'}\n\nSaisir le mot de passe (${attempt + 1}/3) :`);
-    if (pwd === null) return false;  // utilisateur annule
-    if (!pwd) continue;
-    try {
-      const plain = await decryptString(window.__EMBEDDED_ENCRYPTED, pwd);
-      const bundle = JSON.parse(plain);
-      window.__EMBEDDED_FACT = bundle.fact || [];
-      window.__EMBEDDED_SCHEMA = bundle.schema || {};
-      window.__EMBEDDED_KAM_NOTES = bundle.notes || bundle.kamNotes || {};
-      // Le merge sync de APP.kamNotes (en bas de fichier) a déjà tourné — on refait ici.
-      if (typeof APP !== 'undefined' && APP.kamNotes && window.__EMBEDDED_KAM_NOTES) {
-        Object.assign(APP.kamNotes, window.__EMBEDDED_KAM_NOTES);
-      }
-      // Effacer la version chiffrée pour éviter exposition prolongée en mémoire
-      try { delete window.__EMBEDDED_ENCRYPTED; } catch(_) { window.__EMBEDDED_ENCRYPTED = null; }
-      return true;
-    } catch(e) {
-      if (attempt === 2) {
-        alert('❌ Mot de passe incorrect après 3 tentatives. Le snapshot ne peut pas être ouvert.');
-        return false;
-      }
+  const result = await showPasswordModal(meta);
+  if (!result || !result.ok) return false;
+  try {
+    const bundle = JSON.parse(result.plain);
+    window.__EMBEDDED_FACT = bundle.fact || [];
+    window.__EMBEDDED_SCHEMA = bundle.schema || {};
+    window.__EMBEDDED_KAM_NOTES = bundle.notes || bundle.kamNotes || {};
+    if (typeof APP !== 'undefined' && APP.kamNotes && window.__EMBEDDED_KAM_NOTES) {
+      Object.assign(APP.kamNotes, window.__EMBEDDED_KAM_NOTES);
     }
+    try { delete window.__EMBEDDED_ENCRYPTED; } catch(_) { window.__EMBEDDED_ENCRYPTED = null; }
+    return true;
+  } catch(e) {
+    console.error('Erreur parsing bundle déchiffré', e);
+    return false;
   }
-  return false;
 }
 
 function tryAutoLoadEmbedded() {
@@ -1626,9 +1686,13 @@ function tryAutoLoadEmbedded() {
 document.addEventListener('DOMContentLoaded', async () => {
   // Mode snapshot CHIFFRÉ : décryptage interactif si __EMBEDDED_ENCRYPTED présent
   if (typeof window.__EMBEDDED_ENCRYPTED === 'string' && window.__EMBEDDED_ENCRYPTED.length) {
+    // Masque l'écran d'upload pendant la saisie du mot de passe (iOS UX)
+    const upScreen = document.getElementById('upload-screen');
+    if (upScreen) upScreen.style.visibility = 'hidden';
     const ok = await tryDecryptEmbedded();
     if (ok && tryAutoLoadEmbedded()) return;
     // Échec → on retombe sur l'écran d'upload normal
+    if (upScreen) upScreen.style.visibility = '';
   }
   // Mode snapshot CLAIR : auto-load si données embarquées en clair
   if (tryAutoLoadEmbedded()) return;
