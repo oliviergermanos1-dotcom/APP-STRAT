@@ -252,6 +252,109 @@ html, body {
   height: 32px;
   background: var(--grey-200);
 }
+/* Autocomplete client — slicer */
+.client-ac-wrap { position: relative; }
+.client-ac-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 320px;
+  max-height: 380px;
+  overflow-y: auto;
+  background: var(--white);
+  border: 1px solid var(--grey-200);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(10,37,64,0.16), 0 2px 6px rgba(10,37,64,0.08);
+  z-index: 600;
+  display: none;
+  font-family: var(--font-body);
+}
+.client-ac-panel.show { display: block; }
+.client-ac-hint {
+  padding: 8px 12px;
+  font-size: 10px;
+  color: var(--grey-500);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  border-bottom: 1px solid var(--grey-100);
+  background: var(--grey-50);
+}
+.client-ac-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--grey-100);
+  transition: background 0.12s;
+}
+.client-ac-item:last-child { border-bottom: none; }
+.client-ac-item:hover,
+.client-ac-item.active { background: var(--gold-50, #FBF3DD); }
+.client-ac-item .ac-tier {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+.client-ac-item .ac-name {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--navy-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.client-ac-item .ac-meta {
+  font-size: 10.5px;
+  color: var(--grey-500);
+  margin-top: 1px;
+  font-weight: 400;
+}
+.client-ac-item .ac-ca {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--navy-700);
+  font-family: var(--font-mono, monospace);
+  text-align: right;
+}
+.client-ac-empty {
+  padding: 14px 12px;
+  text-align: center;
+  color: var(--grey-400);
+  font-size: 12px;
+  font-style: italic;
+}
+.client-ac-foot {
+  padding: 7px 12px;
+  border-top: 1px solid var(--grey-100);
+  background: var(--grey-50);
+  font-size: 10.5px;
+  color: var(--grey-600);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.client-ac-foot .ac-filter-btn {
+  background: transparent;
+  border: 1px solid var(--navy-700);
+  color: var(--navy-700);
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.client-ac-foot .ac-filter-btn:hover { background: var(--navy-700); color: white; }
 .btn-reset-filters {
   margin-left: auto;
   background: transparent;
@@ -2424,10 +2527,11 @@ function buildSlicers() {
 
   html += `
     <div class="slicer-divider"></div>
-    <div class="slicer">
+    <div class="slicer client-ac-wrap">
       <span class="slicer-label">Client</span>
-      <input type="search" id="slicer-client" placeholder="Rechercher…" autocomplete="off"
-             style="background:var(--white);border:1px solid var(--grey-200);border-radius:6px;padding:6px 10px;font-family:var(--font-body);font-size:12px;color:var(--grey-900);min-width:140px;outline:none;" />
+      <input type="search" id="slicer-client" placeholder="Rechercher… (3 lettres)" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+             style="background:var(--white);border:1px solid var(--grey-200);border-radius:6px;padding:6px 10px;font-family:var(--font-body);font-size:12px;color:var(--grey-900);min-width:160px;outline:none;" />
+      <div id="client-ac-panel" class="client-ac-panel" role="listbox"></div>
     </div>`;
 
   // Bouton de réinitialisation déplacé dans la sidebar (en haut). Conservé caché ici pour
@@ -2502,14 +2606,166 @@ function buildSlicers() {
       applyFilters();
     });
   }
+  // ===== Autocomplete client (substring match + drill-down 360°) =====
+  const acInput = document.getElementById('slicer-client');
+  const acPanel = document.getElementById('client-ac-panel');
+  let acActiveIdx = -1;
+  let acItems = [];
   let qTimer = null;
-  document.getElementById('slicer-client').addEventListener('input', e => {
+
+  // Normalisation : minuscule + sans accents (combining marks U+0300..U+036F)
+  const norm = (s) => (s || '').toString().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  function buildClientPool() {
+    // Source : clients agrégés courants (tier/score/CA déjà calculés)
+    if (Array.isArray(APP.clientsAgg) && APP.clientsAgg.length) {
+      return APP.clientsAgg.filter(c => c && c.CLIENT)
+        .map(c => ({ name: c.CLIENT, ca: c.CA_N || 0, tier: c.tier || '', metier: c.METIER || '' }));
+    }
+    // Fallback : extraction depuis le fact (au cas où l'agrégat n'est pas prêt)
+    const map = new Map();
+    for (const r of APP.data.fact) {
+      if (!r.CLIENT) continue;
+      const cur = map.get(r.CLIENT) || { name: r.CLIENT, ca: 0, tier: '', metier: r.METIER || '' };
+      cur.ca += (r.MONTANT || 0);
+      map.set(r.CLIENT, cur);
+    }
+    return [...map.values()];
+  }
+
+  function renderACPanel(query) {
+    const pool = buildClientPool();
+    const q = norm(query);
+    let matches;
+    if (!q) {
+      matches = [...pool].sort((a,b) => b.ca - a.ca).slice(0, 12);
+    } else {
+      matches = pool.filter(c => norm(c.name).includes(q))
+        .sort((a,b) => b.ca - a.ca).slice(0, 12);
+    }
+    acItems = matches;
+    acActiveIdx = -1;
+
+    if (matches.length === 0) {
+      acPanel.innerHTML = `<div class="client-ac-empty">Aucun client ne correspond à "${(query || '').replace(/[<>]/g,'')}"</div>`;
+    } else {
+      const hint = q
+        ? `${matches.length} résultat${matches.length > 1 ? 's' : ''}${matches.length === 12 ? ' (top 12)' : ''}`
+        : `Top 12 clients par CAP`;
+      acPanel.innerHTML =
+        `<div class="client-ac-hint">${hint} · clic = ouvrir fiche 360°</div>` +
+        matches.map((c, i) => `
+          <div class="client-ac-item" data-idx="${i}" data-client="${c.name.replace(/"/g,'&quot;')}" role="option">
+            ${c.tier ? `<span class="ac-tier tier-${c.tier}">${c.tier}</span>` : `<span class="ac-tier" style="background:var(--grey-200);color:var(--grey-600);">·</span>`}
+            <div style="flex:1;min-width:0;overflow:hidden;">
+              <div class="ac-name">${c.name}</div>
+              ${c.metier ? `<div class="ac-meta">${c.metier}</div>` : ''}
+            </div>
+            <div class="ac-ca">${fmt.money(c.ca)}</div>
+          </div>`).join('') +
+        `<div class="client-ac-foot">
+          <span>↑↓ naviguer · ⏎ ouvrir · Échap fermer</span>
+          ${q ? `<button class="ac-filter-btn" id="ac-filter-btn" type="button">Filtrer "${q.slice(0,18)}"</button>` : ''}
+        </div>`;
+    }
+    acPanel.classList.add('show');
+  }
+
+  function closeACPanel() {
+    acPanel.classList.remove('show');
+    acActiveIdx = -1;
+  }
+
+  function highlightAC(idx) {
+    const nodes = acPanel.querySelectorAll('.client-ac-item');
+    nodes.forEach((n, i) => n.classList.toggle('active', i === idx));
+    if (idx >= 0 && nodes[idx]) {
+      nodes[idx].scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function selectAC(idx) {
+    if (idx < 0 || idx >= acItems.length) return;
+    const clientName = acItems[idx].name;
+    closeACPanel();
+    acInput.value = '';
+    if (typeof openClientModal === 'function') {
+      openClientModal(clientName);
+    }
+  }
+
+  function applyTextFilter(v) {
+    APP.filters.CLIENT_Q = (v || '').trim();
+    applyFilters();
+  }
+
+  acInput.addEventListener('focus', () => renderACPanel(acInput.value));
+
+  acInput.addEventListener('input', e => {
     clearTimeout(qTimer);
     const v = e.target.value;
-    qTimer = setTimeout(() => {
-      APP.filters.CLIENT_Q = v.trim();
-      applyFilters();
-    }, 200);
+    renderACPanel(v);
+    // Filtre textuel global appliqué en debounce (compat existante)
+    qTimer = setTimeout(() => applyTextFilter(v), 250);
+  });
+
+  acInput.addEventListener('keydown', e => {
+    if (!acPanel.classList.contains('show')) {
+      if (e.key === 'ArrowDown') { renderACPanel(acInput.value); e.preventDefault(); return; }
+      if (e.key === 'Enter') { applyTextFilter(acInput.value); return; }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      acActiveIdx = Math.min(acItems.length - 1, acActiveIdx + 1);
+      highlightAC(acActiveIdx);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      acActiveIdx = Math.max(0, acActiveIdx - 1);
+      highlightAC(acActiveIdx);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (acActiveIdx >= 0) {
+        selectAC(acActiveIdx);
+      } else if (acItems.length === 1) {
+        selectAC(0);
+      } else {
+        // Pas de sélection : applique le filtre texte
+        applyTextFilter(acInput.value);
+        closeACPanel();
+      }
+    } else if (e.key === 'Escape') {
+      closeACPanel();
+      acInput.blur();
+    }
+  });
+
+  // Click sur un item du panneau
+  acPanel.addEventListener('mousedown', e => {
+    // mousedown au lieu de click : empêche le blur de l'input avant le select
+    const item = e.target.closest('.client-ac-item');
+    if (item) {
+      e.preventDefault();
+      const idx = parseInt(item.dataset.idx, 10);
+      selectAC(idx);
+      return;
+    }
+    const filterBtn = e.target.closest('#ac-filter-btn');
+    if (filterBtn) {
+      e.preventDefault();
+      applyTextFilter(acInput.value);
+      closeACPanel();
+      acInput.blur();
+    }
+  });
+
+  // Click hors panel/input → ferme
+  document.addEventListener('mousedown', e => {
+    if (!acPanel.classList.contains('show')) return;
+    if (e.target === acInput) return;
+    if (acPanel.contains(e.target)) return;
+    closeACPanel();
   });
   document.getElementById('btn-reset').addEventListener('click', () => {
     APP.filters = { ANNEE: yMax, SITE: 'Tout', METIER: 'Tout', LIBELLE: 'Tout', MOIS_MAX: moisMaxDefault, PERIODE_MODE: 'cumul', CLIENT_Q: '' };
@@ -2520,6 +2776,7 @@ function buildSlicers() {
     if (metiers.length) document.getElementById('slicer-metier').value = 'Tout';
     if (libelles.length) refreshLibelleOptions('Tout');
     document.getElementById('slicer-client').value = '';
+    closeACPanel();
     applyFilters();
   });
 }
