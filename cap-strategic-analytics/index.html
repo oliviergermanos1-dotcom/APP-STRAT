@@ -948,96 +948,119 @@ table.data tr.highlight { background: var(--gold-50); }
   .grid-5 { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* Bouton menu mobile (hamburger) — affiché uniquement < 900px */
+/* Bouton menu mobile (hamburger) — caché par défaut, affiché en mode mobile
+   via classe body.is-mobile (détectée en JS) ou @media (fallback) */
 .btn-menu-mobile { display: none; }
 
-/* Tablette portrait + mobile <= 900px */
+/* Règles MOBILE — déclenchées soit par body.is-mobile (JS), soit par @media.
+   Sélecteur double pour compatibilité maximale (file:// Android, etc.) */
+body.is-mobile .app-main,
 @media (max-width: 900px) {
-  /* Layout : sidebar devient un drawer hors-écran, slidé via classe .open */
-  .app-main { grid-template-columns: 1fr; position: relative; }
-  .app-sidebar {
+  body:not(.is-desktop-forced) .app-main { grid-template-columns: 1fr; position: relative; }
+}
+body.is-mobile .app-sidebar,
+@media (max-width: 900px) {
+  body:not(.is-desktop-forced) .app-sidebar {
     position: fixed; top: var(--header-h); left: 0; bottom: 0; width: 260px;
     z-index: 90; transform: translateX(-100%); transition: transform 0.25s ease;
     box-shadow: 4px 0 16px rgba(0,0,0,0.15);
   }
-  .app-sidebar.mobile-open { transform: translateX(0); }
-  /* Voile semi-transparent quand drawer ouvert */
+}
+body.is-mobile .app-sidebar.mobile-open,
+@media (max-width: 900px) {
+  body:not(.is-desktop-forced) .app-sidebar.mobile-open { transform: translateX(0); }
+}
+body.is-mobile.mobile-drawer-open::after,
+@media (max-width: 900px) {
   body.mobile-drawer-open::after {
     content:''; position: fixed; inset: var(--header-h) 0 0 0;
-    background: rgba(10,37,64,0.4); z-index: 80;
+    background: rgba(10,37,64,0.5); z-index: 85;
   }
-  /* Bouton burger visible */
-  .btn-menu-mobile {
-    display: inline-flex; align-items: center; justify-content: center;
-    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.20);
-    color: white; width: 38px; height: 38px; border-radius: 6px; cursor: pointer;
-    font-size: 18px; padding: 0; margin-right: 8px;
+}
+body.is-mobile .btn-menu-mobile,
+@media (max-width: 900px) {
+  body:not(.is-desktop-forced) .btn-menu-mobile {
+    display: inline-flex !important;
+    align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25);
+    color: white; width: 42px; height: 42px; border-radius: 6px; cursor: pointer;
+    font-size: 22px; padding: 0; margin-right: 10px; flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
   }
-  /* Header : titre raccourci, certains boutons cachés (gardés pour desktop) */
-  .app-title { margin-left: 12px; }
-  .app-title-main { font-size: 14px; }
-  .app-title-sub { display: none; }
-  .header-actions { gap: 6px; }
-  .btn-header { padding: 7px 10px; font-size: 11px; }
-  .btn-header span:not(:first-child) { display: none; }   /* raccourcir intitulé long */
-  /* Slicers : passe en scroll horizontal pour préserver tous les filtres */
-  .slicer-bar {
+}
+body.is-mobile .btn-menu-mobile:active {
+  background: rgba(255,255,255,0.30);
+}
+body.is-mobile .app-title,
+@media (max-width: 900px) {
+  body:not(.is-desktop-forced) .app-title { margin-left: 12px; }
+  body:not(.is-desktop-forced) .app-title-main { font-size: 14px; }
+  body:not(.is-desktop-forced) .app-title-sub { display: none; }
+}
+body.is-mobile .header-actions,
+@media (max-width: 900px) {
+  body:not(.is-desktop-forced) .header-actions { gap: 6px; }
+  body:not(.is-desktop-forced) .btn-header { padding: 7px 10px; font-size: 11px; }
+}
+body.is-mobile .slicer-bar,
+@media (max-width: 900px) {
+  body:not(.is-desktop-forced) .slicer-bar {
     height: auto; padding: 10px 12px; gap: 10px;
     overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap;
     -webkit-overflow-scrolling: touch;
   }
-  .slicer { flex-shrink: 0; }
-  .slicer select, .slicer input { min-width: 110px; }
-  /* Content : padding réduit */
-  .app-content { padding: 12px; }
-  /* Cards : plus compactes */
-  .card-body { padding: 14px; }
-  .card-header { padding: 10px 14px; }
-  /* KPI : taille de police réduite */
-  .kpi { padding: 14px; }
-  .kpi-value { font-size: 22px; }
-  .kpi-value.small { font-size: 18px; }
-  /* Tables : maintien de scroll horizontal natif */
-  .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table.data { font-size: 11px; min-width: 800px; }
-  table.data th, table.data td { padding: 8px 10px; }
-  /* Modal client : prend tout l'écran sur mobile */
-  #client-modal {
-    padding: 0 !important;
-    align-items: stretch !important;
-  }
-  #client-modal > div {
-    border-radius: 0 !important;
-    max-width: 100% !important;
-    height: 100vh;
-  }
-  #client-modal-body { max-height: calc(100vh - 60px) !important; padding: 14px !important; }
-  /* Synthèse : marge réduite */
-  .page-header { padding: 12px 0; }
+  body:not(.is-desktop-forced) .slicer { flex-shrink: 0; }
+  body:not(.is-desktop-forced) .slicer select,
+  body:not(.is-desktop-forced) .slicer input { min-width: 110px; }
+}
+body.is-mobile .app-content,
+@media (max-width: 900px) {
+  body:not(.is-desktop-forced) .app-content { padding: 12px; }
+  body:not(.is-desktop-forced) .card-body { padding: 14px; }
+  body:not(.is-desktop-forced) .card-header { padding: 10px 14px; }
+  body:not(.is-desktop-forced) .kpi { padding: 14px; }
+  body:not(.is-desktop-forced) .kpi-value { font-size: 22px; }
+  body:not(.is-desktop-forced) .kpi-value.small { font-size: 18px; }
+  body:not(.is-desktop-forced) .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  body:not(.is-desktop-forced) table.data { font-size: 11px; min-width: 800px; }
+  body:not(.is-desktop-forced) table.data th, body:not(.is-desktop-forced) table.data td { padding: 8px 10px; }
+}
+body.is-mobile #client-modal,
+@media (max-width: 900px) {
+  body:not(.is-desktop-forced) #client-modal { padding: 0 !important; align-items: stretch !important; }
+  body:not(.is-desktop-forced) #client-modal > div { border-radius: 0 !important; max-width: 100% !important; height: 100vh; }
+  body:not(.is-desktop-forced) #client-modal-body { max-height: calc(100vh - 60px) !important; padding: 14px !important; }
 }
 
-/* Mobile pur ≤ 768px : grilles à 1 colonne sur tout */
+/* Mobile pur (≤ 768px ou body.is-mobile-small) : grilles 1 colonne */
+body.is-mobile-small .grid-4,
+body.is-mobile-small .grid-3,
+body.is-mobile-small .grid-2,
+body.is-mobile-small .grid-2-1,
+body.is-mobile-small .grid-1-2,
+body.is-mobile-small .grid-5,
 @media (max-width: 768px) {
-  .grid-4, .grid-3, .grid-2, .grid-2-1, .grid-1-2, .grid-5 { grid-template-columns: 1fr; }
-  /* Synthèse : grille vigilance/leviers sur 1 colonne */
-  .app-content [style*="grid-template-columns:1fr 1fr"] { grid-template-columns: 1fr !important; }
-  /* En-tête briefing : pile vertical au lieu de 2 colonnes */
-  .app-content [style*="justify-content:space-between"][style*="align-items:flex-end"] {
+  body:not(.is-desktop-forced) .grid-4,
+  body:not(.is-desktop-forced) .grid-3,
+  body:not(.is-desktop-forced) .grid-2,
+  body:not(.is-desktop-forced) .grid-2-1,
+  body:not(.is-desktop-forced) .grid-1-2,
+  body:not(.is-desktop-forced) .grid-5 { grid-template-columns: 1fr; }
+  body:not(.is-desktop-forced) .app-content [style*="grid-template-columns:1fr 1fr"] { grid-template-columns: 1fr !important; }
+  body:not(.is-desktop-forced) .app-content [style*="justify-content:space-between"][style*="align-items:flex-end"] {
     flex-direction: column !important;
     align-items: flex-start !important;
     gap: 12px !important;
   }
 }
 
-/* Très petit mobile ≤ 480px */
 @media (max-width: 480px) {
-  .app-title-main { font-size: 12px; letter-spacing: 0.5px; }
-  .btn-header { padding: 6px 8px; font-size: 10px; }
-  .btn-header.gold { padding: 6px 10px; }
-  .kpi-value { font-size: 20px; }
-  .card-title { font-size: 13px; }
-  .page-title { font-size: 18px; }
-  .app-content { padding: 8px; }
+  body:not(.is-desktop-forced) .app-title-main { font-size: 12px; letter-spacing: 0.5px; }
+  body:not(.is-desktop-forced) .btn-header { padding: 6px 8px; font-size: 10px; }
+  body:not(.is-desktop-forced) .kpi-value { font-size: 20px; }
+  body:not(.is-desktop-forced) .card-title { font-size: 13px; }
+  body:not(.is-desktop-forced) .page-title { font-size: 18px; }
+  body:not(.is-desktop-forced) .app-content { padding: 8px; }
 }
 
 /* Print */
@@ -2833,6 +2856,24 @@ async function exportInteractiveHTML() {
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
   }
 }
+
+// ============================================================
+// DÉTECTION MOBILE (JS) — fiable même sur Android où certaines @media
+// peuvent ne pas se déclencher en mode file://
+// ============================================================
+function applyResponsiveClasses() {
+  const w = window.innerWidth || document.documentElement.clientWidth;
+  const ua = navigator.userAgent || '';
+  // Détection combinée : largeur d'écran + user agent (au cas où w est faussé)
+  const isTouch = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  const isMobile = w <= 900 || (isTouch && w <= 1100);
+  const isMobileSmall = w <= 768;
+  document.body.classList.toggle('is-mobile', isMobile);
+  document.body.classList.toggle('is-mobile-small', isMobileSmall);
+}
+applyResponsiveClasses();
+window.addEventListener('resize', applyResponsiveClasses);
+window.addEventListener('orientationchange', applyResponsiveClasses);
 
 function attachEvents() {
   document.getElementById('btn-print').addEventListener('click', () => window.print());
