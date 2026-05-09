@@ -2570,14 +2570,23 @@ function lookbackLabel() {
   const m = f.MOIS_MAX || 12;
   const startM = (f.PERIODE_MODE === 'mois') ? m : 1;
   const startY = f.ANNEE - 1;
-  // 12 mois : [startY-startM ; startY-(startM-1+12) wrap]
-  // Plus simple : du même mois N-1 au mois précédant le début de période
-  // = [startY-startM, ..., startY-12 ou refY-(startM-1)]
-  // On affiche en bornes calendaires : "{startM} {startY} → {endM} {endY}" où endM = startM-1 (ou 12 de l'an précédent)
   let endM = startM - 1, endY = startY;
   if (endM <= 0) { endM = 12; endY = startY - 1; }
-  // Pour le mode 'cumul' (startM=1), la fenêtre est exactement l'année N-1 complète
   if (startM === 1) return `Année ${startY} complète (Jan → Déc)`;
+  return `${moisAbr[startM-1]} ${startY} → ${moisAbr[endM-1]} ${endY}`;
+}
+
+// Libellé de la fenêtre lookback 36 mois (3 ans précédant la période)
+// Utilisé pour la définition métier AGL "vrai nouveau / réactivé long-dormant"
+function lookback36Label() {
+  const f = APP.filters;
+  const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+  const m = f.MOIS_MAX || 12;
+  const startM = (f.PERIODE_MODE === 'mois') ? m : 1;
+  const startY = f.ANNEE - 3;
+  // 36 mois exacts : du mois startM de l'année N-3 jusqu'au mois précédant le début de période
+  let endM = startM - 1, endY = f.ANNEE;
+  if (endM <= 0) { endM = 12; endY = f.ANNEE - 1; }
   return `${moisAbr[startM-1]} ${startY} → ${moisAbr[endM-1]} ${endY}`;
 }
 
@@ -3574,14 +3583,14 @@ function render_cockpit() {
             const lbl = periodLabel();
             return `
               <div class="kpi-value gold" style="font-size:36px;">${fmt.pct(pctTrueNew)}</div>
-              <div class="kpi-bench">part du CA <strong>${lbl.longue}</strong> réalisée par des clients dont c'est la <strong>toute 1ʳᵉ facture</strong> (jamais facturé avant)</div>
+              <div class="kpi-bench">part du CA <strong>${lbl.longue}</strong> réalisée par des clients dont c'est la <strong>toute 1ʳᵉ facture jamais émise</strong></div>
               <div class="divider"></div>
               <div class="text-sm" style="line-height:1.7;">
-                <div><strong style="color:var(--gold-700);">${trueNewList.length}</strong> vrais nouveaux clients <span class="text-muted">(1ʳᵉ facture jamais émise)</span></div>
-                <div><strong style="color:var(--evol-new);">${reactivatedList.length}</strong> clients réactivés <span class="text-muted">(${fmt.pct(pctReact)} du CA — déjà facturé avant, absence 12 à 36 mois)</span></div>
+                <div><strong style="color:var(--gold-700);">${trueNewList.length}</strong> vrais nouveaux clients <span class="text-muted">(aucun historique de facturation avant la période)</span></div>
+                <div><strong style="color:var(--evol-new);">${reactivatedList.length}</strong> clients réactivés <span class="text-muted">(${fmt.pct(pctReact)} du CA — facturaient avant ${APP.filters.ANNEE - 3}, absents <strong>≥ 36 mois</strong>, reviennent maintenant)</span></div>
               </div>
-              <div class="text-sm text-muted" style="margin-top:8px;font-style:italic;">Fenêtre de vérification : ${lookbackLabel()}</div>
-              <a href="#cockpit-new-clients-table" onclick="document.querySelector('#cockpit-new-clients-table')?.scrollIntoView({behavior:'smooth',block:'start'});return false;" style="display:inline-block;margin-top:12px;font-size:12px;color:var(--gold-700);font-weight:600;text-decoration:none;border-bottom:1px dashed var(--gold-500);cursor:pointer;">📋 Voir la liste détaillée des ${trueNewList.length + reactivatedList.length} clients ↓</a>
+              <div class="text-sm text-muted" style="margin-top:8px;font-style:italic;">📐 Fenêtre de vérification 36 mois : <strong>${lookback36Label()}</strong> — aucune activité dans cette fenêtre = "long-dormant" ou "vrai nouveau"</div>
+              <a href="#cockpit-new-clients-table" onclick="document.querySelector('#cockpit-new-clients-table')?.scrollIntoView({behavior:'smooth',block:'start'});return false;" style="display:block;margin-top:14px;padding:10px 14px;background:linear-gradient(135deg,var(--gold-500),var(--gold-300));color:var(--navy-900);font-weight:700;font-size:13px;text-align:center;text-decoration:none;border-radius:6px;cursor:pointer;letter-spacing:0.3px;box-shadow:0 2px 6px rgba(212,162,78,0.3);">📋 Voir la liste détaillée des ${trueNewList.length + reactivatedList.length} clients (en bas de page) ↓</a>
             `;
           })()}
         </div>
@@ -3623,7 +3632,7 @@ function render_cockpit() {
         <div class="card">
           <div class="card-header">
             <div class="card-title" style="color:var(--evol-new);">♻ Clients réactivés</div>
-            <div class="text-sm text-muted">${reactList.length} clients — absence de 12 à 36 mois (hiatus court)</div>
+            <div class="text-sm text-muted">${reactList.length} clients — absence ≥ 36 mois (long-dormants reviennent)</div>
           </div>
           <div class="card-body" style="padding:0;">
             <div class="tbl-wrap" style="max-height:380px;">
@@ -4378,7 +4387,7 @@ function render_growth() {
     <div class="card mt-3">
       <div class="card-header">
         <div class="card-title">♻ Clients réactivés — déjà clients par le passé, reviennent</div>
-        <div class="text-sm text-muted">${reactivated.length} clients — absence de 12 à 36 mois (hiatus court) — triés par CA décroissant</div>
+        <div class="text-sm text-muted">${reactivated.length} clients — absence ≥ 36 mois (long-dormants reviennent) — triés par CA décroissant</div>
       </div>
       <div class="card-body" style="padding:0;">
         <div class="tbl-wrap" style="max-height:400px;">
