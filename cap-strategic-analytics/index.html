@@ -2460,8 +2460,6 @@ const PAGES = [
     explanation: "Visualisation de la saisonnalité de chaque métier AGL sur les 12 mois. Permet d'identifier les pics et creux par activité (ex. Cacao en T4-T1, Aérien en T4 e-commerce) pour calibrer les ressources opérationnelles et commerciales." },
   { id: 'filiere', num: '11', title: 'Filières clients (cacao, coton, pétrole…)', subtitle: 'Vue secteur — au-delà du métier AGL', section: 'Intelligence',
     explanation: "Regroupe les clients par filière sectorielle (Cacao, Coton, Pétrole/Énergie, Hévéa/Caoutchouc, Distribution…) en se basant sur les noms de raison sociale. Permet de mesurer l'exposition d'AGL à chaque filière et l'impact des cycles sectoriels." },
-  { id: 'corridor', num: '12', title: 'Corridors logistiques', subtitle: 'Flux Abidjan ↔ Mali / Burkina / Liberia', section: 'Intelligence',
-    explanation: "Analyse des corridors logistiques régionaux : volume CAP par corridor (origine site × destination filière), évolution annuelle, clients structurants. Idéal pour la stratégie commerciale régionale et l'arbitrage des moyens." },
   { id: 'strategie', num: '13', title: 'Suivi stratégie AGL', subtitle: 'Objectifs annuels vs réalisé', section: 'Intelligence',
     explanation: "Tableau de bord du suivi des objectifs stratégiques AGL définis manuellement (cible CA, cible métier, cible géographique). Mesure en temps réel l'écart entre la trajectoire et les ambitions, avec projection de fin d'année." },
   { id: 'briefing', num: '14', title: 'Briefing exécutif COMEX', subtitle: 'Note 1-page consolidée — toutes les pages en synthèse', section: 'Pilotage',
@@ -7304,110 +7302,11 @@ function render_filiere() {
 }
 
 // ============================================================
-// PAGE 12 — CORRIDORS LOGISTIQUES
-// Flux Origin (site AGL) → Filière cliente (matière première)
-// ============================================================
-function render_corridor() {
-  const p = PAGES[12];
-  const el = document.getElementById('page-corridor');
-  const rows = APP.filtered;
-  const all = APP.data.fact;
-  const y = APP.filters.ANNEE;
-
-  // Construction matrice site × filière
-  const matrix = {};
-  const sites = new Set();
-  const filieresSet = new Set();
-  rows.forEach(r => {
-    if (!r.SITE || !r.CLIENT) return;
-    const fil = CALC.detectFiliere(r.CLIENT);
-    sites.add(r.SITE);
-    filieresSet.add(fil.code);
-    const key = r.SITE + '|' + fil.code;
-    if (!matrix[key]) matrix[key] = { site: r.SITE, filiere: fil, ca: 0, caN1: 0, clients: new Set() };
-    matrix[key].ca += r.MONTANT || 0;
-    matrix[key].clients.add(r.CLIENT);
-  });
-  // CAP N-1 sur les mêmes filtres
-  const monthSet = APP.periodMonths;
-  for (let i = 0; i < all.length; i++) {
-    const r = all[i];
-    if (r.ANNEE !== y - 1) continue;
-    if (!monthSet.has(r.MOIS)) continue;
-    if (!r.SITE || !r.CLIENT) continue;
-    const fil = CALC.detectFiliere(r.CLIENT);
-    const key = r.SITE + '|' + fil.code;
-    if (!matrix[key]) matrix[key] = { site: r.SITE, filiere: fil, ca: 0, caN1: 0, clients: new Set() };
-    matrix[key].caN1 += r.MONTANT || 0;
-  }
-
-  const corridors = Object.values(matrix).filter(c => c.ca > 0 || c.caN1 > 0);
-  corridors.sort((a,b) => b.ca - a.ca);
-  const totalCA = corridors.reduce((s,c) => s + c.ca, 0);
-
-  el.innerHTML = `
-    ${pageHeader(p)}
-
-    ${(() => {
-      const ins = [];
-      if (corridors.length === 0) return '';
-      const top = corridors[0];
-      const topPct = totalCA > 0 ? top.ca / totalCA : 0;
-      ins.push({ type:'neutre', constat:`<strong>${corridors.length} corridors actifs</strong> identifiés. Corridor #1 : <strong>${top.site} ↔ ${top.filiere.label}</strong> avec ${fmt.money(top.ca)} XOF (${fmt.pct(topPct)} du CA).`, implication:`Un corridor combine un site AGL (origine logistique) et une filière cliente (matière première). Permet de visualiser les flux structurants.`, action:`Cartographier les ressources opérationnelles par corridor (entrepôt, équipe, transport).` });
-      if (topPct >= 0.25) ins.push({ type:'risque', constat:`Le corridor n°1 concentre <strong>${fmt.pct(topPct)}</strong> du CA — sur-dépendance.`, implication:`Une disruption sur ce corridor (panne site, crise sectorielle) impacte directement le P&L AGL.`, action:`Plan de continuité dédié + diversification commerciale sur d'autres corridors.` });
-      // Corridors en forte croissance
-      const growing = corridors.filter(c => c.caN1 > 0 && (c.ca - c.caN1)/c.caN1 >= 0.20).sort((a,b) => ((b.ca-b.caN1)/b.caN1) - ((a.ca-a.caN1)/a.caN1));
-      if (growing.length > 0) ins.push({ type:'opportunite', constat:`<strong>${growing.length} corridor(s) en forte croissance</strong> (≥+20%). Top : ${growing.slice(0,3).map(c => c.site + ' ↔ ' + c.filiere.label.replace(/^[^\s]+\s/, '')).join(', ')}.`, implication:`Corridors porteurs où renforcer l'effort commercial / opérationnel.`, action:`Prioriser les ressources et la prospection sur ces axes.` });
-      return analyseToSynthese(ins, '🎯 Synthèse stratégique — Corridors logistiques');
-    })()}
-
-    <div class="card mt-3">
-      <div class="card-header">
-        <div class="card-title">Top corridors — Site AGL × Filière cliente</div>
-        <div class="text-sm text-muted">${corridors.length} corridors actifs sur la période, triés par CAP décroissant. CAP N-1 sur les mêmes mois.</div>
-      </div>
-      <div class="card-body" style="padding:0;">
-        <div class="tbl-wrap" style="max-height:600px;">
-          <table class="data">
-            <thead><tr>
-              <th>#</th>
-              <th>Site AGL</th>
-              <th>Filière cliente</th>
-              <th class="num">Clients</th>
-              <th class="num">CAP ${APP.filters.ANNEE}</th>
-              <th class="num">CAP ${APP.filters.ANNEE - 1}</th>
-              <th class="num">Évol.</th>
-              <th class="num">% CA</th>
-            </tr></thead>
-            <tbody>
-              ${corridors.slice(0, 50).map((c, i) => {
-                const evol = c.caN1 > 0 ? (c.ca - c.caN1) / c.caN1 : null;
-                const color = CALC.couleurEvolution(c.ca, c.caN1, evol);
-                return `<tr>
-                  <td class="text-muted">${i+1}</td>
-                  <td><strong>${c.site}</strong></td>
-                  <td>${c.filiere.label}</td>
-                  <td class="num">${c.clients.size}</td>
-                  <td class="num">${fmt.money(c.ca)}</td>
-                  <td class="num text-muted">${fmt.money(c.caN1)}</td>
-                  <td class="num">${evol === null ? '—' : `<span class="evol-cell" style="background:${color};color:${['#F4D35E'].includes(color)?'#000':'white'};">${fmt.signed(evol*100)}</span>`}</td>
-                  <td class="num">${totalCA > 0 ? fmt.pct(c.ca/totalCA) : '—'}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// ============================================================
 // PAGE 13 — SUIVI DE LA STRATÉGIE AGL
 // Tableau de bord des objectifs annuels (modifiables côté UI) vs réalisé
 // ============================================================
 function render_strategie() {
-  const p = PAGES[13];
+  const p = PAGES.find(x => x.id === 'strategie');
   const el = document.getElementById('page-strategie');
   const rows = APP.filtered;
   const all = APP.data.fact;
@@ -7540,7 +7439,7 @@ function editObjectif(key, currentValue) {
 // Lecture COMEX < 5 min · imprimable A4 · sans graphique.
 // ============================================================
 function render_briefing() {
-  const p = PAGES[14];
+  const p = PAGES.find(x => x.id === 'briefing');
   const el = document.getElementById('page-briefing');
   const rows = APP.filtered;
   const all = APP.data.fact;
