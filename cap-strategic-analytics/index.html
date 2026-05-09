@@ -2273,6 +2273,7 @@ function applyFilters() {
   const lookbackByClient = {};       // a facturé au moins 1 fois dans les 12 derniers mois
   const lookback36ByClient = {};     // a facturé au moins 1 fois dans les 36 derniers mois précédant la période
   const histMetiersByClient = {};    // ensemble des métiers facturés AVANT la période courante
+  const histMetiersCAByClient = {};  // CAP cumulé par métier historique → permet de trouver le métier dominant
   for (let i = 0; i < APP.data.fact.length; i++) {
     const r = APP.data.fact[i];
     if (!r.CLIENT) continue;
@@ -2284,6 +2285,8 @@ function applyFilters() {
     if (key < periodStartKey && r.METIER) {
       if (!histMetiersByClient[r.CLIENT]) histMetiersByClient[r.CLIENT] = new Set();
       histMetiersByClient[r.CLIENT].add(r.METIER);
+      if (!histMetiersCAByClient[r.CLIENT]) histMetiersCAByClient[r.CLIENT] = {};
+      histMetiersCAByClient[r.CLIENT][r.METIER] = (histMetiersCAByClient[r.CLIENT][r.METIER] || 0) + (r.MONTANT || 0);
     }
   }
 
@@ -2326,25 +2329,39 @@ function applyFilters() {
     c.activeInLookback = !!lookbackByClient[c.CLIENT];
     c.activeInLookback36 = !!lookback36ByClient[c.CLIENT];
 
-    // ===== DÉFINITIONS MÉTIER AGL (règle Olivier) =====
-    //   isTrueNew  : actif sur la période ET aucune activité dans les 36 derniers
-    //                mois précédant la période. Inclut donc les "vraiment nouveaux"
-    //                (jamais facturé) ET les "réactivés long-dormants" (3+ ans
-    //                d'absence) — assimilés à des prospects frais commercialement.
-    //   isTrueLost : aucune activité sur la période courante ET dernière facture
-    //                remontant à plus de 9 mois (pas de transaction depuis 9+ mois).
-    //   isReactivated : actif sur la période, aucune activité 12 derniers mois
-    //                MAIS activité dans la fenêtre 12-36 mois (court-dormant).
-    //                Maintenu pour analyse fine (entre récurrent et vrai nouveau).
-    c.isTrueNew     = c.CA_N > 0 && !c.activeInLookback36;
-    c.isReactivated = c.CA_N > 0 && !c.activeInLookback && c.activeInLookback36;
+    // ===== DÉFINITIONS MÉTIER AGL (raffinées) =====
+    //   isTrueNew     : sa TOUTE PREMIÈRE facture (toutes années confondues)
+    //                   tombe dans la période courante. C'est la définition
+    //                   stricte : un client qui a facturé ne serait-ce qu'une
+    //                   fois en 2022 NE PEUT PAS être "vrai nouveau" en 2026.
+    //   isReactivated : déjà facturé avant, mais aucune activité dans les 36
+    //                   derniers mois précédant la période. Considéré
+    //                   commercialement comme prospect frais (long absent).
+    //   isShortHiatus : déjà facturé, absent 12-36 mois (court-dormant).
+    //   isTrueLost    : aucune activité sur la période courante ET dernière
+    //                   facture remontant à plus de 9 mois.
+    const hadHistory = c.firstYearMonth !== null && c.firstYearMonth < periodStartKey;
+    c.isTrueNew     = c.CA_N > 0 && !hadHistory;
+    c.isReactivated = c.CA_N > 0 && hadHistory && !c.activeInLookback36;
+    c.isShortHiatus = c.CA_N > 0 && hadHistory && !c.activeInLookback && c.activeInLookback36;
     c.isTrueLost    = c.CA_N === 0 && c.monthsSinceLastTx !== null && c.monthsSinceLastTx > 9;
 
-    // Cross-selling NOUVEAU : métiers facturés sur la période et JAMAIS facturés avant
-    if (c.CA_N > 0) {
+    // Métier historique dominant (par CAP cumulé sur l'historique avant période)
+    const histCA = histMetiersCAByClient[c.CLIENT];
+    if (histCA) {
+      const sorted = Object.entries(histCA).sort((a,b) => b[1] - a[1]);
+      c.dominantHistMetier = sorted.length ? sorted[0][0] : null;
+    } else {
+      c.dominantHistMetier = null;
+    }
+
+    // Cross-selling NOUVEAU : métiers facturés sur la période et JAMAIS facturés
+    // avant. CONDITION CRITIQUE : le client doit avoir UN HISTORIQUE non vide,
+    // sinon il s'agit d'un nouveau client (acquisition), pas d'un cross-sell.
+    if (c.CA_N > 0 && hadHistory && histMetiersByClient[c.CLIENT]) {
       const hist = histMetiersByClient[c.CLIENT];
       const currentMet = c.metiers || new Set();
-      c.newMetiers = [...currentMet].filter(m => !hist || !hist.has(m));
+      c.newMetiers = [...currentMet].filter(m => !hist.has(m));
     } else {
       c.newMetiers = [];
     }
@@ -3630,29 +3647,39 @@ function renderScatter(clients) {
   if (!ctx) return;
   const c = chartColors();
   const traces = {};
+  // Cap visuel des évolutions : un client avec CA_N1 microscopique (ex. 100 XOF
+  // d'avoir résiduel) qui passe à 100 M XOF en N produit une évolution de
+  // 100 millions de %, ce qui aplatit toute la lecture du graphique.
+  // On clampe à [-100% ; +300%] et on flague les outliers dans le tooltip.
+  const Y_MAX = 300, Y_MIN = -100;
   clients.forEach(cli => {
     if (!traces[cli.quadrant]) {
       traces[cli.quadrant] = { x: [], y: [], text: [], size: [], color: cli.quadrantColor };
     }
+    const yReal = cli.evol === null ? 0 : cli.evol * 100;
+    let yClamped = yReal;
+    let outlierTag = '';
+    if (yReal > Y_MAX) { yClamped = Y_MAX; outlierTag = ` <i>(réel ${fmt.signed(yReal)} — clampé)</i>`; }
+    else if (yReal < Y_MIN) { yClamped = Y_MIN; outlierTag = ` <i>(réel ${fmt.signed(yReal)} — clampé)</i>`; }
     traces[cli.quadrant].x.push(cli.CA_N);
-    traces[cli.quadrant].y.push(cli.evol === null ? 0 : cli.evol * 100);
-    traces[cli.quadrant].text.push(`<b>${cli.CLIENT}</b><br>CA: ${fmt.moneyFull(cli.CA_N)}<br>Évol: ${cli.evol === null ? 'N/A' : fmt.signed(cli.evol*100)}<br>Quadrant: ${cli.quadrant}`);
+    traces[cli.quadrant].y.push(yClamped);
+    traces[cli.quadrant].text.push(`<b>${cli.CLIENT}</b><br>CA: ${fmt.moneyFull(cli.CA_N)}<br>Évol: ${cli.evol === null ? 'N/A' : fmt.signed(yReal) + '%'}${outlierTag}<br>Case: ${cli.quadrant}`);
     traces[cli.quadrant].size.push(Math.max(8, Math.min(40, Math.sqrt(cli.nbMois) * 5)));
   });
-  
+
   const data = Object.keys(traces).map(q => ({
     type: 'scatter', mode: 'markers', name: q,
     x: traces[q].x, y: traces[q].y,
     text: traces[q].text, hoverinfo: 'text',
     marker: { color: traces[q].color, size: traces[q].size, opacity: 0.75, line: { color: 'white', width: 1 } }
   }));
-  
+
   const layout = {
     showlegend: true,
     legend: { orientation: 'h', y: -0.2, font: { size: 10, family: 'Inter' } },
     margin: { l: 60, r: 20, t: 20, b: 60 },
     xaxis: { title: { text: 'CA (XOF, échelle log)', font: { size: 11, family: 'Inter' } }, type: 'log', gridcolor: c.grid, tickfont: { size: 10, family: 'JetBrains Mono' } },
-    yaxis: { title: { text: 'Croissance % vs N-1', font: { size: 11, family: 'Inter' } }, gridcolor: c.grid, zeroline: true, zerolinecolor: c.text, zerolinewidth: 2, tickfont: { size: 10, family: 'JetBrains Mono' }, ticksuffix: '%' },
+    yaxis: { title: { text: 'Croissance % vs N-1 (clampée [-100% ; +300%])', font: { size: 11, family: 'Inter' } }, range: [Y_MIN - 10, Y_MAX + 10], gridcolor: c.grid, zeroline: true, zerolinecolor: c.text, zerolinewidth: 2, tickfont: { size: 10, family: 'JetBrains Mono' }, ticksuffix: '%' },
     plot_bgcolor: 'rgba(0,0,0,0)',
     paper_bgcolor: 'rgba(0,0,0,0)',
     font: { family: 'Inter', size: 11 }
@@ -4004,7 +4031,7 @@ function render_growth() {
                   <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
                   <td><span style="color:var(--gold-700);font-weight:600;">${c.newMetiers.join(', ')}</span></td>
-                  <td class="text-sm text-muted">${c.METIER || '—'}</td>
+                  <td class="text-sm text-muted">${c.dominantHistMetier || '—'}</td>
                   <td class="num">${fmt.money(c.CA_N)}</td>
                 </tr>`).join('')}
               </tbody>
