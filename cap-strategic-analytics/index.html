@@ -3115,7 +3115,8 @@ async function exportInteractiveHTML() {
     const factJson = JSON.stringify(factSerializable).replace(/<\/script>/gi, '<\\/script>');
     const schemaJson = JSON.stringify(APP.schema || {}).replace(/<\/script>/gi, '<\\/script>');
     const metaJson = JSON.stringify(meta).replace(/<\/script>/gi, '<\\/script>');
-    const dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées (snapshot ${meta.exportDate}) -->\n<script id="embedded-data">\nwindow.__EMBEDDED_FACT = ${factJson};\nwindow.__EMBEDDED_SCHEMA = ${schemaJson};\nwindow.__EMBEDDED_META = ${metaJson};\nconsole.info('🎯 CAP Strategic Analytics — Mode snapshot · ' + window.__EMBEDDED_FACT.length + ' lignes embarquées');\n<\/script>\n`;
+    const notesJson = JSON.stringify(APP.kamNotes || {}).replace(/<\/script>/gi, '<\\/script>');
+    const dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées (snapshot ${meta.exportDate}) -->\n<script id="embedded-data">\nwindow.__EMBEDDED_FACT = ${factJson};\nwindow.__EMBEDDED_SCHEMA = ${schemaJson};\nwindow.__EMBEDDED_META = ${metaJson};\nwindow.__EMBEDDED_KAM_NOTES = ${notesJson};\nconsole.info('🎯 CAP Strategic Analytics — Mode snapshot · ' + window.__EMBEDDED_FACT.length + ' lignes embarquées · ' + Object.keys(window.__EMBEDDED_KAM_NOTES||{}).length + ' notes KAM');\n<\/script>\n`;
     html = html.replace(/<\/head>/i, dataPayload + '</head>');
 
     if (btn) btn.textContent = '⏳ Génération du fichier...';
@@ -3447,6 +3448,51 @@ function synthese(s, titre) {
 // DRILL-THROUGH CLIENT — modal vue 360° complète
 // Click sur un nom de client (toute classe .client-link) → ouvre modal
 // ============================================================
+// ============================================================
+// ANNOTATIONS KAM — notes éditables par client (localStorage)
+// Recommandation expert : "Mode hors-ligne éditable" pour les KAM
+// Notes embarquées dans l'export snapshot pour partage avec contexte.
+// ============================================================
+APP.kamNotes = {};
+try {
+  const saved = localStorage.getItem('cap_kam_notes');
+  if (saved) APP.kamNotes = JSON.parse(saved) || {};
+} catch(e) { APP.kamNotes = {}; }
+// Charger depuis snapshot embarqué si disponible (priorité au snapshot)
+if (window.__EMBEDDED_KAM_NOTES) {
+  Object.assign(APP.kamNotes, window.__EMBEDDED_KAM_NOTES);
+}
+
+function getClientNote(clientName) {
+  return APP.kamNotes[clientName] || null;
+}
+
+function saveClientNote(clientName, text, author) {
+  if (!text || !text.trim()) {
+    delete APP.kamNotes[clientName];
+  } else {
+    APP.kamNotes[clientName] = {
+      text: text.trim(),
+      author: author || 'KAM',
+      updated: new Date().toISOString()
+    };
+  }
+  try { localStorage.setItem('cap_kam_notes', JSON.stringify(APP.kamNotes)); } catch(e) {}
+}
+
+function deleteClientNote(clientName) {
+  delete APP.kamNotes[clientName];
+  try { localStorage.setItem('cap_kam_notes', JSON.stringify(APP.kamNotes)); } catch(e) {}
+}
+
+function noteIndicator(clientName) {
+  const note = getClientNote(clientName);
+  if (!note) return '';
+  const date = note.updated ? new Date(note.updated).toLocaleDateString('fr-FR') : '';
+  const preview = (note.text || '').slice(0, 80) + (note.text.length > 80 ? '…' : '');
+  return `<span title="Note KAM (${date}) : ${preview.replace(/"/g, '&quot;')}" style="cursor:help;font-size:13px;">📝</span>`;
+}
+
 function openClientModal(clientName) {
   const c = APP.clientsAgg.find(x => x.CLIENT === clientName);
   if (!c) return;
@@ -3524,6 +3570,21 @@ function openClientModal(clientName) {
       <div class="kpi"><div class="kpi-label">Score / Tier</div><div class="kpi-value"><span class="tier-${c.tier}">${c.tier}</span> ${c.score}/100</div><div class="kpi-bench">Case : ${c.quadrant}</div></div>
       <div class="kpi"><div class="kpi-label">Health Score</div><div class="kpi-value">${hScore}</div><div class="kpi-bench">${hStatus}</div></div>
     </div>
+
+    ${(() => {
+      const note = getClientNote(c.CLIENT);
+      return `
+      <div id="kam-note-block" style="background:rgba(212,162,78,0.06);border-left:3px solid var(--gold-500);border-radius:0 6px 6px 0;padding:14px 18px;margin-bottom:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-size:11px;font-weight:700;color:var(--gold-700);letter-spacing:1.2px;text-transform:uppercase;">📝 Notes KAM ${note ? `<span style="font-weight:400;text-transform:none;color:var(--grey-500);font-size:10px;">· dernière édition : ${new Date(note.updated).toLocaleDateString('fr-FR')}</span>` : ''}</div>
+          <div style="display:flex;gap:6px;">
+            <button id="kam-note-edit-btn" style="background:var(--gold-500);color:var(--navy-900);border:none;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;">${note ? '✏️ Modifier' : '➕ Ajouter une note'}</button>
+            ${note ? `<button id="kam-note-delete-btn" style="background:rgba(214,40,40,0.12);color:var(--evol-strong-dn);border:1px solid rgba(214,40,40,0.20);padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;">🗑 Supprimer</button>` : ''}
+          </div>
+        </div>
+        <div id="kam-note-display" style="font-size:13px;line-height:1.6;color:var(--grey-900);white-space:pre-wrap;">${note ? note.text.replace(/</g, '&lt;') : `<em style="color:var(--grey-500);">Aucune note pour ce client. Cliquez "Ajouter une note" pour démarrer (visible par tous les utilisateurs du snapshot — sauvegarde locale + embarquée à l'export).</em>`}</div>
+      </div>`;
+    })()}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;">
       <div class="card">
@@ -3613,6 +3674,24 @@ function openClientModal(clientName) {
     btnBC.parentNode.replaceChild(newBtn, btnBC);
     newBtn.addEventListener('click', () => generateBattleCard(c.CLIENT));
   }
+
+  // Boutons Notes KAM
+  const editBtn = document.getElementById('kam-note-edit-btn');
+  if (editBtn) editBtn.addEventListener('click', () => {
+    const existing = getClientNote(c.CLIENT);
+    const current = existing ? existing.text : '';
+    const newText = prompt('📝 Note KAM pour ' + c.CLIENT + '\n\n(visible par tous les utilisateurs du snapshot — sauvegardée localement et embarquée à l\'export HTML)\n\nLaisser vide et OK pour supprimer :', current);
+    if (newText === null) return;  // annulation
+    saveClientNote(c.CLIENT, newText);
+    openClientModal(c.CLIENT);  // re-render pour mettre à jour l'affichage
+  });
+  const delBtn = document.getElementById('kam-note-delete-btn');
+  if (delBtn) delBtn.addEventListener('click', () => {
+    if (confirm('Supprimer la note KAM de ' + c.CLIENT + ' ?')) {
+      deleteClientNote(c.CLIENT);
+      openClientModal(c.CLIENT);
+    }
+  });
 
   // Render charts
   setTimeout(() => {
