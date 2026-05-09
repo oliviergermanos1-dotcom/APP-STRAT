@@ -1162,8 +1162,11 @@ body.presentation-mode .card { box-shadow: 0 8px 24px rgba(10,37,64,0.10); borde
 <div id="client-modal" style="display:none;position:fixed;inset:0;background:rgba(10,37,64,0.75);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:32px;">
   <div style="background:white;width:100%;max-width:1200px;border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,0.4);overflow:hidden;">
     <div style="background:linear-gradient(135deg,var(--navy-900),var(--navy-700));color:white;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;">
-      <div id="client-modal-title" style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--gold-300);"></div>
-      <button onclick="closeClientModal()" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:white;font-size:18px;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:700;">✕ Fermer</button>
+      <div id="client-modal-title" style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--gold-300);flex:1;"></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="client-modal-battle-card" style="background:linear-gradient(135deg,var(--gold-700),var(--gold-500));border:none;color:white;font-size:13px;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;letter-spacing:0.3px;" title="Générer une fiche client A4 imprimable pour visite commerciale">🖨 Battle Card</button>
+        <button onclick="closeClientModal()" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:white;font-size:14px;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;">✕ Fermer</button>
+      </div>
     </div>
     <div id="client-modal-body" style="padding:24px 28px;max-height:calc(100vh - 160px);overflow-y:auto;"></div>
   </div>
@@ -2151,7 +2154,9 @@ const PAGES = [
   { id: 'risques_strategiques', num: '15', title: 'Cartographie des risques stratégiques', subtitle: '10 risques notés et hiérarchisés', section: 'Risques',
     explanation: "Évaluation systématique de 10 risques stratégiques (concentration géographique, sectorielle, commerciale, saisonnalité, vieillissement portefeuille, transactions exceptionnelles, churn, dépendance Top 10…). Chaque risque est noté 0-100 avec un code couleur et une action recommandée." },
   { id: 'anomalies', num: '16', title: 'Détection d\'anomalies', subtitle: 'Pics, chutes brutales, transactions suspectes', section: 'Risques',
-    explanation: "Détection algorithmique des anomalies dans les transactions : pics inhabituels (z-score > 3), chutes brutales (-50% MoM), montants extrêmes, clients ayant changé brutalement de site. Chaque anomalie est typée et expliquée." }
+    explanation: "Détection algorithmique des anomalies dans les transactions : pics inhabituels (z-score > 3), chutes brutales (-50% MoM), montants extrêmes, clients ayant changé brutalement de site. Chaque anomalie est typée et expliquée." },
+  { id: 'velocity', num: '17', title: 'Customer Velocity', subtitle: 'Vitesse de progression entre tiers (rocket clients)', section: 'Clients',
+    explanation: "Analyse de la mobilité des clients dans la matrice tier S/A/B/C/D entre 2 années. Identifie les 'rocket clients' qui montent rapidement, les 'stagnants' qui ne bougent pas, et les 'décliners' qui rétrogradent. Matrice de transition complète." }
 ];
 
 function buildApp() {
@@ -3492,6 +3497,15 @@ function openClientModal(clientName) {
   `;
 
   modal.style.display = 'flex';
+
+  // Bouton Battle Card : génère la fiche A4 imprimable de ce client
+  const btnBC = document.getElementById('client-modal-battle-card');
+  if (btnBC) {
+    // Re-clone pour retirer d'éventuels handlers précédents
+    const newBtn = btnBC.cloneNode(true);
+    btnBC.parentNode.replaceChild(newBtn, btnBC);
+    newBtn.addEventListener('click', () => generateBattleCard(c.CLIENT));
+  }
 
   // Render charts
   setTimeout(() => {
@@ -6965,6 +6979,334 @@ function render_anomalies() {
       </div>
     </div>
   `;
+}
+
+// ============================================================
+// PAGE 17 — CUSTOMER VELOCITY
+// Analyse de la mobilité tier S/A/B/C/D entre 2 années
+// ============================================================
+function render_velocity() {
+  const p = PAGES.find(x => x.id === 'velocity');
+  const el = document.getElementById('page-velocity');
+  const all = APP.data.fact;
+  const y = APP.filters.ANNEE;
+  const yPrev = y - 1;
+
+  function computeTierByYear(year) {
+    const caByClient = {};
+    for (const r of all) {
+      if (!r.CLIENT || r.ANNEE !== year || !r.MONTANT) continue;
+      caByClient[r.CLIENT] = (caByClient[r.CLIENT] || 0) + r.MONTANT;
+    }
+    const list = Object.entries(caByClient).filter(([_, v]) => v > 0).sort((a,b) => b[1] - a[1]);
+    const total = list.length;
+    const tierMap = {};
+    list.forEach(([client, ca], i) => {
+      const r = (i + 1) / total;
+      let tier;
+      if (r <= 0.05) tier = 'S';
+      else if (r <= 0.20) tier = 'A';
+      else if (r <= 0.50) tier = 'B';
+      else if (r <= 0.80) tier = 'C';
+      else tier = 'D';
+      tierMap[client] = { tier, ca };
+    });
+    return tierMap;
+  }
+
+  const tiersN = computeTierByYear(y);
+  const tiersN1 = computeTierByYear(yPrev);
+  const tiers = ['S', 'A', 'B', 'C', 'D'];
+  const matrix = {};
+  tiers.forEach(t => { matrix[t] = {}; tiers.forEach(t2 => matrix[t][t2] = 0); });
+  matrix.NEW = { S:0, A:0, B:0, C:0, D:0 };
+  tiers.forEach(t => matrix[t].OUT = 0);
+
+  const allClients = new Set([...Object.keys(tiersN), ...Object.keys(tiersN1)]);
+  const rockets = [], risers = [], stagnant = [], decliners = [], fallers = [], arrived = [], departed = [];
+  const tierRank = { S:0, A:1, B:2, C:3, D:4 };
+
+  for (const client of allClients) {
+    const inN = tiersN[client], inN1 = tiersN1[client];
+    if (inN1 && !inN) {
+      matrix[inN1.tier].OUT++;
+      departed.push({ client, tier: inN1.tier, ca: inN1.ca });
+    } else if (!inN1 && inN) {
+      matrix.NEW[inN.tier]++;
+      arrived.push({ client, tier: inN.tier, ca: inN.ca });
+    } else if (inN1 && inN) {
+      matrix[inN1.tier][inN.tier]++;
+      const delta = tierRank[inN1.tier] - tierRank[inN.tier];
+      const item = { client, fromTier: inN1.tier, toTier: inN.tier, delta, caN: inN.ca, caN1: inN1.ca, evol: inN1.ca > 0 ? (inN.ca - inN1.ca) / inN1.ca : null };
+      if ((inN1.tier === 'C' || inN1.tier === 'D') && (inN.tier === 'A' || inN.tier === 'S')) rockets.push(item);
+      else if (delta >= 1) risers.push(item);
+      else if (delta === 0) stagnant.push(item);
+      else if (delta === -1) decliners.push(item);
+      else if (delta <= -2) fallers.push(item);
+    }
+  }
+
+  rockets.sort((a,b) => b.delta - a.delta || b.caN - a.caN);
+  risers.sort((a,b) => b.delta - a.delta || b.caN - a.caN);
+  decliners.sort((a,b) => a.delta - b.delta || b.caN1 - a.caN1);
+  fallers.sort((a,b) => a.delta - b.delta || b.caN1 - a.caN1);
+  arrived.sort((a,b) => b.ca - a.ca);
+  departed.sort((a,b) => b.ca - a.ca);
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      ins.push({ type:'neutre', constat:`Mobilité du portefeuille entre <strong>${yPrev}</strong> et <strong>${y}</strong> : ${rockets.length} rocket clients, ${risers.length} en montée, ${stagnant.length} stables, ${decliners.length} en baisse d'un tier, ${fallers.length} en chute (≥2 tiers).`, implication:`Un portefeuille sain montre 15-25% de risers et &lt; 10% de fallers.`, action:`Identifier les facteurs de succès chez les rockets pour les répliquer.` });
+      if (rockets.length > 0) ins.push({ type:'positif', constat:`<strong>${rockets.length} rocket clients</strong> identifiés (Tier C/D → Tier A/S en 1 an).`, implication:`Cas exceptionnels à étudier : qu'est-ce qui a déclenché la montée en valeur ?`, action:`Interview KAM des rockets dans les 30 jours, livrable : playbook de la montée en valeur.` });
+      if (fallers.length > 5) ins.push({ type:'risque', constat:`<strong>${fallers.length} clients en chute</strong> (≥ 2 tiers) — perte de valeur structurelle.`, implication:`Ces clients ont perdu 40-80% de leur poids dans le portefeuille en 1 an. Souvent prélude au churn complet.`, action:`Audit prioritaire des Top 10 fallers — visite KAM senior dans les 30 jours.` });
+      if (departed.length > arrived.length) ins.push({ type:'attention', constat:`<strong>${departed.length} clients partis</strong> du portefeuille vs <strong>${arrived.length} arrivés</strong> — solde net négatif de ${departed.length - arrived.length}.`, implication:`Le portefeuille érode en volume.`, action:`Renforcer le pipeline d'acquisition + plan rétention.` });
+      return analyseToSynthese(ins, '🎯 Mobilité du portefeuille — Customer Velocity');
+    })()}
+
+    <div class="grid grid-4 mt-3">
+      <div class="kpi" style="border-top:3px solid #0B6E4F;"><div class="kpi-label">🚀 Rocket clients</div><div class="kpi-value">${rockets.length}</div><div class="kpi-bench">C/D → A/S — saut majeur</div></div>
+      <div class="kpi kpi-good"><div class="kpi-label">📈 Risers</div><div class="kpi-value">${risers.length}</div><div class="kpi-bench">montée d'un tier</div></div>
+      <div class="kpi kpi-alert"><div class="kpi-label">📉 Decliners</div><div class="kpi-value">${decliners.length}</div><div class="kpi-bench">baisse d'un tier</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-strong-dn);"><div class="kpi-label">⛔ Fallers</div><div class="kpi-value">${fallers.length}</div><div class="kpi-bench">chute ≥ 2 tiers</div></div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Matrice de transition Tier ${yPrev} → ${y}</div>
+        <div class="text-sm text-muted">Lignes = tier en ${yPrev}, Colonnes = tier en ${y}. Diagonale = stables. Au-dessus = montée. En dessous = baisse.</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:none;">
+          <table class="data" style="font-size:11px;">
+            <thead>
+              <tr><th rowspan="2" style="background:var(--navy-800);">Tier ${yPrev} ↓ \\ Tier ${y} →</th><th colspan="${tiers.length + 1}" style="text-align:center;">Tier en ${y}</th><th rowspan="2" style="background:var(--navy-800);">Sortis</th></tr>
+              <tr>${tiers.map(t => `<th class="num"><span class="tier-${t}">${t}</span></th>`).join('')}<th class="num">∅</th></tr>
+            </thead>
+            <tbody>
+              ${tiers.map(fromT => `<tr>
+                <td><strong><span class="tier-${fromT}">${fromT}</span></strong></td>
+                ${tiers.map(toT => {
+                  const v = matrix[fromT][toT];
+                  const isDiag = fromT === toT;
+                  const isUp = tierRank[fromT] > tierRank[toT];
+                  const bg = v === 0 ? 'transparent' : isDiag ? 'rgba(244,211,94,0.20)' : isUp ? `rgba(11,110,79,${Math.min(0.40, 0.10 + v / 50)})` : `rgba(214,40,40,${Math.min(0.40, 0.10 + v / 50)})`;
+                  return `<td class="num" style="background:${bg};font-weight:${v > 0 ? '600' : '400'};">${v || '—'}</td>`;
+                }).join('')}
+                <td class="num" style="background:rgba(127,127,127,0.10);">${matrix[fromT].OUT || '—'}</td>
+              </tr>`).join('')}
+              <tr><td><strong>Nouveaux ∅</strong></td>${tiers.map(toT => `<td class="num" style="background:rgba(31,119,180,0.10);">${matrix.NEW[toT] || '—'}</td>`).join('')}<td class="num">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:10px 16px;font-size:11px;color:var(--grey-700);background:var(--grey-50);border-top:1px solid var(--grey-200);">🟡 Diagonale = stables · 🟢 vert = en montée · 🔴 rouge = en baisse · 🔵 bleu = arrivés / sortis</div>
+      </div>
+    </div>
+
+    ${rockets.length > 0 ? `
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">🚀 Top 30 — Rocket clients (${rockets.length})</div><div class="text-sm text-muted">Clients passés de Tier C/D à Tier A/S en 1 an. Cas d'école commerciaux à étudier.</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:400px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client</th><th>Tier ${yPrev}</th><th>Tier ${y}</th><th class="num">CA ${yPrev}</th><th class="num">CA ${y}</th><th class="num">Évol.</th></tr></thead>
+            <tbody>
+              ${rockets.slice(0, 30).map((r, i) => `<tr>
+                <td class="text-muted">${i+1}</td>
+                <td><strong class="client-link" data-client="${r.client}" style="cursor:pointer;color:var(--navy-700);">${r.client}</strong></td>
+                <td><span class="tier-${r.fromTier}">${r.fromTier}</span></td>
+                <td><span class="tier-${r.toTier}">${r.toTier}</span></td>
+                <td class="num text-muted">${fmt.money(r.caN1)}</td>
+                <td class="num"><strong>${fmt.money(r.caN)}</strong></td>
+                <td class="num">${r.evol === null ? '—' : `<span class="evol-cell" style="background:var(--evol-strong-up);color:white;">+${(r.evol*100).toFixed(0)}%</span>`}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>` : ''}
+
+    ${fallers.length > 0 ? `
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">⛔ Top 30 — Fallers (${fallers.length})</div><div class="text-sm text-muted">Clients ayant chuté de 2 tiers ou plus. Souvent prélude au churn — action urgente.</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:400px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client</th><th>Tier ${yPrev}</th><th>Tier ${y}</th><th class="num">CA ${yPrev}</th><th class="num">CA ${y}</th><th class="num">Évol.</th></tr></thead>
+            <tbody>
+              ${fallers.slice(0, 30).map((r, i) => `<tr>
+                <td class="text-muted">${i+1}</td>
+                <td><strong class="client-link" data-client="${r.client}" style="cursor:pointer;color:var(--navy-700);">${r.client}</strong></td>
+                <td><span class="tier-${r.fromTier}">${r.fromTier}</span></td>
+                <td><span class="tier-${r.toTier}">${r.toTier}</span></td>
+                <td class="num text-muted">${fmt.money(r.caN1)}</td>
+                <td class="num"><strong>${fmt.money(r.caN)}</strong></td>
+                <td class="num">${r.evol === null ? '—' : `<span class="evol-cell" style="background:var(--evol-strong-dn);color:white;">${(r.evol*100).toFixed(0)}%</span>`}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>` : ''}
+  `;
+}
+
+// ============================================================
+// BATTLE CARD — Fiche client imprimable A4 pour visite commerciale
+// ============================================================
+function generateBattleCard(clientName) {
+  const c = APP.clientsAgg.find(x => x.CLIENT === clientName);
+  if (!c) return;
+  const filiere = CALC.detectFiliere(c.CLIENT);
+  const pat = c.pattern || { label:'—', color:'#7F7F7F', action:'' };
+
+  const txAll = APP.data.fact.filter(r => r.CLIENT === clientName);
+  const yearCA = {};
+  txAll.forEach(r => { if (r.MONTANT) yearCA[r.ANNEE] = (yearCA[r.ANNEE] || 0) + r.MONTANT; });
+  const years = Object.keys(yearCA).map(y => +y).sort();
+
+  const libCA = {};
+  APP.filtered.filter(r => r.CLIENT === clientName).forEach(r => { if (r.LIBELLE) libCA[r.LIBELLE] = (libCA[r.LIBELLE] || 0) + (r.MONTANT||0); });
+  const libs = Object.entries(libCA).sort((a,b) => b[1] - a[1]).slice(0, 8);
+  const libsTotal = libs.reduce((s, [_,v]) => s + v, 0);
+
+  const metiers = [...(c.metiers || [])];
+  const sites = [...(c.sites || [])];
+
+  const opportunites = [];
+  if (c.newMetiers && c.newMetiers.length > 0) opportunites.push(`💎 <strong>Nouveau métier ouvert</strong> : ${c.newMetiers.join(', ')} — Consolider avec une visite de cartographie des besoins logistiques globaux dans les 90 jours.`);
+  if ((c.crossSellLvl || 1) <= 2 && c.tier !== 'D') opportunites.push(`🎯 <strong>Cross-sell sous-exploité</strong> : ${c.nbMetiers || 0} métier(s) AGL utilisé(s) sur ${APP.totalMetiersInScope || 10}. Gisement majeur — identifier 1-2 métiers adjacents à pousser.`);
+  if (c.evol !== null && c.evol >= 0.20 && c.tier === 'A') opportunites.push(`⭐ <strong>Candidat promotion Tier S</strong> : croissance ${(c.evol*100).toFixed(0)}% — sécuriser via engagement pluriannuel.`);
+  if ((c.tier === 'S' || c.tier === 'A') && c.healthScore >= 0) opportunites.push(`🛡 <strong>Compte premium stable</strong> : tier ${c.tier} en bonne santé — étendre la pénétration vers les filiales / branches du groupe.`);
+  while (opportunites.length < 3) opportunites.push('—');
+
+  const risques = [];
+  if (c.healthScore <= -4) risques.push(`🔴 <strong>Health Score critique</strong> (${c.healthScore}) — multiples signaux faibles : décroissance, inactivité, mono-site/libellé.`);
+  if (c.evol !== null && c.evol < -0.15) risques.push(`📉 <strong>Décroissance ${(c.evol*100).toFixed(0)}%</strong> vs N-1 — diagnostic offre / prix / qualité requis.`);
+  if (c.churnRisk >= 75) risques.push(`⚠️ <strong>Risque churn ${c.churnRisk}/100</strong> (Critique) — visite de retention prioritaire.`);
+  if (c.monthsSinceLastTx > 3) risques.push(`⏰ <strong>Pas de transaction depuis ${c.monthsSinceLastTx} mois</strong> — sortir de la dormance.`);
+  if ((c.nbMetiers || 0) === 1) risques.push(`🔗 <strong>Mono-métier</strong> : si un concurrent intègre l'offre, perte facile.`);
+  if ((c.nbSites || 0) === 1) risques.push(`📍 <strong>Mono-site</strong> : opportunité limitée en cas de croissance géographique du client.`);
+  while (risques.length < 3) risques.push('—');
+
+  const talkingPoints = [
+    `📊 <strong>Position stratégique</strong> : Tier ${c.tier} (${tierLabel(c.tier) || ''}) · Quadrant "${c.quadrant}" · Score ${c.score}/100`,
+    `💰 <strong>CAP ${APP.filters.ANNEE}</strong> : ${fmt.money(c.CA_N)} XOF (${c.evol === null ? '—' : (c.evol >= 0 ? '+' : '') + (c.evol*100).toFixed(1) + '% vs ' + (APP.filters.ANNEE - 1)})${c.clv ? ` · CLV 3 ans projetée : <strong>${fmt.money(c.clv)}</strong>` : ''}`,
+    `📞 <strong>Pattern commercial</strong> : ${pat.label} — ${pat.action || ''}`
+  ];
+
+  const html = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"><title>Battle Card · ${c.CLIENT}</title>
+<style>
+@page { size: A4; margin: 12mm; }
+body { font-family: 'Inter', system-ui, -apple-system, sans-serif; color: #171717; line-height: 1.4; margin: 0; }
+h1 { font-family: 'Playfair Display', Georgia, serif; font-size: 22px; margin: 0; color: #0A2540; }
+.brand { font-size: 10px; letter-spacing: 2px; color: #D4A24E; text-transform: uppercase; font-weight: 700; }
+.header { border-bottom: 3px solid #D4A24E; padding-bottom: 10px; margin-bottom: 14px; }
+.meta { display: flex; gap: 20px; margin-top: 6px; flex-wrap: wrap; }
+.meta-item { font-size: 11px; color: #404040; }
+.meta-item strong { color: #0A2540; }
+.tier-badge { display: inline-block; padding: 3px 10px; background: linear-gradient(135deg, #D4A24E, #E5BD78); color: #0A2540; font-weight: 700; font-size: 13px; border-radius: 4px; }
+.section { margin-bottom: 12px; padding: 10px 12px; border-left: 3px solid #D4A24E; background: rgba(212,162,78,0.05); }
+.section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; color: #0A2540; margin-bottom: 6px; }
+.section-content { font-size: 12px; color: #404040; }
+.section-content ul { margin: 0; padding-left: 20px; }
+.section-content li { margin-bottom: 4px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+.kpi { padding: 8px 10px; border: 1px solid #EAEAEA; border-radius: 4px; }
+.kpi-label { font-size: 9px; text-transform: uppercase; color: #737373; letter-spacing: 1px; }
+.kpi-value { font-family: 'Playfair Display', Georgia, serif; font-size: 16px; font-weight: 700; color: #0A2540; margin-top: 2px; }
+table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+table th { background: #0A2540; color: white; padding: 6px 8px; text-align: left; font-size: 10px; }
+table td { padding: 5px 8px; border-bottom: 1px solid #EAEAEA; }
+.footer { font-size: 9px; color: #737373; font-style: italic; margin-top: 14px; padding-top: 8px; border-top: 1px solid #EAEAEA; display: flex; justify-content: space-between; }
+@media print { .no-print { display: none; } }
+.print-btn { position: fixed; top: 10px; right: 10px; padding: 8px 14px; background: #D4A24E; color: #0A2540; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-size: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+</style>
+</head><body>
+<button class="print-btn no-print" onclick="window.print()">🖨 Imprimer / Sauver PDF</button>
+
+<div class="header">
+  <div class="brand">AGL Strategic Analytics · Battle Card</div>
+  <h1>${c.CLIENT}</h1>
+  <div class="meta">
+    <div class="meta-item"><span class="tier-badge">Tier ${c.tier}</span></div>
+    <div class="meta-item"><strong>Métier :</strong> ${c.METIER || '—'}</div>
+    <div class="meta-item"><strong>Filière :</strong> ${filiere.label}</div>
+    <div class="meta-item"><strong>Case stratégique :</strong> ${c.quadrant}</div>
+    <div class="meta-item"><strong>Pattern :</strong> ${pat.label}</div>
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-label">CAP ${APP.filters.ANNEE}</div><div class="kpi-value">${fmt.money(c.CA_N)}</div></div>
+  <div class="kpi"><div class="kpi-label">CAP ${APP.filters.ANNEE - 1}</div><div class="kpi-value">${fmt.money(c.CA_N1)}</div></div>
+  <div class="kpi"><div class="kpi-label">Évolution</div><div class="kpi-value" style="color:${c.evol === null ? '#404040' : c.evol >= 0 ? '#0B6E4F' : '#D62828'};">${c.evol === null ? '—' : (c.evol >= 0 ? '+' : '') + (c.evol*100).toFixed(1) + '%'}</div></div>
+  <div class="kpi"><div class="kpi-label">Score / Health</div><div class="kpi-value">${c.score}/100<br><span style="font-size:10px;color:#737373;">Health ${c.healthScore}</span></div></div>
+</div>
+
+<div class="section">
+  <div class="section-title">📊 Talking points</div>
+  <div class="section-content"><ul>${talkingPoints.map(t => `<li>${t}</li>`).join('')}</ul></div>
+</div>
+
+<div class="section">
+  <div class="section-title">💰 Historique 3 ans</div>
+  <div class="section-content">
+    <table>
+      <thead><tr><th>Année</th><th style="text-align:right;">CAP (XOF)</th><th style="text-align:right;">Évol.</th></tr></thead>
+      <tbody>
+        ${years.slice(-4).reverse().map((yy, i, arr) => {
+          const v = yearCA[yy];
+          const prev = arr[i+1] ? yearCA[arr[i+1]] : null;
+          const ev = prev && prev > 0 ? (v - prev) / prev : null;
+          return `<tr><td>${yy}</td><td style="text-align:right;">${fmt.money(v)}</td><td style="text-align:right;color:${ev === null ? '#404040' : ev >= 0 ? '#0B6E4F' : '#D62828'};">${ev === null ? '—' : (ev >= 0 ? '+' : '') + (ev*100).toFixed(1) + '%'}</td></tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">🎯 Top services consommés (période ${APP.filters.ANNEE})</div>
+  <div class="section-content">
+    ${libs.length === 0 ? '<em>Aucune donnée sur la période.</em>' : `<table><thead><tr><th>Libellé / Département</th><th style="text-align:right;">CAP</th><th style="text-align:right;">% du CA client</th></tr></thead><tbody>${libs.map(([l, v]) => `<tr><td>${l}</td><td style="text-align:right;">${fmt.money(v)}</td><td style="text-align:right;">${libsTotal > 0 ? (v / libsTotal * 100).toFixed(0) + '%' : '—'}</td></tr>`).join('')}</tbody></table>`}
+    <p style="margin-top:6px;font-size:11px;"><strong>Métiers utilisés :</strong> ${metiers.join(', ') || '—'} · <strong>Sites :</strong> ${sites.join(', ') || '—'}</p>
+  </div>
+</div>
+
+<div class="section" style="border-color:#0B6E4F;background:rgba(11,110,79,0.05);">
+  <div class="section-title" style="color:#0B6E4F;">💡 3 opportunités identifiées</div>
+  <div class="section-content"><ul>${opportunites.slice(0, 3).map(o => `<li>${o}</li>`).join('')}</ul></div>
+</div>
+
+<div class="section" style="border-color:#D62828;background:rgba(214,40,40,0.05);">
+  <div class="section-title" style="color:#D62828;">⚠️ 3 risques à surveiller</div>
+  <div class="section-content"><ul>${risques.slice(0, 3).map(r => `<li>${r}</li>`).join('')}</ul></div>
+</div>
+
+<div class="section" style="border-color:#1F77B4;background:rgba(31,119,180,0.05);">
+  <div class="section-title" style="color:#1F77B4;">📞 Plan d'action 30 / 60 / 90 jours</div>
+  <div class="section-content">
+    <ul>
+      <li><strong>30 jours</strong> : ${c.healthScore <= -4 ? 'Visite KAM senior — diagnostic profond' : c.churnRisk >= 75 ? 'Appel de fidélisation prioritaire' : c.evol !== null && c.evol >= 0.20 ? 'RDV revue annuelle anticipée pour capitaliser sur la croissance' : 'Contact relationnel + revue activité'}</li>
+      <li><strong>60 jours</strong> : ${(c.crossSellLvl || 1) <= 2 ? 'Présentation cross-sell sur 1-2 métiers adjacents' : 'Optimisation des services existants + analyse satisfaction'}</li>
+      <li><strong>90 jours</strong> : ${(c.tier === 'S' || c.tier === 'A') ? "Proposition d'engagement pluriannuel + contrat-cadre" : "Plan d'évolution Tier " + c.tier + ' → ' + (c.tier === 'D' ? 'C' : c.tier === 'C' ? 'B' : c.tier === 'B' ? 'A' : 'S') + ' à 12 mois'}</li>
+    </ul>
+  </div>
+</div>
+
+<div class="footer">
+  <span>Battle Card AGL · ${c.CLIENT}</span>
+  <span>Généré le ${new Date().toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' })} · Confidentiel COMEX</span>
+</div>
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Veuillez autoriser les popups pour générer la Battle Card.'); return; }
+  w.document.write(html);
+  w.document.close();
 }
 </script>
 
