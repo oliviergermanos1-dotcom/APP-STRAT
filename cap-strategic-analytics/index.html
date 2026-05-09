@@ -2472,6 +2472,8 @@ const PAGES = [
     explanation: "Analyse de la mobilité des clients dans la matrice tier S/A/B/C/D entre 2 années. Identifie les 'rocket clients' qui montent rapidement, les 'stagnants' qui ne bougent pas, et les 'décliners' qui rétrogradent. Matrice de transition complète." },
   { id: 'rfm', num: '18', title: 'Segmentation RFM comportementale', subtitle: 'Récence × Fréquence × Monétaire — 11 segments marketing', section: 'Clients',
     explanation: "Segmentation comportementale standard du marketing relationnel : chaque client est noté 1-5 sur 3 axes (Récence depuis dernière transaction, Fréquence sur 12 mois, Monétaire cumulé). Classification automatique en 11 segments classiques (Champions, Loyal, At Risk, Lost…) chacun avec une stratégie d'action dédiée." },
+  { id: 'cadence', num: '21', title: 'Cadence de facturation', subtitle: 'Nb factures/mois par client + tendance + projection', section: 'Clients',
+    explanation: "Liste des clients avec leur nombre de factures moyen par mois actif. Indicateur de hausse/baisse vs N-1 (sur les mêmes mois) + tendance des 6 derniers mois (régression linéaire). Mini-sparkline des 12 derniers mois et projection des 6 prochains mois pour préparer le pilotage commercial." },
   { id: 'data_quality', num: '19', title: 'Qualité des données', subtitle: 'Audit data — anomalies, doublons, complétude', section: 'Risques',
     explanation: "Audit objectif de la qualité du dataset utilisé : volumétrie, complétude des champs, nombre de lignes négatives (avoirs), nuls, variations de noms clients, dispersion des libellés. Permet de qualifier la fiabilité des analyses produites." },
   { id: 'compare', num: '20', title: 'Comparateur 2 périodes', subtitle: 'Analyse comparative côte-à-côte (libre)', section: 'Pilotage',
@@ -8637,6 +8639,265 @@ function render_rfm() {
         </div>
       </div>`;
     }).join('')}
+  `;
+}
+
+// ============================================================
+// PAGE 21 — CADENCE DE FACTURATION
+// Pour chaque client : nb de factures moyen par mois actif, évolution
+// vs N-1 sur les mêmes mois, sparkline 12 mois, tendance trailing 6 mois,
+// projection 6 prochains mois (préparation forecast détaillé V2).
+// ============================================================
+function render_cadence() {
+  const p = PAGES.find(x => x.id === 'cadence');
+  const el = document.getElementById('page-cadence');
+  if (!el) return;
+  const all = APP.data.fact;
+  const f = APP.filters;
+  const refY = f.ANNEE;
+  const monthSet = APP.periodMonths || new Set();
+  const lbl = periodLabel();
+
+  if (!all || !all.length) {
+    el.innerHTML = `${pageHeader(p)}<div class="card mt-3"><div class="card-body" style="text-align:center;padding:40px;color:var(--grey-500);">Aucune donnée chargée.</div></div>`;
+    return;
+  }
+
+  // Période courante : mois sélectionnés (cumul ou mois seul)
+  const periodMonths = monthSet.size ? [...monthSet].sort((a,b) => a - b) : [];
+  if (periodMonths.length === 0) {
+    el.innerHTML = `${pageHeader(p)}<div class="card mt-3"><div class="card-body">Aucun mois actif sur la période sélectionnée.</div></div>`;
+    return;
+  }
+
+  // Référence "now" pour la fenêtre trailing 12 mois
+  const refM = f.MOIS_MAX || 12;
+  const trailing12 = []; // tableau de {y, m, key} sur les 12 derniers mois
+  for (let i = 11; i >= 0; i--) {
+    let yy = refY, mm = refM - i;
+    while (mm <= 0) { mm += 12; yy -= 1; }
+    trailing12.push({ y: yy, m: mm, key: yy * 100 + mm });
+  }
+
+  // Pré-comptage : Map<client, Map<key, nbFactures>>
+  // Une "facture" ici = une ligne du fact (ligne de transaction IRIS).
+  // Note : si plusieurs lignes correspondent à 1 facture comptable réelle
+  // (ex. plusieurs rubriques sur la même facture), le compte sera surévalué.
+  // À documenter avec le contrôle de gestion AGL pour validation.
+  const byClient = new Map();
+  for (const r of all) {
+    if (!r.CLIENT) continue;
+    const k = r.ANNEE * 100 + r.MOIS;
+    let m = byClient.get(r.CLIENT);
+    if (!m) { m = new Map(); byClient.set(r.CLIENT, m); }
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+
+  // Pour chaque client : agrégats N, N-1, sparkline 12 mois, tendance 6 mois
+  const rows = [];
+  byClient.forEach((monthMap, clientName) => {
+    let nbN = 0, monthsActiveN = 0;
+    let nbN1 = 0, monthsActiveN1 = 0;
+    for (const m of periodMonths) {
+      const v = monthMap.get(refY * 100 + m) || 0;
+      if (v > 0) { nbN += v; monthsActiveN++; }
+      const v1 = monthMap.get((refY - 1) * 100 + m) || 0;
+      if (v1 > 0) { nbN1 += v1; monthsActiveN1++; }
+    }
+    const avgN = monthsActiveN > 0 ? nbN / monthsActiveN : 0;
+    const avgN1 = monthsActiveN1 > 0 ? nbN1 / monthsActiveN1 : 0;
+    const evol = avgN1 > 0 ? (avgN - avgN1) / avgN1 : (avgN > 0 ? null : 0);
+
+    // Sparkline trailing 12 mois
+    const sparkVals = trailing12.map(t => monthMap.get(t.key) || 0);
+    // Volatilité = coefficient of variation sur les mois actifs
+    const activeVals = sparkVals.filter(v => v > 0);
+    const meanSpark = activeVals.length ? activeVals.reduce((s,v) => s+v, 0) / activeVals.length : 0;
+    const variance = activeVals.length ? activeVals.reduce((s,v) => s + (v - meanSpark) ** 2, 0) / activeVals.length : 0;
+    const cv = meanSpark > 0 ? Math.sqrt(variance) / meanSpark : 0;
+
+    // Tendance trailing 6 mois — régression linéaire simple
+    const last6 = sparkVals.slice(-6);
+    let slope = 0;
+    if (last6.length >= 2) {
+      const n = last6.length;
+      const xMean = (n - 1) / 2;
+      const yMean = last6.reduce((s,v) => s+v, 0) / n;
+      let num = 0, den = 0;
+      for (let i = 0; i < n; i++) {
+        num += (i - xMean) * (last6[i] - yMean);
+        den += (i - xMean) ** 2;
+      }
+      slope = den > 0 ? num / den : 0;
+    }
+    // Projection 6 mois = somme des projections linéaires sur 6 prochains mois
+    const lastVal = last6[last6.length - 1] || 0;
+    let projection6 = 0;
+    for (let i = 1; i <= 6; i++) {
+      projection6 += Math.max(0, lastVal + slope * i);
+    }
+    projection6 = Math.round(projection6);
+
+    rows.push({
+      name: clientName,
+      nbN, monthsActiveN, avgN,
+      nbN1, monthsActiveN1, avgN1,
+      evol, sparkVals, cv, slope, projection6
+    });
+  });
+
+  // Enrichir avec CA & tier depuis APP.clientsAgg (si dispo)
+  const aggMap = new Map();
+  (APP.clientsAgg || []).forEach(c => aggMap.set(c.CLIENT, c));
+  rows.forEach(r => {
+    const c = aggMap.get(r.name);
+    r.tier = c ? c.tier : '';
+    r.caN = c ? (c.CA_N || 0) : 0;
+    r.metier = c ? (c.METIER || '') : '';
+  });
+
+  // Filtre : ne garder que les clients actifs sur la période courante (avgN > 0)
+  const activeRows = rows.filter(r => r.avgN > 0);
+  // Tri par CAP N décroissant pour priorisation commerciale
+  activeRows.sort((a,b) => b.caN - a.caN);
+  const top = activeRows.slice(0, 100);
+
+  // Statistiques globales pour la synthèse
+  const inHausse = activeRows.filter(r => r.evol !== null && r.evol >= 0.10).length;
+  const inBaisse = activeRows.filter(r => r.evol !== null && r.evol <= -0.10).length;
+  const inStable = activeRows.filter(r => r.evol !== null && r.evol > -0.10 && r.evol < 0.10).length;
+  const noN1 = activeRows.filter(r => r.evol === null).length;
+  const totalFactN = activeRows.reduce((s,r) => s+r.nbN, 0);
+  const totalFactN1 = activeRows.reduce((s,r) => s+r.nbN1, 0);
+  const evolGlobal = totalFactN1 > 0 ? (totalFactN - totalFactN1) / totalFactN1 : null;
+
+  // Fonctions d'affichage
+  const sparkChars = ['▁','▂','▃','▄','▅','▆','▇','█'];
+  function sparkline(vals) {
+    const max = vals.reduce((m,v) => v > m ? v : m, 0);
+    if (max === 0) return '<span style="color:var(--grey-300);">────────────</span>';
+    return '<span style="font-family:var(--font-mono);letter-spacing:1px;color:var(--navy-700);">' +
+      vals.map(v => v === 0 ? '<span style="color:var(--grey-300);">·</span>' : sparkChars[Math.min(7, Math.round(v / max * 7))]).join('') +
+      '</span>';
+  }
+  function evolBadge(e) {
+    if (e === null) return '<span class="text-muted text-sm">—</span>';
+    const pct = (e * 100).toFixed(1);
+    if (e >= 0.10)  return `<span style="background:var(--evol-strong-up);color:white;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">↑ +${pct}%</span>`;
+    if (e <= -0.10) return `<span style="background:var(--evol-strong-dn);color:white;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">↓ ${pct}%</span>`;
+    return `<span style="background:var(--evol-stable);color:#000;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">→ ${e >= 0 ? '+' : ''}${pct}%</span>`;
+  }
+  function volatilityBadge(cv) {
+    if (cv < 0.30) return '<span style="color:var(--evol-strong-up);font-weight:600;font-size:11px;">Régulier</span>';
+    if (cv < 0.60) return '<span style="color:var(--evol-stable);font-weight:600;font-size:11px;">Modéré</span>';
+    return '<span style="color:var(--evol-strong-dn);font-weight:600;font-size:11px;">Lumpy</span>';
+  }
+  function trendIcon(slope) {
+    if (slope > 0.5)  return '<span title="Tendance haussière nette" style="color:var(--evol-strong-up);font-size:14px;">↗</span>';
+    if (slope > 0.1)  return '<span title="Tendance haussière légère" style="color:var(--evol-up);font-size:14px;">↗</span>';
+    if (slope < -0.5) return '<span title="Tendance baissière nette" style="color:var(--evol-strong-dn);font-size:14px;">↘</span>';
+    if (slope < -0.1) return '<span title="Tendance baissière légère" style="color:var(--evol-down);font-size:14px;">↘</span>';
+    return '<span title="Stable" style="color:var(--grey-500);font-size:14px;">→</span>';
+  }
+
+  // Synthèse stratégique
+  const insights = [];
+  insights.push({
+    type: 'neutre',
+    constat: `<strong>${activeRows.length} clients actifs</strong> sur la période ${lbl.longue}, totalisant <strong>${totalFactN.toLocaleString('fr-FR')} factures émises</strong>.`,
+    implication: `Cadence moyenne portefeuille : ${activeRows.length > 0 ? (totalFactN / activeRows.reduce((s,r) => s+r.monthsActiveN, 0)).toFixed(1) : '—'} factures/mois actif/client. ${evolGlobal !== null ? `Volume global ${evolGlobal >= 0 ? 'en hausse' : 'en baisse'} de <strong>${(evolGlobal*100).toFixed(1)}%</strong> vs ${lbl.ref}.` : ''}`,
+    action: `Suivre cette cadence comme indicateur avancé de l'activité commerciale (avant que le CA ne le révèle).`
+  });
+  if (inHausse + inBaisse > 0) {
+    const ratio = inHausse / Math.max(1, inHausse + inBaisse);
+    insights.push({
+      type: ratio > 0.55 ? 'opportunite' : ratio < 0.45 ? 'attention' : 'neutre',
+      constat: `<strong>${inHausse} clients en hausse</strong> (≥+10%), <strong>${inStable} stables</strong>, <strong>${inBaisse} en baisse</strong> (≤-10%) ${noN1 > 0 ? `· ${noN1} sans comparaison N-1` : ''}.`,
+      implication: ratio > 0.55 ? `Plus de clients accélèrent qu'ils ne ralentissent — moteur commercial sain.` : ratio < 0.45 ? `Plus de clients ralentissent qu'ils n'accélèrent — signal d'érosion d'activité à investiguer.` : `Équilibre hausses/baisses — portefeuille stable.`,
+      action: ratio < 0.45 ? `Revue prioritaire des ${inBaisse} clients en baisse. Identifier la cause (concurrence, perte de besoin, qualité) avant qu'ils ne basculent en perte définitive.` : `Capitaliser sur les ${inHausse} clients en hausse pour identifier les patterns de croissance reproductibles.`
+    });
+  }
+  // Top 5 clients en baisse forte
+  const topDecliners = activeRows.filter(r => r.evol !== null && r.evol <= -0.20 && r.caN > 0).sort((a,b) => b.caN - a.caN).slice(0, 5);
+  if (topDecliners.length > 0) {
+    insights.push({
+      type: 'risque',
+      constat: `<strong>${topDecliners.length} clients premium</strong> (CAP significatif) avec une cadence en baisse ≥-20% : ${topDecliners.map(c => c.name).slice(0, 3).join(', ')}${topDecliners.length > 3 ? '…' : ''}.`,
+      implication: `Une chute de cadence avant la chute de CA = signal précurseur. Ces clients risquent de basculer en perte si rien n'est fait.`,
+      action: `Visite KAM sous 30 jours. Plan de redressement formel à présenter en revue commerciale.`
+    });
+  }
+
+  // Rendu
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${analyseToSynthese(insights, '🎯 Synthèse — Cadence de facturation')}
+
+    <div class="grid grid-4 mt-3">
+      <div class="kpi"><div class="kpi-label">Clients actifs</div><div class="kpi-value">${activeRows.length}</div><div class="kpi-bench">sur la période ${lbl.longue}</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-strong-up);"><div class="kpi-label">En hausse (≥+10%)</div><div class="kpi-value">${inHausse}</div><div class="kpi-bench">cadence accélère</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-stable);"><div class="kpi-label">Stables</div><div class="kpi-value">${inStable}</div><div class="kpi-bench">±10%</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-strong-dn);"><div class="kpi-label">En baisse (≤-10%)</div><div class="kpi-value">${inBaisse}</div><div class="kpi-bench">cadence ralentit</div></div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Top ${top.length} clients par CAP — Cadence de facturation</div>
+        <div class="text-sm text-muted">Nb factures moyen par mois actif · Évolution vs même période ${lbl.ref} · Sparkline 12 derniers mois · Tendance trailing 6 mois (régression linéaire) · Projection 6 prochains mois</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:none;">
+          <table class="data">
+            <thead><tr>
+              <th>#</th>
+              <th>Client</th>
+              <th>Tier</th>
+              <th class="num">CAP ${refY}</th>
+              <th class="num">Factures (${lbl.courte || lbl.longue})</th>
+              <th class="num">Mois actifs</th>
+              <th class="num">Avg/mois</th>
+              <th class="num">Avg ${refY - 1}</th>
+              <th>Évol</th>
+              <th>12 derniers mois</th>
+              <th>Tendance 6m</th>
+              <th>Régularité</th>
+              <th class="num">Projection 6m</th>
+            </tr></thead>
+            <tbody>
+              ${top.length === 0 ? '<tr><td colspan="13" style="text-align:center;color:var(--grey-500);padding:20px;">Aucun client actif sur la période.</td></tr>' :
+                top.map((r, i) => `<tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong class="client-link" data-client="${r.name.replace(/"/g,'&quot;')}" style="cursor:pointer;color:var(--navy-700);" title="Voir la fiche 360°">${r.name}</strong>${r.metier ? `<br><span class="text-sm text-muted">${r.metier}</span>` : ''}</td>
+                  <td>${r.tier ? `<span class="tier-${r.tier}">${r.tier}</span>` : '—'}</td>
+                  <td class="num">${fmt.money(r.caN)}</td>
+                  <td class="num"><strong>${r.nbN.toLocaleString('fr-FR')}</strong></td>
+                  <td class="num">${r.monthsActiveN}</td>
+                  <td class="num"><strong>${r.avgN.toFixed(1)}</strong></td>
+                  <td class="num text-muted">${r.avgN1 > 0 ? r.avgN1.toFixed(1) : '—'}</td>
+                  <td>${evolBadge(r.evol)}</td>
+                  <td>${sparkline(r.sparkVals)}</td>
+                  <td style="text-align:center;">${trendIcon(r.slope)}</td>
+                  <td>${volatilityBadge(r.cv)}</td>
+                  <td class="num"><strong style="color:var(--gold-700);">${r.projection6.toLocaleString('fr-FR')}</strong></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert-banner info mt-3" style="background:rgba(212,162,78,0.08);border-left:3px solid var(--gold-500);padding:14px 18px;border-radius:6px;">
+      <div style="font-family:var(--font-display);font-weight:700;font-size:13px;color:var(--gold-700);margin-bottom:6px;">📐 Méthodologie</div>
+      <div style="font-size:12px;line-height:1.6;color:var(--grey-800);">
+        <strong>Définition</strong> : 1 facture = 1 ligne du fact IRIS. Si plusieurs lignes (rubriques) composent une facture comptable réelle, le compte est surévalué — à valider avec le contrôle de gestion AGL.<br>
+        <strong>Avg/mois</strong> : nb factures sur la période ÷ nb de mois actifs (mois avec ≥ 1 facture).<br>
+        <strong>Évol</strong> : (Avg N − Avg N-1) / Avg N-1, calculé sur les <em>mêmes mois</em> entre les deux années.<br>
+        <strong>Tendance 6m</strong> : pente d'une régression linéaire sur les 6 derniers mois (↗ pente > +0,5 / ↘ pente &lt; −0,5).<br>
+        <strong>Projection 6m</strong> : extrapolation linéaire de la tendance trailing 6 mois sur les 6 prochains mois (modèle simple — sera enrichi en V2 avec Holt-Winters pour intégrer la saisonnalité).<br>
+        <strong>Régularité</strong> : coefficient de variation sur les mois actifs. Régulier = CV &lt; 30%, Lumpy = CV ≥ 60% (transactions en pics ponctuels).
+      </div>
+    </div>
   `;
 }
 
