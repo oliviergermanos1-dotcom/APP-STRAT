@@ -2634,15 +2634,48 @@ async function exportInteractiveHTML() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Préparation...'; }
   try {
     // 1. Récupérer le code HTML source de l'app
+    //    Stratégie en 2 niveaux :
+    //    a) fetch() : works on http:// (raw.githack, localhost, hébergement)
+    //    b) Fallback document.documentElement.outerHTML : works on file://
+    //       en clonant le DOM puis en réinitialisant les éléments dynamiques.
     let html;
+    let fallbackUsed = false;
     try {
       const r = await fetch(window.location.href, { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       html = await r.text();
     } catch(fetchErr) {
-      // file:// ou autre origin — on ne peut pas refetcher la page
-      alert(`Impossible de récupérer le code source de l'application.\n\nCe bouton fonctionne quand l'app est ouverte via une URL HTTP (raw.githack.com, serveur local, hébergement web).\n\nSi vous avez ouvert le fichier en local (file://), procédez ainsi :\n\n1. Lancez un serveur local : ouvrez un terminal dans le dossier et tapez "python -m http.server 8000"\n2. Puis ouvrez http://localhost:8000 dans le navigateur\n3. Réessayez l'export\n\nOu utilisez le lien raw.githack.com pour ouvrir l'app.`);
-      throw fetchErr;
+      // FALLBACK : reconstruire le HTML depuis le DOM courant
+      fallbackUsed = true;
+      console.warn('Fetch indisponible (file:// probablement), fallback DOM outerHTML', fetchErr);
+      const cloned = document.documentElement.cloneNode(true);
+      // Reset #app pour que le snapshot reparte d'un état propre
+      const appEl = cloned.querySelector('#app');
+      if (appEl) appEl.innerHTML = '<!-- Le contenu sera injecté par JavaScript -->';
+      // Reset upload-screen
+      const upEl = cloned.querySelector('#upload-screen');
+      if (upEl) { upEl.classList.remove('hidden'); upEl.removeAttribute('style'); }
+      // Reset modal client
+      const modalEl = cloned.querySelector('#client-modal');
+      if (modalEl) {
+        modalEl.style.display = 'none';
+        const mb = modalEl.querySelector('#client-modal-body'); if (mb) mb.innerHTML = '';
+        const mt = modalEl.querySelector('#client-modal-title'); if (mt) mt.innerHTML = '';
+      }
+      // Retire le bandeau snapshot s'il avait été injecté lors d'un précédent chargement embarqué
+      cloned.querySelectorAll('body > div').forEach(d => {
+        const html = d.innerHTML || '';
+        if (html.includes('Rapport interactif AGL') && html.includes('snapshot')) d.remove();
+      });
+      // Retire un éventuel embedded-data préexistant (si on ré-exporte un snapshot déjà importé)
+      const oldData = cloned.querySelector('#embedded-data');
+      if (oldData) oldData.remove();
+      // Réinitialise paddingTop du body (ajouté pour le banner snapshot)
+      const bodyEl = cloned.querySelector('body');
+      if (bodyEl) bodyEl.style.paddingTop = '';
+      // Retire les style/script injectés par Plotly à la volée (ID commence par "plotly")
+      cloned.querySelectorAll('style[id^="plotly"], script[id^="plotly"]').forEach(s => s.remove());
+      html = '<!DOCTYPE html>\n' + cloned.outerHTML;
     }
 
     if (btn) btn.textContent = '⏳ Sérialisation données...';
@@ -2700,7 +2733,8 @@ async function exportInteractiveHTML() {
 
     // Petite popup d'instructions
     setTimeout(() => {
-      alert(`✅ Rapport interactif exporté (${sizeMb} Mo)\n\nLe fichier "CAP_AGL_rapport_${dateStr}.html" a été téléchargé.\n\n📤 Pour partager :\n• Envoyez le fichier par WeTransfer / Teams / Google Drive (mail = limite 25 Mo)\n• Le destinataire double-clique → l'app s'ouvre dans son navigateur avec les données pré-chargées\n• Aucun upload requis, aucune installation\n• Internet requis au 1er chargement (CDN libs Chart.js / Plotly)\n\n⚠ Confidentialité : ce fichier contient les données AGL sensibles. À ne pas envoyer en externe sans autorisation.`);
+      const fallbackNote = fallbackUsed ? `\n\nℹ Note : généré à partir du DOM courant (mode local file://). Si vous remarquez un visuel altéré chez le destinataire, ouvrez l'app via raw.githack.com avant d'exporter pour une version source plus propre.` : '';
+      alert(`✅ Rapport interactif exporté (${sizeMb} Mo)\n\nLe fichier "CAP_AGL_rapport_${dateStr}.html" a été téléchargé.\n\n📤 Pour partager :\n• Envoyez le fichier par WeTransfer / Teams / Google Drive (mail = limite 25 Mo)\n• Le destinataire double-clique → l'app s'ouvre dans son navigateur avec les données pré-chargées\n• Aucun upload requis, aucune installation\n• Internet requis au 1er chargement (CDN libs Chart.js / Plotly)${fallbackNote}\n\n⚠ Confidentialité : ce fichier contient les données AGL sensibles. À ne pas envoyer en externe sans autorisation.`);
     }, 200);
   } catch(e) {
     console.error('Export HTML failed', e);
