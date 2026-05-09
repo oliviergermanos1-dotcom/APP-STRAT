@@ -1752,6 +1752,35 @@ async function tryDecryptEmbedded() {
   }
 }
 
+// Injecte un watermark visible (haut de page) + filigrane diagonal léger
+// pour traçabilité de fuite. Non fermable. Inscrit le destinataire,
+// la date d'export et un identifiant unique par export.
+function injectRecipientWatermark(meta) {
+  if (!meta || !meta.recipient) return;
+  if (document.getElementById('agl-watermark-bar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'agl-watermark-bar';
+  const dateStr = meta.exportDate ? new Date(meta.exportDate).toLocaleDateString('fr-FR') : '—';
+  const versionId = meta.versionId || '—';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;background:repeating-linear-gradient(135deg,#D62828 0,#D62828 12px,#B22222 12px,#B22222 24px);color:white;padding:5px 16px;font-size:11px;text-align:center;z-index:9999;font-family:var(--font-body,Inter,sans-serif);font-weight:700;letter-spacing:0.4px;text-shadow:0 1px 2px rgba(0,0,0,0.3);box-shadow:0 2px 8px rgba(214,40,40,0.30);user-select:none;';
+  bar.innerHTML = `🔒 AGL CONFIDENTIEL — Destinataire : <span style="background:rgba(255,255,255,0.20);padding:2px 8px;border-radius:3px;margin:0 4px;">${meta.recipient}</span> · Export ${dateStr} · ID : ${versionId}`;
+  document.body.appendChild(bar);
+  // Décale le contenu vers le bas pour ne pas recouvrir le header
+  const h = bar.offsetHeight || 28;
+  document.body.style.paddingTop = (parseInt(document.body.style.paddingTop, 10) || 0) + h + 'px';
+
+  // Filigrane diagonal sur tout le viewport (très léger, n'empêche pas la lecture)
+  if (!document.getElementById('agl-watermark-overlay')) {
+    const overlay = document.createElement('div');
+    overlay.id = 'agl-watermark-overlay';
+    const text = `AGL CONFIDENTIEL — ${meta.recipient}`;
+    // Encode dans une SVG pour éviter d'altérer le contenu
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='600' height='400'><text x='50%' y='50%' fill='rgba(214,40,40,0.06)' font-size='28' font-family='Inter,sans-serif' font-weight='700' text-anchor='middle' transform='rotate(-30 300 200)'>${text}</text></svg>`;
+    overlay.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:9998;background-image:url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}");background-repeat:repeat;`;
+    document.body.appendChild(overlay);
+  }
+}
+
 function tryAutoLoadEmbedded() {
   if (typeof window.__EMBEDDED_FACT === 'undefined' || !Array.isArray(window.__EMBEDDED_FACT) || window.__EMBEDDED_FACT.length === 0) return false;
   try {
@@ -1778,6 +1807,8 @@ function tryAutoLoadEmbedded() {
         banner.style.display = 'none';
         document.body.style.paddingBottom = '';
       });
+      // Watermark personnalisé destinataire (traçabilité fuite) — non fermable
+      if (meta.recipient) injectRecipientWatermark(meta);
     }, 200);
     setTimeout(() => launchAnalysis(), 100);
     return true;
@@ -3523,7 +3554,18 @@ async function exportInteractiveHTML() {
     if (btn) btn.textContent = '⏳ Construction HTML...';
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // 3. Demander un mot de passe optionnel pour chiffrer (sécurité partage)
+    // 3a. Demander la liste des destinataires (watermark personnalisé optionnel)
+    const recipientsRaw = prompt(
+      '🏷 Personnalisation par destinataire (optionnel)\n\n' +
+      'Entrez les NOMS des destinataires (1 par ligne) pour générer 1 fichier personnalisé par personne, avec watermark visible (« AGL CONFIDENTIEL — Nom »).\n\n' +
+      '✓ Avantage : si un fichier fuite, vous saurez qui l\'a leaké (traçabilité).\n' +
+      '✗ Laissez VIDE = 1 fichier générique (comportement actuel).\n\n' +
+      'Exemple :\nJean Dupont\nMarie Martin\nKarim Diallo',
+      ''
+    );
+    const recipients = (recipientsRaw || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+
+    // 3b. Demander un mot de passe optionnel pour chiffrer (sécurité partage)
     if (btn) btn.textContent = '⏳ Sécurité...';
     await new Promise(resolve => setTimeout(resolve, 50));
     let password = null;
@@ -3543,64 +3585,103 @@ async function exportInteractiveHTML() {
       }
     }
 
-    // 4. Injecter le bloc de données juste avant </head>
+    // 4. Préparer les payloads JSON statiques (réutilisés pour chaque destinataire)
     const factJson = JSON.stringify(factSerializable);
     const schemaJson = JSON.stringify(APP.schema || {});
-    const metaJson = JSON.stringify(meta);
     const notesJson = JSON.stringify(APP.kamNotes || {});
 
-    let dataPayload;
+    // Helper de slug (nom de fichier safe)
+    const slugify = (s) => (s || '')
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 30);
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const exportTargets = recipients.length > 0 ? recipients : [null];
+    const totalFiles = exportTargets.length;
+    let lastSizeMb = '0';
+
+    // Pré-encryption (1× quand pas de watermark, ou bien chaque itération si meta.recipient embarqué dans le bundle)
+    // Choix de design : meta reste en clair (utile au password modal pré-déchiffrement),
+    // donc le watermark est dans meta → on chiffre 1 seule fois (gain temps massif sur 10 destinataires).
+    let cipherCache = null;
     if (password) {
-      // Chiffrement AES-GCM. On chiffre fact + schema + notes (sensibles).
-      // meta reste en clair (date export + nb lignes — info technique non sensible).
       if (btn) btn.textContent = '⏳ Chiffrement AES-256...';
       await new Promise(resolve => setTimeout(resolve, 50));
       const bundle = JSON.stringify({ fact: factSerializable, schema: APP.schema || {}, notes: APP.kamNotes || {} });
-      const ciphertext = await encryptString(bundle, password);
-      const safeMeta = metaJson.replace(/<\/script>/gi, '<\\/script>');
-      const safeCipher = ciphertext.replace(/<\/script>/gi, '<\\/script>');
-      dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées CHIFFRÉES AES-256 (snapshot ${meta.exportDate}) -->\n<script id="embedded-data">\nwindow.__EMBEDDED_ENCRYPTED = "${safeCipher}";\nwindow.__EMBEDDED_META = ${safeMeta};\nconsole.info('🔐 CAP Strategic Analytics — Snapshot CHIFFRÉ · mot de passe requis pour ouverture');\n<\/script>\n`;
-    } else {
-      // Export en clair (compatible existant)
-      const safeFact = factJson.replace(/<\/script>/gi, '<\\/script>');
-      const safeSchema = schemaJson.replace(/<\/script>/gi, '<\\/script>');
-      const safeMeta = metaJson.replace(/<\/script>/gi, '<\\/script>');
-      const safeNotes = notesJson.replace(/<\/script>/gi, '<\\/script>');
-      dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées (snapshot ${meta.exportDate}) -->\n<script id="embedded-data">\nwindow.__EMBEDDED_FACT = ${safeFact};\nwindow.__EMBEDDED_SCHEMA = ${safeSchema};\nwindow.__EMBEDDED_META = ${safeMeta};\nwindow.__EMBEDDED_KAM_NOTES = ${safeNotes};\nconsole.info('🎯 CAP Strategic Analytics — Mode snapshot · ' + window.__EMBEDDED_FACT.length + ' lignes embarquées · ' + Object.keys(window.__EMBEDDED_KAM_NOTES||{}).length + ' notes KAM');\n<\/script>\n`;
+      cipherCache = await encryptString(bundle, password);
     }
-    html = html.replace(/<\/head>/i, dataPayload + '</head>');
 
-    if (btn) btn.textContent = '⏳ Génération du fichier...';
-    await new Promise(resolve => setTimeout(resolve, 50));
+    for (let idx = 0; idx < totalFiles; idx++) {
+      const recipient = exportTargets[idx];
+      const metaPerso = { ...meta };
+      if (recipient) metaPerso.recipient = recipient;
+      const versionId = (Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e6).toString(36)).toUpperCase();
+      metaPerso.versionId = versionId;
+      const metaJson = JSON.stringify(metaPerso);
 
-    // 4. Génère le Blob et déclenche le téléchargement
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const sizeMb = (blob.size / 1024 / 1024).toFixed(1);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const dateStr = new Date().toISOString().slice(0, 10);
-    a.download = `CAP_AGL_rapport_${dateStr}.html`;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 1000);
+      let dataPayload;
+      if (password) {
+        const safeMeta = metaJson.replace(/<\/script>/gi, '<\\/script>');
+        const safeCipher = cipherCache.replace(/<\/script>/gi, '<\\/script>');
+        dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées CHIFFRÉES AES-256 (snapshot ${meta.exportDate})${recipient ? ' · destinataire: ' + recipient : ''} -->\n<script id="embedded-data">\nwindow.__EMBEDDED_ENCRYPTED = "${safeCipher}";\nwindow.__EMBEDDED_META = ${safeMeta};\nconsole.info('🔐 CAP Strategic Analytics — Snapshot CHIFFRÉ · mot de passe requis pour ouverture');\n<\/script>\n`;
+      } else {
+        const safeFact = factJson.replace(/<\/script>/gi, '<\\/script>');
+        const safeSchema = schemaJson.replace(/<\/script>/gi, '<\\/script>');
+        const safeMeta = metaJson.replace(/<\/script>/gi, '<\\/script>');
+        const safeNotes = notesJson.replace(/<\/script>/gi, '<\\/script>');
+        dataPayload = `\n<!-- AGL CAP Strategic Analytics — données embarquées (snapshot ${meta.exportDate})${recipient ? ' · destinataire: ' + recipient : ''} -->\n<script id="embedded-data">\nwindow.__EMBEDDED_FACT = ${safeFact};\nwindow.__EMBEDDED_SCHEMA = ${safeSchema};\nwindow.__EMBEDDED_META = ${safeMeta};\nwindow.__EMBEDDED_KAM_NOTES = ${safeNotes};\nconsole.info('🎯 CAP Strategic Analytics — Mode snapshot · ' + window.__EMBEDDED_FACT.length + ' lignes embarquées · ' + Object.keys(window.__EMBEDDED_KAM_NOTES||{}).length + ' notes KAM');\n<\/script>\n`;
+      }
 
-    if (btn) btn.textContent = '✅ Téléchargé (' + sizeMb + ' Mo)';
+      const htmlPerso = html.replace(/<\/head>/i, dataPayload + '</head>');
+
+      if (btn) btn.textContent = recipient
+        ? `⏳ ${idx + 1}/${totalFiles} : ${recipient.slice(0,18)}…`
+        : '⏳ Génération du fichier...';
+      await new Promise(resolve => setTimeout(resolve, 30));
+
+      const blob = new Blob([htmlPerso], { type: 'text/html;charset=utf-8' });
+      lastSizeMb = (blob.size / 1024 / 1024).toFixed(1);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = recipient
+        ? `CAP_AGL_${dateStr}_${slugify(recipient)}.html`
+        : `CAP_AGL_rapport_${dateStr}.html`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (a.parentNode) document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+
+      // Délai inter-fichiers : laisse le navigateur gérer le download avant le suivant
+      if (idx < totalFiles - 1) await new Promise(resolve => setTimeout(resolve, 600));
+    }
+
+    if (btn) btn.textContent = totalFiles > 1
+      ? `✅ ${totalFiles} fichiers téléchargés`
+      : `✅ Téléchargé (${lastSizeMb} Mo)`;
     setTimeout(() => {
       if (btn) { btn.disabled = false; btn.textContent = originalText; }
-    }, 4000);
+    }, 5000);
 
-    // Petite popup d'instructions
+    // Popup d'instructions
     setTimeout(() => {
       const fallbackNote = fallbackUsed ? `\n\nℹ Note : généré à partir du DOM courant (mode local file://). Si vous remarquez un visuel altéré chez le destinataire, ouvrez l'app via raw.githack.com avant d'exporter pour une version source plus propre.` : '';
       const cryptoNote = password
         ? `\n\n🔐 CHIFFREMENT AES-256 ACTIF\n• Données fact + schéma + notes KAM chiffrées (PBKDF2-SHA256, 100 000 itérations)\n• À l'ouverture, le destinataire devra saisir le mot de passe (3 tentatives max)\n• Partagez le mot de passe HORS BANDE : SMS, oral, jamais dans le même mail.\n• Sans mot de passe, le fichier reste illisible — y compris via DevTools.`
         : `\n\n⚠ Confidentialité : ce fichier contient les données AGL sensibles EN CLAIR. Pour un partage externe, ré-exportez avec mot de passe (chiffrement AES-256).`;
-      alert(`✅ Rapport interactif exporté (${sizeMb} Mo)\n\nLe fichier "CAP_AGL_rapport_${dateStr}.html" a été téléchargé.\n\n📤 Pour partager :\n• Envoyez le fichier par WeTransfer / Teams / Google Drive (mail = limite 25 Mo)\n• Le destinataire double-clique → l'app s'ouvre dans son navigateur avec les données pré-chargées\n• Aucun upload requis, aucune installation\n• Internet requis au 1er chargement (CDN libs Chart.js / Plotly)${fallbackNote}${cryptoNote}`);
-    }, 200);
+      const recipientNote = recipients.length > 0
+        ? `\n\n🏷 WATERMARK PERSONNALISÉ ACTIF\n• ${recipients.length} fichier(s) téléchargé(s), un par destinataire\n• Chaque fichier affiche « AGL CONFIDENTIEL — {nom} » en bandeau\n• Chaque fichier a un identifiant unique (versionId) pour audit\n• Si un fichier fuite, le watermark identifie la source.`
+        : '';
+      const summary = totalFiles > 1
+        ? `✅ ${totalFiles} rapports interactifs exportés (~${lastSizeMb} Mo chacun)\n\nFichiers téléchargés : CAP_AGL_${dateStr}_<destinataire>.html`
+        : `✅ Rapport interactif exporté (${lastSizeMb} Mo)\n\nLe fichier "CAP_AGL_rapport_${dateStr}.html" a été téléchargé.`;
+      alert(`${summary}\n\n📤 Pour partager :\n• Envoyez chaque fichier au destinataire correspondant (mail / Teams / SharePoint)\n• Le destinataire double-clique → l'app s'ouvre avec les données pré-chargées\n• Aucun upload requis, aucune installation\n• Internet requis au 1er chargement (CDN libs Chart.js / Plotly)${recipientNote}${fallbackNote}${cryptoNote}`);
+    }, 300);
   } catch(e) {
     console.error('Export HTML failed', e);
     if (btn) { btn.disabled = false; btn.textContent = originalText; }
