@@ -1940,7 +1940,11 @@ const PAGES = [
   { id: 'risk', num: '07', title: 'Tour de contrôle risques', subtitle: 'Health Score & alertes churn', section: 'Risques',
     explanation: "Health Score consolidé (-7 à +5) à partir de signaux faibles : décroissance, inactivité récente, mono-site, mono-libellé, baisse de diversité. Identifie les clients critiques (≤ -4) et à surveiller (-3 à -2) pour action commerciale prioritaire." },
   { id: 'forecast', num: '08', title: 'Prévisions & projections', subtitle: 'Forecast multi-horizon + What-If', section: 'Prospective',
-    explanation: "Projection 3 / 6 / 12 / 24 mois basée sur le CAGR historique et la saisonnalité mensuelle, avec bandes optimiste/pessimiste ±15%. Le module What-If recalcule en temps réel l'impact de 3 leviers : croissance, variation Top 10, effet saisonnier." }
+    explanation: "Projection 3 / 6 / 12 / 24 mois basée sur le CAGR historique et la saisonnalité mensuelle, avec bandes optimiste/pessimiste ±15%. Le module What-If recalcule en temps réel l'impact de 3 leviers : croissance, variation Top 10, effet saisonnier." },
+  { id: 'actions', num: '09', title: 'Centre d\'action commerciale', subtitle: 'Liste actionnable triée par priorité', section: 'Pilotage',
+    explanation: "Liste consolidée et priorisée des actions commerciales à mener : clients critiques à appeler, gros perdus à reconquérir, opportunités cross-sell à activer, comptes à promouvoir. Tableau de bord actionnable pour la Direction Commerciale et les KAM." },
+  { id: 'heatmap', num: '10', title: 'Heatmap Mois × Métier', subtitle: 'Saisonnalité par famille d\'activité', section: 'Périmètre',
+    explanation: "Visualisation de la saisonnalité de chaque métier AGL sur les 12 mois. Permet d'identifier les pics et creux par activité (ex. Cacao en T4-T1, Aérien en T4 e-commerce) pour calibrer les ressources opérationnelles et commerciales." }
 ];
 
 function buildApp() {
@@ -3435,11 +3439,12 @@ function render_customers() {
               <th>Département(s)</th>
               <th class="num">CAP ${APP.filters.ANNEE}</th><th class="num">CAP ${APP.filters.ANNEE-1}</th>
               <th class="num">Évol.</th><th class="num">Score</th>
-              <th>Cross-sell</th><th>Case stratégique</th><th>Statut</th>
+              <th>Cross-sell</th><th>Pattern</th><th>Case stratégique</th><th>Statut</th>
             </tr></thead>
             <tbody>
-              ${clients.slice(0, 200).map((c, i) => `
-                <tr>
+              ${clients.slice(0, 200).map((c, i) => {
+                const pat = c.pattern || { label:'—', color:'#7F7F7F' };
+                return `<tr>
                   <td class="text-muted">${i+1}</td>
                   <td><strong>${c.CLIENT}</strong></td>
                   <td><span class="tier-${c.tier}">${c.tier}</span></td>
@@ -3450,10 +3455,11 @@ function render_customers() {
                   <td class="num">${c.evol === null ? '—' : `<span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed(c.evol*100)}</span>`}</td>
                   <td class="num"><strong>${c.score}</strong>/100</td>
                   <td>${crossSellStars(c)}</td>
+                  <td class="text-sm" style="color:${pat.color};font-weight:600;" title="${pat.action || ''}">${pat.label}</td>
                   <td class="text-sm"><span style="display:inline-block;width:6px;height:6px;background:${c.quadrantColor};border-radius:50%;margin-right:4px;"></span>${c.quadrant}</td>
                   <td class="text-sm">${c.statut}</td>
-                </tr>
-              `).join('')}
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -4547,6 +4553,255 @@ function attachWhatIfHandlers() {
     APP.whatif = { croissance: 0, top10: 0, saison: 1 };
     render_forecast();
   });
+}
+
+// ============================================================
+// PAGE 9 — CENTRE D'ACTION COMMERCIALE
+// Consolide toutes les actions à mener priorisées par urgence/impact
+// ============================================================
+function render_actions() {
+  const p = PAGES[9];
+  const el = document.getElementById('page-actions');
+  const all = APP.clientsAgg;
+  const lbl = periodLabel();
+
+  // Cibles d'action commerciale par catégorie
+  const critical    = [...all].filter(c => c.healthScore <= -4 && c.CA_N > 0).sort((a,b) => b.CA_N - a.CA_N);
+  const lostRecent  = [...all].filter(c => c.isTrueLost && c.monthsSinceLastTx <= 12).sort((a,b) => (b.CA_N1||0) - (a.CA_N1||0));
+  const xsellNew    = [...all].filter(c => c.CA_N > 0 && c.newMetiers && c.newMetiers.length > 0).sort((a,b) => b.CA_N - a.CA_N);
+  const xsellOpp    = [...all].filter(c => c.CA_N > 0 && c.crossSellLvl <= 2 && c.tier === 'B').sort((a,b) => b.CA_N - a.CA_N);
+  const promoteSA   = [...all].filter(c => c.CA_N > 0 && c.tier === 'A' && c.evol !== null && c.evol >= 0.20).sort((a,b) => b.CA_N - a.CA_N);
+  const decliners   = [...all].filter(c => c.CA_N > 0 && c.evol !== null && c.evol <= -0.15 && c.tier !== 'D').sort((a,b) => a.evol - b.evol);
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      const totalActions = critical.length + lostRecent.length + xsellNew.length + xsellOpp.length + promoteSA.length + decliners.length;
+      ins.push({ type:'neutre', constat:`<strong>${totalActions} actions commerciales identifiées</strong> sur ${lbl.longue}, réparties en 6 catégories priorisées par impact CA.`, implication:`Cette page est le tableau de bord opérationnel. Chaque ligne = une action concrète, un client précis, une recommandation claire. Idéal pour la revue commerciale hebdomadaire.`, action:`Distribuer les actions par KAM. Suivre l'avancement chaque vendredi en réunion d'équipe.` });
+      if (critical.length > 0) ins.push({ type:'risque', constat:`<strong>${critical.length} alertes critiques</strong> (Health Score ≤ -4) — ${fmt.money(critical.reduce((s,c)=>s+c.CA_N,0))} XOF en jeu.`, implication:`Priorité absolue cette semaine. Sans intervention, ces clients basculent en perte définitive.`, action:`Visite KAM senior planifiée dans les 7 jours pour chaque alerte critique.` });
+      if (xsellNew.length > 0) ins.push({ type:'opportunite', constat:`<strong>${xsellNew.length} clients viennent d'ouvrir un nouveau métier</strong> — signal d'élargissement de la relation à exploiter immédiatement.`, implication:`Fenêtre de 90 jours pour transformer cette ouverture en relation pérenne et étendre encore le panier.`, action:`Visite de "consolidation" sur chacun pour cartographier les besoins logistiques globaux.` });
+      return analyse(ins, '🎯 Synthèse stratégique consolidée — Centre d\'action');
+    })()}
+
+    <div class="grid grid-3 mt-2">
+      <div class="kpi kpi-alert">
+        <div class="kpi-label">🚨 Alertes critiques</div>
+        <div class="kpi-value">${critical.length}</div>
+        <div class="kpi-bench">${fmt.money(critical.reduce((s,c)=>s+c.CA_N,0))} XOF en jeu</div>
+        <div class="kpi-bench">Health Score ≤ -4 — visite KAM senior 7 j.</div>
+      </div>
+      <div class="kpi" style="border-top:3px solid var(--evol-down);">
+        <div class="kpi-label">📞 Clients à reconquérir</div>
+        <div class="kpi-value">${lostRecent.length}</div>
+        <div class="kpi-bench">${fmt.money(lostRecent.reduce((s,c)=>s+(c.CA_N1||0),0))} XOF de CAP perdu &lt; 12 mois</div>
+        <div class="kpi-bench">fenêtre encore ouverte — appel KAM</div>
+      </div>
+      <div class="kpi" style="border-top:3px solid var(--gold-500);">
+        <div class="kpi-label">💎 Cross-sell ouvert</div>
+        <div class="kpi-value">${xsellNew.length}</div>
+        <div class="kpi-bench">${fmt.money(xsellNew.reduce((s,c)=>s+c.CA_N,0))} XOF concernés</div>
+        <div class="kpi-bench">nouveau(x) métier(s) facturé(s) — consolider</div>
+      </div>
+    </div>
+
+    <div class="grid grid-3 mt-2">
+      <div class="kpi" style="border-top:3px solid var(--evol-new);">
+        <div class="kpi-label">🎯 Cross-sell à pousser</div>
+        <div class="kpi-value">${xsellOpp.length}</div>
+        <div class="kpi-bench">Tier B mono ou bi-métier (★ ou ★★)</div>
+        <div class="kpi-bench">levier d'expansion le plus rentable</div>
+      </div>
+      <div class="kpi kpi-good">
+        <div class="kpi-label">⭐ À promouvoir Tier A → S</div>
+        <div class="kpi-value">${promoteSA.length}</div>
+        <div class="kpi-bench">A en croissance &gt; +20% — candidats Tier S</div>
+        <div class="kpi-bench">contractualiser pluriannuel</div>
+      </div>
+      <div class="kpi kpi-alert">
+        <div class="kpi-label">📉 Décliners hors Tier D</div>
+        <div class="kpi-value">${decliners.length}</div>
+        <div class="kpi-bench">évolution ≤ -15% — clients de valeur en chute</div>
+        <div class="kpi-bench">à redresser avant bascule en alerte</div>
+      </div>
+    </div>
+
+    ${actionTable('🚨 1. Alertes critiques (à appeler cette semaine)', critical, 'Visite KAM senior — diagnostic & plan de redressement formel', 'health')}
+    ${actionTable('📞 2. Clients perdus < 12 mois (à reconquérir)', lostRecent, 'Appel KAM — comprendre pourquoi & proposer une offre de retour', 'lost')}
+    ${actionTable('💎 3. Cross-selling ouvert (à consolider)', xsellNew, 'Visite consolidation — cartographier les besoins logistiques globaux', 'xsellNew')}
+    ${actionTable('🎯 4. Tier B avec potentiel cross-sell', xsellOpp, 'Pousser ouverture d\'un 2e métier dans les 6 mois', 'xsellOpp')}
+    ${actionTable('⭐ 5. À promouvoir Tier A → Tier S', promoteSA, 'Sécuriser via engagement pluriannuel + KAM senior dédié', 'promote')}
+    ${actionTable('📉 6. Decliners hors Tier D', decliners, 'Diagnostic offre/prix/qualité + plan de redressement à 60 j.', 'decline')}
+  `;
+}
+
+// Helper : tableau d'action commerciale
+function actionTable(title, list, defaultReco, mode) {
+  const max = 30;
+  const visible = list.slice(0, max);
+  return `
+  <div class="card mt-3">
+    <div class="card-header">
+      <div class="card-title">${title}</div>
+      <div class="text-sm text-muted">${list.length} clients identifiés${list.length > max ? ` — ${max} premiers affichés` : ''} — triés par CA décroissant</div>
+    </div>
+    <div class="card-body" style="padding:0;">
+      <div class="tbl-wrap" style="max-height:420px;">
+        <table class="data">
+          <thead><tr>
+            <th>#</th><th>Client</th><th>Tier</th><th>Métier</th>
+            <th class="num">CAP réf.</th>
+            ${mode === 'health' ? '<th class="num">Health</th>' : ''}
+            ${mode === 'lost' ? '<th>Perdu depuis</th>' : ''}
+            ${mode === 'xsellNew' ? '<th>Nouveau(x) métier(s)</th>' : ''}
+            ${mode === 'xsellOpp' ? '<th>Cross-sell actuel</th>' : ''}
+            ${mode === 'decline' ? '<th class="num">Évol.</th>' : ''}
+            ${mode === 'promote' ? '<th class="num">Évol.</th>' : ''}
+            <th>Action recommandée</th>
+          </tr></thead>
+          <tbody>
+            ${visible.length === 0 ? `<tr><td colspan=7 style="text-align:center;color:var(--evol-strong-up);padding:24px;">✓ Rien à signaler dans cette catégorie</td></tr>` : visible.map((c, i) => {
+              const refCA = mode === 'lost' ? (c.CA_N1 || 0) : c.CA_N;
+              return `<tr>
+                <td class="text-muted">${i+1}</td>
+                <td><strong>${c.CLIENT}</strong></td>
+                <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                <td class="text-sm">${c.METIER || '—'}</td>
+                <td class="num">${fmt.money(refCA)}</td>
+                ${mode === 'health' ? `<td class="num"><strong>${c.healthScore}</strong></td>` : ''}
+                ${mode === 'lost' ? `<td class="text-sm">${formatLastSeen(c)}</td>` : ''}
+                ${mode === 'xsellNew' ? `<td><span style="color:var(--gold-700);font-weight:600;">${(c.newMetiers || []).join(', ')}</span></td>` : ''}
+                ${mode === 'xsellOpp' ? `<td>${crossSellStars(c)}</td>` : ''}
+                ${mode === 'decline' || mode === 'promote' ? `<td class="num">${c.evol === null ? '—' : `<span class="evol-cell" style="background:${c.color};color:${['#F4D35E'].includes(c.color)?'#000':'white'};">${fmt.signed(c.evol*100)}</span>`}</td>` : ''}
+                <td class="text-sm">${defaultReco}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ============================================================
+// PAGE 10 — HEATMAP MÉTIER × MOIS
+// Visualise la saisonnalité de chaque métier AGL sur 12 mois
+// ============================================================
+function render_heatmap() {
+  const p = PAGES[10];
+  const el = document.getElementById('page-heatmap');
+  const all = APP.data.fact;
+  const f = APP.filters;
+  const yMax = f.ANNEE;
+
+  // Métiers présents dans la donnée (ordre par CA total décroissant)
+  const metierStats = {};
+  for (const r of all) {
+    if (!r.METIER || !r.MONTANT) continue;
+    if (r.ANNEE !== yMax && r.ANNEE !== yMax - 1) continue;
+    if (!metierStats[r.METIER]) metierStats[r.METIER] = { total: 0, byMonth: { N: Array(12).fill(0), N1: Array(12).fill(0) } };
+    metierStats[r.METIER].total += r.MONTANT;
+    if (r.ANNEE === yMax) metierStats[r.METIER].byMonth.N[r.MOIS - 1] += r.MONTANT;
+    else metierStats[r.METIER].byMonth.N1[r.MOIS - 1] += r.MONTANT;
+  }
+  const metiers = Object.entries(metierStats).sort((a,b) => b[1].total - a[1].total).map(e => e[0]);
+
+  // Mois = 1..12 ; année courante (N) en haut, N-1 en bas
+  const moisLabels = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
+
+  // Calcul max par métier (pour colorer relativement)
+  const maxByMetier = {};
+  metiers.forEach(m => {
+    const all12 = [...metierStats[m].byMonth.N, ...metierStats[m].byMonth.N1];
+    maxByMetier[m] = all12.reduce((mx,v) => v > mx ? v : mx, 0);
+  });
+
+  // Détecter pour chaque métier le mois pic et le creux (signal saisonnalité)
+  const peakByMetier = {};
+  metiers.forEach(m => {
+    const cum = Array(12).fill(0);
+    for (let i = 0; i < 12; i++) cum[i] = metierStats[m].byMonth.N[i] + metierStats[m].byMonth.N1[i];
+    const total = cum.reduce((s,v) => s + v, 0);
+    let maxM = 0, maxV = 0, minM = 0, minV = total;
+    cum.forEach((v, i) => {
+      if (v > maxV) { maxV = v; maxM = i; }
+      if (v < minV && v > 0) { minV = v; minM = i; }
+    });
+    const concRate = total > 0 ? maxV / (total / 12) : 0; // 1 = uniforme, > 2 = forte saisonnalité
+    peakByMetier[m] = { maxM, minM, concRate, total };
+  });
+
+  // Cellule heatmap : couleur or proportionnelle
+  function cellStyle(value, max) {
+    if (max <= 0 || value <= 0) return 'background:#fafafa;color:var(--grey-400);';
+    const intensity = Math.min(1, value / max);
+    const alpha = 0.10 + intensity * 0.55;
+    return `background:rgba(212,162,78,${alpha.toFixed(2)});color:${intensity > 0.6 ? 'var(--navy-900)' : 'var(--grey-900)'};font-weight:${intensity > 0.5 ? '700':'500'};`;
+  }
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      // Top métier saisonnier
+      const seasonal = metiers.map(m => ({ m, ...peakByMetier[m] })).sort((a,b) => b.concRate - a.concRate);
+      if (seasonal.length > 0) {
+        const top = seasonal[0];
+        if (top.concRate > 1.8) ins.push({ type:'attention', constat:`<strong>${top.m}</strong> a la saisonnalité la plus marquée — pic en <strong>${moisLabels[top.maxM]}</strong> (${(top.concRate*100/12).toFixed(0)}% du CA annuel concentré sur ce mois).`, implication:`Charge opérationnelle inégale sur l'année. Sur-effectifs en haute saison, sous-utilisation hors période.`, action:`Calibrer les ressources humaines (intérim, équipes saisonnières) sur les pics et redéployer hors saison.` });
+        else if (top.concRate < 1.3) ins.push({ type:'positif', constat:`Activité globalement <strong>régulière</strong> sur l'année — peu de saisonnalité marquée (concentration max ${(top.concRate*100/12).toFixed(0)}% sur ${top.m}).`, implication:`Charge opérationnelle stable, prévisible. Modèle économique robuste face aux cycles.`, action:`Maintenir cet équilibre — surveiller que la diversification métier ne crée pas de nouveaux pics.` });
+      }
+      // Mois global le plus fort
+      const monthTotals = Array(12).fill(0);
+      metiers.forEach(m => { for (let i = 0; i < 12; i++) monthTotals[i] += metierStats[m].byMonth.N[i] + metierStats[m].byMonth.N1[i]; });
+      const totalAll = monthTotals.reduce((s,v) => s + v, 0);
+      let maxM = 0, maxV = 0;
+      monthTotals.forEach((v, i) => { if (v > maxV) { maxV = v; maxM = i; } });
+      if (totalAll > 0) ins.push({ type:'neutre', constat:`Le mois le plus fort en cumulé est <strong>${moisLabels[maxM]}</strong> (${fmt.pct(maxV / totalAll)} du CA des 24 derniers mois).`, implication:`À comparer avec les benchmarks sectoriels logistique africaine. Pic typique post-récolte agricole + e-commerce de fin d'année.`, action:`Aligner les campagnes commerciales sur ce calendrier (pré-saison + saison) et anticiper la trésorerie.` });
+      return analyse(ins, '🎯 Synthèse stratégique — Saisonnalité par métier');
+    })()}
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Heatmap CAP par métier × mois — ${yMax} (haut) vs ${yMax - 1} (bas)</div>
+        <div class="text-sm text-muted">Intensité de couleur or = poids du mois dans le CA annuel du métier. Métiers triés par CA total décroissant.</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:none;">
+          <table class="data" style="font-size:11px;">
+            <thead><tr>
+              <th style="min-width:200px;">Métier</th>
+              <th class="num">Année</th>
+              ${moisLabels.map(m => `<th class="num">${m}</th>`).join('')}
+              <th class="num">Total</th>
+              <th>Profil</th>
+            </tr></thead>
+            <tbody>
+              ${metiers.map(m => {
+                const sN = metierStats[m].byMonth.N.reduce((s,v) => s + v, 0);
+                const sN1 = metierStats[m].byMonth.N1.reduce((s,v) => s + v, 0);
+                const peak = peakByMetier[m];
+                const profil = peak.concRate > 1.8 ? `🎯 Saisonnier (pic ${moisLabels[peak.maxM]})` : peak.concRate > 1.3 ? `📊 Modéré` : `🔁 Régulier`;
+                return `<tr>
+                  <td rowspan="2" style="vertical-align:middle;background:var(--grey-50);"><strong>${m}</strong></td>
+                  <td class="num text-muted">${yMax}</td>
+                  ${metierStats[m].byMonth.N.map(v => `<td class="num" style="${cellStyle(v, maxByMetier[m])}">${v > 0 ? fmt.money(v) : '—'}</td>`).join('')}
+                  <td class="num"><strong>${fmt.money(sN)}</strong></td>
+                  <td rowspan="2" style="vertical-align:middle;background:var(--grey-50);" class="text-sm">${profil}</td>
+                </tr>
+                <tr>
+                  <td class="num text-muted">${yMax - 1}</td>
+                  ${metierStats[m].byMonth.N1.map(v => `<td class="num text-muted" style="${cellStyle(v, maxByMetier[m])}">${v > 0 ? fmt.money(v) : '—'}</td>`).join('')}
+                  <td class="num text-muted"><strong>${fmt.money(sN1)}</strong></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
 }
 </script>
 
