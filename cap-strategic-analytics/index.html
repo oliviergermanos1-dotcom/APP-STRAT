@@ -3646,21 +3646,29 @@ function renderScatter(clients) {
   const ctx = document.getElementById('chart-scatter');
   if (!ctx) return;
   const c = chartColors();
-  const traces = {};
-  // Cap visuel des évolutions : un client avec CA_N1 microscopique (ex. 100 XOF
-  // d'avoir résiduel) qui passe à 100 M XOF en N produit une évolution de
-  // 100 millions de %, ce qui aplatit toute la lecture du graphique.
-  // On clampe à [-100% ; +300%] et on flague les outliers dans le tooltip.
+
+  // ===== ÉCHELLE Y EXPLICITE =====
+  // Un client avec CA_N1 microscopique (ex. 100 XOF d'avoir résiduel) qui
+  // passe à 100 M XOF en N produit une évolution de millions de %, ce qui
+  // aplatit toute la lecture du graphique. Stratégie en 2 étapes :
+  //   1. Filtrer les outliers (|évol| > 500%) hors du graphique → rangés
+  //      dans une annotation "X clients hors graphique" (CA_N1 marginal).
+  //   2. Pour les clients restants, clamp visuel doux à [-100% ; +300%]
+  //      pour rester lisible et homogène.
   const Y_MAX = 300, Y_MIN = -100;
+  const traces = {};
+  let outliersHigh = 0, outliersLow = 0;
   clients.forEach(cli => {
+    const yReal = cli.evol === null ? 0 : cli.evol * 100;
+    // Outlier : exclure du graphique pour ne pas écraser l'échelle
+    if (yReal > 500) { outliersHigh++; return; }
+    if (yReal < -100) { outliersLow++; return; }
     if (!traces[cli.quadrant]) {
       traces[cli.quadrant] = { x: [], y: [], text: [], size: [], color: cli.quadrantColor };
     }
-    const yReal = cli.evol === null ? 0 : cli.evol * 100;
     let yClamped = yReal;
     let outlierTag = '';
-    if (yReal > Y_MAX) { yClamped = Y_MAX; outlierTag = ` <i>(réel ${fmt.signed(yReal)} — clampé)</i>`; }
-    else if (yReal < Y_MIN) { yClamped = Y_MIN; outlierTag = ` <i>(réel ${fmt.signed(yReal)} — clampé)</i>`; }
+    if (yReal > Y_MAX) { yClamped = Y_MAX; outlierTag = ` <i>(${fmt.signed(yReal)}% clampé)</i>`; }
     traces[cli.quadrant].x.push(cli.CA_N);
     traces[cli.quadrant].y.push(yClamped);
     traces[cli.quadrant].text.push(`<b>${cli.CLIENT}</b><br>CA: ${fmt.moneyFull(cli.CA_N)}<br>Évol: ${cli.evol === null ? 'N/A' : fmt.signed(yReal) + '%'}${outlierTag}<br>Case: ${cli.quadrant}`);
@@ -3674,17 +3682,32 @@ function renderScatter(clients) {
     marker: { color: traces[q].color, size: traces[q].size, opacity: 0.75, line: { color: 'white', width: 1 } }
   }));
 
+  // Annotations indiquant les outliers exclus du visuel
+  const annotations = [];
+  if (outliersHigh > 0) annotations.push({ xref:'paper', yref:'paper', x: 0.99, y: 0.97, xanchor:'right', yanchor:'top', text: `${outliersHigh} client(s) en hausse extrême (&gt; +500%) non affiché(s) — CA N-1 marginal`, showarrow: false, bgcolor: 'rgba(212,162,78,0.15)', bordercolor: '#D4A24E', borderwidth: 1, borderpad: 4, font: { size: 10, color: '#8B6B2D' } });
+  if (outliersLow > 0)  annotations.push({ xref:'paper', yref:'paper', x: 0.99, y: 0.03, xanchor:'right', yanchor:'bottom', text: `${outliersLow} client(s) en baisse extrême (&lt; -100%) non affiché(s)`, showarrow: false, bgcolor: 'rgba(214,40,40,0.10)', bordercolor: '#D62828', borderwidth: 1, borderpad: 4, font: { size: 10, color: '#D62828' } });
+
   const layout = {
     showlegend: true,
-    legend: { orientation: 'h', y: -0.2, font: { size: 10, family: 'Inter' } },
-    margin: { l: 60, r: 20, t: 20, b: 60 },
-    xaxis: { title: { text: 'CA (XOF, échelle log)', font: { size: 11, family: 'Inter' } }, type: 'log', gridcolor: c.grid, tickfont: { size: 10, family: 'JetBrains Mono' } },
-    yaxis: { title: { text: 'Croissance % vs N-1 (clampée [-100% ; +300%])', font: { size: 11, family: 'Inter' } }, range: [Y_MIN - 10, Y_MAX + 10], gridcolor: c.grid, zeroline: true, zerolinecolor: c.text, zerolinewidth: 2, tickfont: { size: 10, family: 'JetBrains Mono' }, ticksuffix: '%' },
+    legend: { orientation: 'h', y: -0.18, font: { size: 10, family: 'Inter' } },
+    margin: { l: 70, r: 20, t: 30, b: 70 },
+    xaxis: { title: { text: 'CA — XOF, échelle log', font: { size: 11, family: 'Inter' } }, type: 'log', gridcolor: c.grid, tickfont: { size: 10, family: 'JetBrains Mono' } },
+    yaxis: { title: { text: 'Croissance % vs N-1', font: { size: 11, family: 'Inter' } }, range: [Y_MIN - 10, Y_MAX + 10], autorange: false, fixedrange: false, gridcolor: c.grid, zeroline: true, zerolinecolor: c.text, zerolinewidth: 2, tickfont: { size: 10, family: 'JetBrains Mono' }, ticksuffix: '%' },
     plot_bgcolor: 'rgba(0,0,0,0)',
     paper_bgcolor: 'rgba(0,0,0,0)',
-    font: { family: 'Inter', size: 11 }
+    font: { family: 'Inter', size: 11 },
+    annotations: annotations,
+    shapes: [
+      // Lignes horizontales de seuil pour aider à lire les zones
+      { type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: 15, y1: 15, line: { color: 'rgba(11,110,79,0.30)', width: 1, dash: 'dash' } },
+      { type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: -5, y1: -5, line: { color: 'rgba(247,127,0,0.30)', width: 1, dash: 'dash' } }
+    ]
   };
-  
+
+  // Détruire l'ancien graphique avant de redessiner pour forcer Plotly à
+  // appliquer les nouveaux paramètres (sinon Plotly peut conserver l'autorange
+  // de l'ancien rendu et ignorer le nouveau range).
+  try { Plotly.purge('chart-scatter'); } catch(e) {}
   Plotly.newPlot('chart-scatter', data, layout, { responsive: true, displayModeBar: false });
 }
 
