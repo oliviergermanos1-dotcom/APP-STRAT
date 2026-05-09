@@ -1,0 +1,61 @@
+# =============================================================
+# CAP Strategic Analytics — .gitignore sécurité
+# Empêche tout commit accidentel de données AGL sensibles
+# =============================================================
+
+# --- Données brutes IRIS / SAP (jamais commit) ---
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.csv
+*.tsv
+*.parquet
+*.feather
+
+# --- Snapshots HTML exportés (peuvent contenir le fact embarqué) ---
+CAP_AGL_rapport_*.html
+*_export_*.html
+*_snapshot_*.html
+cap-strategic-analytics/data/
+
+# --- Sauvegardes localStorage / dumps JSON ---
+cap_data*.json
+cap_kam_notes*.json
+*.dump.json
+
+# --- Secrets / credentials ---
+.env
+.env.*
+secrets.json
+credentials.json
+*.pem
+*.key
+*.p12
+
+# --- OS / éditeurs ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+*.sublime-*
+
+# --- Node / build ---
+node_modules/
+dist/
+build/
+*.log
+npm-debug.log*
+
+# --- Python (scripts/consolidate.py) ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# --- Tests temporaires ---
+tests/output/
+tests/*.tmp
