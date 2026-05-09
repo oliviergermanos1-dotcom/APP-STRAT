@@ -252,6 +252,61 @@ html, body {
   height: 32px;
   background: var(--grey-200);
 }
+/* ===== STABILITÉ — toast erreurs + spinner chargement ===== */
+#err-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  max-width: 380px;
+  background: #D62828;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(214,40,40,0.30), 0 2px 6px rgba(0,0,0,0.10);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.5;
+  z-index: 10000;
+  display: none;
+  border-left: 4px solid #8B0000;
+}
+#err-toast.show { display: block; animation: errSlideIn 220ms ease-out; }
+@keyframes errSlideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+#err-toast .err-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+#err-toast .err-close { background: rgba(255,255,255,0.20); border: none; color: white; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1; }
+#err-toast .err-close:hover { background: rgba(255,255,255,0.35); }
+#err-toast .err-msg { font-size: 11.5px; word-break: break-word; }
+#err-toast .err-actions { margin-top: 8px; display: flex; gap: 6px; }
+#err-toast .err-btn { background: white; color: #D62828; border: none; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; }
+#err-toast .err-btn:hover { background: #FFE5E5; }
+
+#load-indicator {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  background: var(--gold-500);
+  color: var(--navy-900);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(212,162,78,0.35);
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+#load-indicator.show { display: flex; }
+#load-indicator .spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(10,37,64,0.25);
+  border-top-color: var(--navy-900);
+  border-radius: 50%;
+  animation: spinLoad 600ms linear infinite;
+}
+@keyframes spinLoad { to { transform: rotate(360deg); } }
 /* Autocomplete client — slicer */
 .client-ac-wrap { position: relative; }
 .client-ac-panel {
@@ -1259,6 +1314,17 @@ body.presentation-mode .card { box-shadow: 0 8px 24px rgba(10,37,64,0.10); borde
 </style>
 </head>
 <body>
+<!-- Toast d'erreurs globales (uncaught + unhandled rejections) -->
+<div id="err-toast" role="alert" aria-live="assertive">
+  <div class="err-title"><span>⚠ Erreur détectée</span><button class="err-close" onclick="document.getElementById('err-toast').classList.remove('show')" aria-label="Fermer">×</button></div>
+  <div class="err-msg" id="err-toast-msg"></div>
+  <div class="err-actions">
+    <button class="err-btn" onclick="location.reload()">↻ Recharger</button>
+    <button class="err-btn" onclick="document.getElementById('err-toast').classList.remove('show')">Ignorer</button>
+  </div>
+</div>
+<!-- Indicateur de chargement subtil (pour les rendus > 200ms) -->
+<div id="load-indicator" role="status" aria-live="polite"><div class="spinner"></div><span>Calcul en cours…</span></div>
 <div id="app">
   <!-- Le contenu sera injecté par JavaScript -->
 </div>
@@ -2844,26 +2910,26 @@ function buildSlicers() {
       const sel = document.getElementById('slicer-mois');
       if (sel) sel.value = APP.filters.MOIS_MAX;
     }
-    applyFilters();
+    scheduleFilters();
   });
   document.getElementById('slicer-mois').addEventListener('change', e => {
     APP.filters.MOIS_MAX = parseInt(e.target.value);
-    applyFilters();
+    scheduleFilters();
   });
   document.getElementById('slicer-mode').addEventListener('change', e => {
     APP.filters.PERIODE_MODE = e.target.value;  // 'cumul' ou 'mois'
-    applyFilters();
+    scheduleFilters();
   });
   document.getElementById('slicer-site').addEventListener('change', e => {
     APP.filters.SITE = e.target.value;
-    applyFilters();
+    scheduleFilters();
   });
   if (metiers.length) {
     document.getElementById('slicer-metier').addEventListener('change', e => {
       APP.filters.METIER = e.target.value;
       // Lien : restreindre les départements aux libellés du métier choisi
       refreshLibelleOptions(APP.filters.METIER);
-      applyFilters();
+      scheduleFilters();
     });
   }
   if (libelles.length) {
@@ -2879,7 +2945,7 @@ function buildSlicers() {
           refreshLibelleOptions(m);
         }
       }
-      applyFilters();
+      scheduleFilters();
     });
   }
   // ===== Autocomplete client (substring match + drill-down 360°) =====
@@ -2973,7 +3039,7 @@ function buildSlicers() {
 
   function applyTextFilter(v) {
     APP.filters.CLIENT_Q = (v || '').trim();
-    applyFilters();
+    scheduleFilters();
   }
 
   acInput.addEventListener('focus', () => renderACPanel(acInput.value));
@@ -3057,7 +3123,22 @@ function buildSlicers() {
   });
 }
 
+// Wrapper debouncé pour les changements rapides de slicers — évite
+// 3 recalculs successifs si l'utilisateur enchaîne plusieurs filtres.
+// Utilisé uniquement par les handlers slicers ; les appels directs
+// (boutons "Réinitialiser", drill-down, etc.) restent synchrones.
+let _filtersDebounceTimer = null;
+function scheduleFilters() {
+  if (_filtersDebounceTimer) clearTimeout(_filtersDebounceTimer);
+  _filtersDebounceTimer = setTimeout(() => {
+    _filtersDebounceTimer = null;
+    applyFilters();
+  }, 80);
+}
+
 function applyFilters() {
+  // Si un debounce est en attente, on le neutralise (cet appel direct prime)
+  if (_filtersDebounceTimer) { clearTimeout(_filtersDebounceTimer); _filtersDebounceTimer = null; }
   const f = APP.filters;
   const moisMax = f.MOIS_MAX || 12;
   const mode = f.PERIODE_MODE || 'cumul';
@@ -3649,16 +3730,93 @@ function switchPage(id) {
   renderCurrentPage();
 }
 
+// Nettoyage de toutes les instances de graphes avant un nouveau rendu —
+// évite l'accumulation mémoire et les graphes fantômes (Chart.js + Plotly).
+// =================== GESTIONNAIRE D'ERREURS GLOBAL ===================
+// Filet de sécu universel : toute erreur non capturée (JS uncaught,
+// Promise rejection, échec CDN, crash Chart.js…) déclenche un toast élégant
+// avec bouton "Recharger" / "Ignorer" — plus jamais d'écran blanc.
+function showErrorToast(title, msg) {
+  const el = document.getElementById('err-toast');
+  const elMsg = document.getElementById('err-toast-msg');
+  if (!el || !elMsg) return;
+  const safeMsg = String(msg || 'Erreur inconnue').slice(0, 280).replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;');
+  if (title) {
+    const t = el.querySelector('.err-title span');
+    if (t) t.textContent = '⚠ ' + title;
+  }
+  elMsg.textContent = safeMsg;
+  el.classList.add('show');
+  // Auto-close après 12 sec si l'utilisateur n'agit pas
+  clearTimeout(el._autoTimer);
+  el._autoTimer = setTimeout(() => el.classList.remove('show'), 12000);
+}
+
+// Ne s'installe qu'une fois (pour ne pas dupliquer en cas de re-eval)
+if (!window.__capErrHandlerInstalled) {
+  window.__capErrHandlerInstalled = true;
+  window.addEventListener('error', (e) => {
+    // Ignore les erreurs de chargement de ressources externes (image, etc.)
+    if (e && e.target && e.target !== window && (e.target.src || e.target.href)) return;
+    const msg = (e && e.message) || (e && e.error && e.error.message) || 'Erreur JavaScript';
+    console.error('[CAP] Uncaught error', e);
+    showErrorToast('Erreur détectée', msg);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const reason = e && e.reason;
+    const msg = (reason && reason.message) || String(reason || 'Promise non gérée');
+    console.error('[CAP] Unhandled rejection', reason);
+    showErrorToast('Erreur asynchrone', msg);
+  });
+}
+
+function destroyAllCharts() {
+  if (APP.charts) {
+    Object.keys(APP.charts).forEach(k => {
+      try { if (APP.charts[k] && typeof APP.charts[k].destroy === 'function') APP.charts[k].destroy(); } catch (e) {}
+      delete APP.charts[k];
+    });
+  }
+  // Plotly : purge tous les conteneurs connus
+  if (typeof Plotly !== 'undefined') {
+    document.querySelectorAll('[id^="chart-scatter"], [id^="plotly-"]').forEach(el => {
+      try { Plotly.purge(el); } catch (e) {}
+    });
+  }
+}
+
+// Spinner de chargement pour les rendus > 200 ms (page Forecast notamment).
+// Affiché en différé pour ne pas flasher sur les rendus rapides.
+let _loadTimer = null;
+function showLoadIndicator() {
+  if (_loadTimer) clearTimeout(_loadTimer);
+  _loadTimer = setTimeout(() => {
+    const el = document.getElementById('load-indicator');
+    if (el) el.classList.add('show');
+  }, 200);
+}
+function hideLoadIndicator() {
+  if (_loadTimer) { clearTimeout(_loadTimer); _loadTimer = null; }
+  const el = document.getElementById('load-indicator');
+  if (el) el.classList.remove('show');
+}
+
 function renderCurrentPage() {
   const id = APP.currentPage;
   const fn = window['render_' + id];
   if (typeof fn !== 'function') return;
-  // Garde-fou : capture toute erreur de calcul ou de rendu pour
-  // éviter de planter l'app entière. L'utilisateur voit un message
-  // élégant et peut continuer à naviguer dans les autres pages.
+  // 1. Nettoyer les graphes de la page précédente (fix memory leak)
+  destroyAllCharts();
+  // 2. Afficher le spinner si le rendu dépasse 200 ms
+  showLoadIndicator();
+  // 3. Garde-fou : capture toute erreur de calcul ou de rendu pour
+  //    éviter de planter l'app entière. L'utilisateur voit un message
+  //    élégant et peut continuer à naviguer dans les autres pages.
   try {
     fn();
+    hideLoadIndicator();
   } catch (err) {
+    hideLoadIndicator();
     console.error('[CAP] Erreur de rendu page', id, err);
     const el = document.getElementById('page-' + id);
     if (el) {
