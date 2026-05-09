@@ -492,7 +492,13 @@ table.data th {
   position: sticky;
   top: 0;
   z-index: 10;
+  cursor: pointer;
+  user-select: none;
 }
+table.data th:hover { background: var(--navy-700); }
+table.data th[data-sort="asc"]::after  { content: " ▲"; opacity: 0.9; font-size: 9px; }
+table.data th[data-sort="desc"]::after { content: " ▼"; opacity: 0.9; font-size: 9px; }
+table.data th:not([data-sort])::after  { content: " ⇅"; opacity: 0.35; font-size: 9px; }
 table.data th.num { text-align: right; }
 table.data td {
   padding: 8px 12px;
@@ -2480,6 +2486,63 @@ function evolHTML(evol) {
   const sign = evol >= 0 ? '↑' : '↓';
   return `<span class="kpi-evol ${cls}">${sign} ${(evol * 100).toFixed(1)}%</span>`;
 }
+
+// ============================================================
+// TRI INTERACTIF DES COLONNES — clic sur un <th> = tri asc/desc
+// Détection automatique du type (nombre vs texte) en lisant la cellule
+// ============================================================
+function parseCellValue(cell) {
+  // Priorité aux attributs data-sort-value si présents
+  if (cell.dataset.sortValue !== undefined) {
+    const v = parseFloat(cell.dataset.sortValue);
+    return isNaN(v) ? cell.dataset.sortValue : v;
+  }
+  const txt = (cell.textContent || '').trim();
+  if (!txt || txt === '—') return -Infinity;
+  // Détection : "1.3 Md", "391.2 M", "26.7 K", "12,5%", "+15.9%", "-3 mois", "150"
+  const m = txt.match(/(-?[\d\s]+(?:[.,][\d]+)?)\s*(Md|M|K|k|%)?/);
+  if (m && m[1].replace(/[\s,]/g, '').length > 0) {
+    let n = parseFloat(m[1].replace(/\s/g, '').replace(',', '.'));
+    const suffix = m[2];
+    if (suffix === 'Md') n *= 1e9;
+    else if (suffix === 'M')  n *= 1e6;
+    else if (suffix === 'K' || suffix === 'k') n *= 1e3;
+    if (!isNaN(n)) return n;
+  }
+  return txt.toLowerCase();
+}
+function compareValues(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'number') return -1;
+  if (typeof b === 'number') return 1;
+  return String(a).localeCompare(String(b), 'fr');
+}
+document.addEventListener('click', (e) => {
+  const th = e.target.closest('table.data thead th');
+  if (!th) return;
+  const tr = th.parentElement;
+  const ths = Array.from(tr.children);
+  const colIdx = ths.indexOf(th);
+  if (colIdx < 0) return;
+  const table = th.closest('table');
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+  // Direction : si on reclique la même colonne, on inverse, sinon on démarre desc
+  const prevDir = th.dataset.sort;
+  const newDir = prevDir === 'desc' ? 'asc' : 'desc';
+  // Reset des autres th
+  ths.forEach(t => { if (t !== th) delete t.dataset.sort; });
+  th.dataset.sort = newDir;
+  // Tri du tbody
+  const rows = Array.from(tbody.querySelectorAll(':scope > tr'));
+  rows.sort((rA, rB) => {
+    const a = parseCellValue(rA.cells[colIdx]);
+    const b = parseCellValue(rB.cells[colIdx]);
+    const cmp = compareValues(a, b);
+    return newDir === 'asc' ? cmp : -cmp;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+});
 </script>
 
 <script id="js-pages-1">
@@ -2626,15 +2689,15 @@ function render_cockpit() {
       ];
       const topLost = [...lost].sort((a,b) => (b.CA_N1 || 0) - (a.CA_N1 || 0) || (a.monthsSinceLastTx - b.monthsSinceLastTx)).slice(0, 30);
 
+      const recentLostCA = buckets['1-6 mois'].reduce((s,c)=>s+(c.CA_N1||0),0);
+      const yearLostCA = buckets['6-12 mois'].reduce((s,c)=>s+(c.CA_N1||0),0);
+      const oldLostCA = buckets['12-24 mois'].reduce((s,c)=>s+(c.CA_N1||0),0);
+      const totalLostCA = recentLostCA + yearLostCA + oldLostCA + buckets['+ de 24 mois'].reduce((s,c)=>s+(c.CA_N1||0),0);
+      const insightsLost = [];
+      if (totalLostCA > 0) insightsLost.push({ type:'risque', constat:`<strong>${lost.length} clients perdus</strong> représentent <strong>${fmt.money(totalLostCA)} XOF</strong> de CAP perdu cumulé sur l'historique récent.`, implication:`Capital commercial à reconquérir significatif. Les premiers 6 mois post-perte sont la fenêtre la plus rentable — au-delà, le coût de reconquête devient prohibitif.`, action:`Priorité commerciale immédiate sur les <strong>${buckets['1-6 mois'].length} clients perdus &lt; 6 mois</strong> (${fmt.money(recentLostCA)} XOF) : un seul appel KAM peut souvent suffire.` });
+      if (recentLostCA > yearLostCA + oldLostCA) insightsLost.push({ type:'attention', constat:`Le CA perdu se concentre dans les <strong>6 derniers mois</strong> (${fmt.money(recentLostCA)} XOF) — plus que sur les 18 mois précédents combinés.`, implication:`Décrochage récent et accéléré, pas un phénomène ancien. Cause potentielle : événement commercial / qualité service / concurrent dans les derniers trimestres.`, action:`Investigation prioritaire des causes (offre, prix, qualité, concurrence) avec retours terrain KAM avant d'agir.` });
       return `
-      ${explain(`<strong>Définition précise</strong> : un client est compté comme "perdu" s'il <strong>ne facture rien</strong> sur la période ${y} sélectionnée alors qu'il a déjà facturé par le passé. La <strong>liste détaillée ci-dessous</strong> répond à la question : <em>perdu depuis combien de temps ?</em>
-        <ul>
-          <li><strong>Récemment perdus (1-6 mois)</strong> : la fenêtre de reconquête est encore largement ouverte — un appel KAM peut suffire.</li>
-          <li><strong>Perdus dans l'année (6-12 mois)</strong> : la fenêtre se referme, il faut une relance commerciale ciblée avec une vraie offre.</li>
-          <li><strong>Perdus l'an dernier (12-24 mois)</strong> : la relation s'est délitée, une simple relance ne suffira plus — campagne dédiée nécessaire.</li>
-          <li><strong>Définitivement perdus (&gt; 24 mois)</strong> : à considérer comme des prospects froids — souvent plus rentable d'investir l'effort sur l'acquisition de nouveaux clients.</li>
-        </ul>
-        Le tri se fait par <strong>CA perdu décroissant</strong> : les plus gros porteurs de revenu remontés en premier.`, 'Comment lire la section ci-dessous')}
+      ${analyse(insightsLost, 'Analyse stratégique — Hémorragie clients par ancienneté')}
 
       <div class="grid grid-4 mt-2">
         ${bucketsMeta.map(b => {
@@ -2689,10 +2752,7 @@ function render_cockpit() {
       </div>`;
     })()}
 
-    ${explain(`<ul>
-        <li><strong>Graphique de gauche</strong> : barres mois par mois — barre dorée = CAP ${y}, barre grise = CAP ${y-1} sur les mêmes mois. Permet de repérer immédiatement les mois en avance ou en retard sur l'an dernier.</li>
-        <li><strong>Encadré de droite</strong> : pourcentage du CA ${y} apporté par des clients qui n'existaient pas en ${y-1}. Mesure le dynamisme commercial pur.</li>
-      </ul>`, 'Comment lire les graphiques ci-dessous')}
+    
 
     <div class="grid grid-2-1 mt-3">
       <div class="card">
@@ -2732,12 +2792,7 @@ function render_cockpit() {
       </div>
     </div>
 
-    ${explain(`Les deux tableaux ci-dessous sont des <strong>listes courtes prêtes à l'action commerciale</strong> :
-      <ul>
-        <li><strong>Top 5 alertes</strong> : les 5 clients qui ont le plus baissé (évolution &lt; -15%) — à appeler en priorité pour comprendre et redresser.</li>
-        <li><strong>Top 5 stars</strong> : les 5 clients en plus forte croissance (évolution &gt; +20%) — à fidéliser et à comprendre pour répliquer la dynamique ailleurs.</li>
-      </ul>
-      Couleur : vert = forte hausse, rouge = forte baisse.`, 'Comment lire les listes ci-dessous')}
+    
 
     <div class="grid grid-2 mt-3">
       <div class="card">
@@ -2866,23 +2921,19 @@ function render_portfolio() {
   el.innerHTML = `
     ${pageHeader(p)}
 
-    ${explain(`Chaque client est rangé dans une <strong>case</strong> selon 2 critères :
-      <ul>
-        <li><strong>Sa taille</strong> (axe horizontal) — Gros / Moyen / Petit, selon son CA.</li>
-        <li><strong>Sa dynamique</strong> (axe vertical) — En croissance / Stable / En baisse, selon son évolution vs ${APP.filters.ANNEE - 1}.</li>
-      </ul>
-      Ça donne 9 cases stratégiques (matrice classique des cabinets de conseil) :
-      <ul>
-        <li><strong>Champions</strong> — gros clients en forte croissance (à protéger absolument)</li>
-        <li><strong>Vaches à lait</strong> — gros clients stables (génèrent du cash sans effort)</li>
-        <li><strong>Gros clients en danger</strong> — gros clients en baisse (URGENCE : visite KAM senior)</li>
-        <li><strong>Étoiles montantes</strong> — clients moyens en forte croissance (à investir, futurs Champions)</li>
-        <li><strong>Cœur de portefeuille</strong> — clients moyens stables (à entretenir)</li>
-        <li><strong>Moyens en érosion</strong> — clients moyens qui s'effritent (à relancer commercialement)</li>
-        <li><strong>Pépites à arroser</strong> — petits clients en forte croissance (graines à faire grandir)</li>
-        <li><strong>Petits stables</strong> — petits clients stables (faible priorité, à servir efficacement)</li>
-        <li><strong>Petits en sommeil</strong> — petits clients en baisse (à arbitrer ou laisser partir)</li>
-      </ul>`, 'Comment lire la matrice ci-dessous')}
+    ${(() => {
+      const ins = [];
+      const champ = byQuad['Champions'] || { count: 0, ca: 0 };
+      const danger = byQuad['Gros clients en danger'] || { count: 0, ca: 0 };
+      const vaches = byQuad['Vaches à lait'] || { count: 0, ca: 0 };
+      const grosCount = champ.count + vaches.count + danger.count;
+      const grosCA = champ.ca + vaches.ca + danger.ca;
+      const grosPct = totalCA > 0 ? grosCA / totalCA : 0;
+      ins.push({ type:'neutre', constat:`Les gros clients (Champions + Vaches à lait + en danger) = <strong>${grosCount} comptes</strong>, soit <strong>${fmt.pct(grosPct)}</strong> du CA (${fmt.money(grosCA)} XOF).`, implication:`Distribution typique B2B logistique : la valeur se concentre dans le top du portefeuille.`, action:`Affecter le temps KAM senior à ces ${grosCount} comptes en priorité absolue.` });
+      if (danger.count > 0) ins.push({ type:'risque', constat:`<strong>${danger.count} gros clients en danger</strong> — ${fmt.money(danger.ca)} XOF en risque immédiat.`, implication:`Comptes structurants en chute libre (≥ -5% vs N-1). Un seul perdu suffit à pénaliser le P&L de l'année.`, action:`Visite KAM senior dans les 15 jours sur chacun. Plan de redressement formel à présenter au COMEX.` });
+      if (champ.count > 0) ins.push({ type:'positif', constat:`<strong>${champ.count} Champions</strong> identifiés — gros clients en forte croissance, ${fmt.money(champ.ca)} XOF.`, implication:`Cœur de la dynamique commerciale. Toute déstabilisation (concurrent, qualité) aura un impact direct sur la trajectoire annuelle.`, action:`Sécuriser contractuellement (engagements pluriannuels) et étendre la pénétration cross-sell sur 12 mois.` });
+      return analyse(ins, 'Analyse stratégique — Carte 9-cases');
+    })()}
 
     <div class="grid grid-2-1">
       <div class="card">
@@ -2920,12 +2971,7 @@ function render_portfolio() {
       </div>
     </div>
 
-    ${explain(`Ce graphique répond à la question : <strong>« combien de clients génèrent quelle part du CA ? »</strong>
-      <ul>
-        <li>Les <strong>barres bleues</strong> représentent le CA des 30 plus gros clients, classés du plus gros au plus petit.</li>
-        <li>La <strong>courbe dorée</strong> montre le cumul : à quelle position dans le classement on atteint 50%, 80%, 100% du CA.</li>
-        <li>Règle classique du 80/20 : si la courbe atteint 80% avant le 10ᵉ client, le portefeuille est très concentré (risque). Si elle atteint 80% au 25ᵉ client, le portefeuille est sainement diversifié.</li>
-      </ul>`, 'Comment lire la concentration ci-dessous')}
+    
 
     <div class="card mt-3">
       <div class="card-header">
@@ -3015,10 +3061,12 @@ function render_customers() {
   const el = document.getElementById('page-customers');
   const clients = [...APP.clientsAgg].sort((a,b) => b.score - a.score);
   
-  // Comptage par tier
+  // Comptage par tier + CA généré par tier
   const byTier = { S: 0, A: 0, B: 0, C: 0, D: 0 };
-  clients.forEach(c => byTier[c.tier]++);
-  
+  const caByTier = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+  clients.forEach(c => { byTier[c.tier]++; caByTier[c.tier] += (c.CA_N || 0); });
+  const totalCAforTiers = Object.values(caByTier).reduce((s,v) => s + v, 0);
+
   // Top cross-sell pour la section dédiée
   const topCrossSell = [...clients].filter(c => c.CA_N > 0).sort((a,b) => (b.crossSellRate - a.crossSellRate) || (b.CA_N - a.CA_N)).slice(0, 30);
 
@@ -3046,13 +3094,15 @@ function render_customers() {
     })()}
 
     <div class="grid grid-5">
-      ${['S','A','B','C','D'].map(t => `
-        <div class="kpi">
-          <div class="kpi-label">Tier ${t}</div>
-          <div class="kpi-value"><span class="tier-${t}">${t}</span> ${byTier[t]}</div>
-          <div class="kpi-bench">${tierLabel(t)}</div>
-        </div>
-      `).join('')}
+      ${['S','A','B','C','D'].map(t => {
+        const pct = totalCAforTiers > 0 ? caByTier[t] / totalCAforTiers : 0;
+        return `<div class="kpi">
+          <div class="kpi-label">Tier ${t} — ${tierLabel(t)}</div>
+          <div class="kpi-value"><span class="tier-${t}">${t}</span> ${byTier[t]}<span class="text-muted" style="font-size:11px;font-weight:400;"> clients</span></div>
+          <div class="kpi-bench" style="margin-top:6px;font-weight:600;color:var(--gold-700);">${fmt.money(caByTier[t])} XOF</div>
+          <div class="kpi-bench">${fmt.pct(pct)} du CA total</div>
+        </div>`;
+      }).join('')}
     </div>
 
     ${(() => {
@@ -3108,15 +3158,7 @@ function render_customers() {
       </div>
     </div>
 
-    ${explain(`Le tableau liste les <strong>${clients.length} clients du périmètre filtré</strong>, classés du score le plus élevé au plus faible. Colonnes :
-      <ul>
-        <li><strong>CAP ${APP.filters.ANNEE}</strong> et <strong>CAP ${APP.filters.ANNEE - 1}</strong> : CA des deux périodes, calculés sur les <em>mêmes mois</em> pour une comparaison juste.</li>
-        <li><strong>Évol.</strong> : variation en %, colorée (vert = hausse, rouge = baisse).</li>
-        <li><strong>Score</strong> : note 0-100 sur les 5 dimensions.</li>
-        <li><strong>Cross-sell</strong> : étoiles (1 à 5) selon le taux d'utilisation des services AGL — plus il y a d'étoiles, plus le client est ancré.</li>
-        <li><strong>Case stratégique</strong> : où il se trouve dans la matrice 9-cases.</li>
-        <li><strong>Statut</strong> : nouveau, en croissance, stable, en déclin, perdu.</li>
-      </ul>`, 'Comment lire le tableau détaillé ci-dessous')}
+    
 
     <div class="card mt-3">
       <div class="card-header">
@@ -3186,58 +3228,71 @@ function render_growth() {
   el.innerHTML = `
     ${pageHeader(p)}
 
-    ${explain(`Cette page répond à la question : <strong>qui faut-il appeler ?</strong> Les 4 compteurs ci-dessous utilisent des <u>définitions strictes</u> :
-      <ul>
-        <li><strong>Clients en croissance</strong> : ont fait au moins <strong>+5%</strong> sur <em>${lbl.longue}</em> vs <em>${lbl.ref}</em>.</li>
-        <li><strong>Clients en décroissance</strong> : ont fait au moins <strong>-5%</strong> sur les mêmes périodes.</li>
-        <li><strong>Vrais nouveaux clients</strong> : leur <strong>toute première facture jamais émise</strong> tombe dans la période <em>${lbl.longue}</em>. (Pas seulement "absent en ${APP.filters.ANNEE - 1}" — un client qui a facturé en septembre ${APP.filters.ANNEE - 1} et revient en mars ${APP.filters.ANNEE} <strong>n'est PAS</strong> compté ici, c'est un client réactivé.)</li>
-        <li><strong>Vrais clients perdus</strong> : étaient actifs dans la <strong>fenêtre de 12 mois précédant la période</strong> (${lookback}) et n'ont rien facturé sur <em>${lbl.longue}</em>.</li>
-      </ul>
-      ${(naive_new !== trueNew.length || naive_lost !== trueLost.length) ? `<div style="margin-top:8px;padding:8px;background:rgba(247,127,0,0.1);border-left:3px solid var(--evol-down);font-size:11px;">
-        ⚠ <strong>Différence avec la définition lâche</strong> : la méthode lâche (juste "absent en ${APP.filters.ANNEE - 1} sur les mêmes mois") aurait donné <strong>${naive_new} "nouveaux"</strong> et <strong>${naive_lost} "perdus"</strong>. Beaucoup étaient en réalité des réactivations ou des clients saisonniers.
-      </div>` : ''}`, `Comment lire les 4 compteurs — période : ${lbl.longue}`)}
+    ${(() => {
+      const insights = [];
+      const growersCA0 = growers.reduce((s,c) => s + (c.CA_N||0), 0);
+      const decCA0 = decliners.reduce((s,c) => s + (c.CA_N||0), 0);
+      const totalAct0 = APP.clientsAgg.reduce((s,c) => s + (c.CA_N||0), 0);
+      const balance = growersCA0 - decCA0;
+      // Balance commerciale
+      if (balance > 0 && totalAct0 > 0) insights.push({ type:'positif', constat:`Solde commercial positif : <strong>${growers.length} clients en hausse</strong> (${fmt.money(growersCA0)} XOF) vs <strong>${decliners.length} en baisse</strong> (${fmt.money(decCA0)} XOF). Gain net : ${fmt.money(balance)} XOF.`, implication:`La masse des progressions absorbe les baisses — la dynamique commerciale est nette positive sur la période.`, action:`Maintenir les efforts sur les clients en hausse (revue mensuelle des Top 20 progressions) et stabiliser les décliners avant qu'ils ne basculent en pertes.` });
+      else if (totalAct0 > 0) insights.push({ type:'risque', constat:`Solde commercial négatif : <strong>${growers.length} hausses</strong> (${fmt.money(growersCA0)} XOF) ne compensent pas <strong>${decliners.length} baisses</strong> (${fmt.money(decCA0)} XOF). Perte nette : ${fmt.money(Math.abs(balance))} XOF.`, implication:`Le portefeuille se contracte — les efforts d'acquisition / d'upsell n'arrivent pas à compenser l'érosion. Risque de spirale négative si non corrigé.`, action:`Audit des Top baisses (qui sont-ils, pourquoi ?) avant fin de mois. Plan de redressement à 30 jours.` });
+      // Acquisition / churn balance
+      if (trueNew.length > 0 || trueLost.length > 0) {
+        const acqRatio = trueLost.length > 0 ? trueNew.length / trueLost.length : Infinity;
+        if (acqRatio >= 1.2) insights.push({ type:'positif', constat:`Acquisition (<strong>${trueNew.length}</strong> vrais nouveaux) supérieure au churn (<strong>${trueLost.length}</strong> vrais perdus) — ratio <strong>${acqRatio === Infinity ? '∞' : acqRatio.toFixed(1)}×</strong>.`, implication:`Le moteur de conquête tourne plus vite que la fuite : croissance organique saine du nombre de clients.`, action:null });
+        else if (acqRatio >= 0.8) insights.push({ type:'attention', constat:`Acquisition (${trueNew.length}) ≈ churn (${trueLost.length}) — ratio ${acqRatio.toFixed(1)}×. Effet de "course à la roue".`, implication:`La conquête remplace les pertes mais ne fait pas grossir la base. Coûteux pour un effet net nul.`, action:`Pivoter une partie du budget d'acquisition vers des actions de fidélisation et d'upsell (NRR > 105%).` });
+        else insights.push({ type:'risque', constat:`Plus de <strong>${trueLost.length} clients perdus</strong> que de <strong>${trueNew.length} nouveaux</strong> — la base érode (ratio ${acqRatio.toFixed(1)}×).`, implication:`Au rythme actuel, le portefeuille perd ${trueLost.length - trueNew.length} clients nets sur la période. Croissance impossible sans augmentation du panier moyen.`, action:`Plan de rétention prioritaire : la liste des Top vrais perdus indique les segments à reprendre en priorité.` });
+      }
+      // Définition stricte vs lâche
+      if (naive_new !== trueNew.length || naive_lost !== trueLost.length) insights.push({ type:'opportunite', constat:`La méthode lâche aurait identifié <strong>${naive_new} "nouveaux"</strong> et <strong>${naive_lost} "perdus"</strong>. Avec la méthode stricte sur 12 mois glissants : <strong>${trueNew.length} vrais nouveaux</strong>, <strong>${trueLost.length} vrais perdus</strong>.`, implication:`L'écart vient des clients saisonniers et des réactivations qui faussent la lecture commerciale habituelle.`, action:`Communiquer en interne sur cette nouvelle définition pour aligner les KPI commerciaux.` });
+      return analyse(insights, `Analyse stratégique — Dynamique du portefeuille (${lbl.longue})`);
+    })()}
 
-    <div class="grid grid-4">
-      <div class="kpi kpi-good">
-        <div class="kpi-label">Clients en croissance</div>
-        <div class="kpi-value">${growers.length}</div>
-        <div class="kpi-bench">évolution &gt; +5% — ${lbl.longue} vs ${lbl.ref}</div>
-      </div>
-      <div class="kpi kpi-alert">
-        <div class="kpi-label">Clients en décroissance</div>
-        <div class="kpi-value">${decliners.length}</div>
-        <div class="kpi-bench">évolution &lt; -5% — ${lbl.longue} vs ${lbl.ref}</div>
-      </div>
-      <div class="kpi" style="border-top:3px solid var(--evol-new);">
-        <div class="kpi-label">Vrais nouveaux clients</div>
-        <div class="kpi-value">${trueNew.length}</div>
-        <div class="kpi-bench">1ʳᵉ facture jamais émise sur ${lbl.longue}</div>
-        <div class="kpi-bench">+ ${reactivated.length} clients réactivés (hiatus ≥ 12 mois)</div>
-      </div>
-      <div class="kpi" style="border-top:3px solid var(--evol-lost);">
-        <div class="kpi-label">Vrais clients perdus</div>
-        <div class="kpi-value">${trueLost.length}</div>
-        <div class="kpi-bench">actifs dans ${lookback}, plus rien sur ${lbl.longue}</div>
-      </div>
-    </div>
+    ${(() => {
+      const growersCA = growers.reduce((s,c) => s + (c.CA_N||0), 0);
+      const decCA = decliners.reduce((s,c) => s + (c.CA_N||0), 0);
+      const newCA = trueNew.reduce((s,c) => s + (c.CA_N||0), 0);
+      const reactCA = reactivated.reduce((s,c) => s + (c.CA_N||0), 0);
+      const lostCA = trueLost.reduce((s,c) => s + (c.CA_N1||0), 0);
+      const totalAct = APP.clientsAgg.reduce((s,c) => s + (c.CA_N||0), 0);
+      return `
+      <div class="grid grid-4">
+        <div class="kpi kpi-good">
+          <div class="kpi-label">Clients en croissance</div>
+          <div class="kpi-value">${growers.length}</div>
+          <div class="kpi-bench" style="margin-top:6px;font-weight:600;color:var(--evol-strong-up);">${fmt.money(growersCA)} XOF (${fmt.pct(totalAct ? growersCA/totalAct : 0)})</div>
+          <div class="kpi-bench">évolution &gt; +5% — ${lbl.longue} vs ${lbl.ref}</div>
+        </div>
+        <div class="kpi kpi-alert">
+          <div class="kpi-label">Clients en décroissance</div>
+          <div class="kpi-value">${decliners.length}</div>
+          <div class="kpi-bench" style="margin-top:6px;font-weight:600;color:var(--evol-strong-dn);">${fmt.money(decCA)} XOF (${fmt.pct(totalAct ? decCA/totalAct : 0)})</div>
+          <div class="kpi-bench">évolution &lt; -5% — ${lbl.longue} vs ${lbl.ref}</div>
+        </div>
+        <div class="kpi" style="border-top:3px solid var(--evol-new);">
+          <div class="kpi-label">Vrais nouveaux clients</div>
+          <div class="kpi-value">${trueNew.length}</div>
+          <div class="kpi-bench" style="margin-top:6px;font-weight:600;color:var(--evol-new);">${fmt.money(newCA)} XOF (${fmt.pct(totalAct ? newCA/totalAct : 0)})</div>
+          <div class="kpi-bench">+ ${reactivated.length} réactivés — ${fmt.money(reactCA)} XOF</div>
+        </div>
+        <div class="kpi" style="border-top:3px solid var(--evol-lost);">
+          <div class="kpi-label">Vrais clients perdus</div>
+          <div class="kpi-value">${trueLost.length}</div>
+          <div class="kpi-bench" style="margin-top:6px;font-weight:600;color:var(--evol-lost);">${fmt.money(lostCA)} XOF de CAP perdu</div>
+          <div class="kpi-bench">actifs dans ${lookback}, plus rien sur ${lbl.longue}</div>
+        </div>
+      </div>`;
+    })()}
 
-    ${explain(`Les <strong>2 listes ci-dessous</strong> montrent <u>tous</u> les clients en croissance / décroissance significative. Triées par variation décroissante.
-      <ul>
-        <li><strong>À gauche — Top progressions</strong> : à fidéliser, à comprendre, à utiliser comme référence commerciale.</li>
-        <li><strong>À droite — Top baisses</strong> : <strong>action urgente</strong> — appeler, comprendre la cause, proposer un plan de redressement.</li>
-      </ul>
-      Période comparée : <strong>${lbl.longue}</strong> vs <strong>${lbl.ref}</strong>.`, 'Comment lire les listes ci-dessous')}
+    
 
     <div class="grid grid-2 mt-3">
       ${listCardLong('🚀 Clients en progression — à fidéliser', growers, 'evol')}
       ${listCardLong('⚠ Clients en baisse — action urgente', decliners, 'evol')}
     </div>
 
-    ${explain(`Les <strong>2 listes ci-dessous</strong> ciblent l'acquisition et la reconquête, avec définitions strictes :
-      <ul>
-        <li><strong>À gauche — Vrais nouveaux clients</strong> : leur 1ʳᵉ facture jamais émise tombe sur ${lbl.longue}. À on-boarder, transformer en récurrents.</li>
-        <li><strong>À droite — Vrais clients perdus</strong> : étaient actifs dans les 12 mois précédant la période (${lookback}), plus rien aujourd'hui. Colonne <strong>« Perdu depuis »</strong> indique la fraîcheur de la perte — plus c'est récent, plus c'est facile à reconquérir.</li>
-      </ul>`, 'Comment lire les listes ci-dessous')}
+    
 
     <div class="grid grid-2 mt-3">
       <div class="card">
@@ -3296,7 +3351,7 @@ function render_growth() {
     </div>
 
     ${reactivated.length > 0 ? `
-    ${explain(`Les <strong>clients réactivés</strong> méritent une lecture séparée : ils ont déjà été clients par le passé, ont disparu pendant au moins 12 mois, et reviennent sur ${lbl.longue}. Souvent un signal positif (leçon : qu'est-ce qui les a fait revenir ?). Ils ne sont <strong>pas</strong> comptés comme "vrais nouveaux".`, 'Comment lire la liste ci-dessous')}
+    
 
     <div class="card mt-3">
       <div class="card-header">
@@ -3418,12 +3473,18 @@ function render_crosssell() {
   el.innerHTML = `
     ${pageHeader(p)}
 
-    ${explain(`Cette page identifie les clients à qui <strong>vendre plus de services AGL différents</strong>. Le périmètre filtré contient ${totalLib} services distincts (départements). Trois compteurs synthétiques :
-      <ul>
-        <li><strong>Services disponibles</strong> : nombre de départements AGL différents dans le périmètre filtré.</li>
-        <li><strong>Pénétration moyenne</strong> : en moyenne, un client consomme X% des services possibles. Plus c'est faible, plus il y a du potentiel à activer.</li>
-        <li><strong>Clients mono-service</strong> : clients qui n'achètent qu'un seul type de service. Ils sont fragiles (perdre ce service = perdre le client).</li>
-      </ul>`, 'Comment lire les compteurs ci-dessous')}
+    ${(() => {
+      const ins = [];
+      const totalWhitespace = clients.reduce((s,c) => s + c.whitespace, 0);
+      const monoCA = monoLibelle.reduce((s,c) => s + c.CA_N, 0);
+      const totalC = clients.reduce((s,c) => s + c.CA_N, 0);
+      const monoPct = totalC > 0 ? monoCA / totalC : 0;
+      const avgPenetTier = penetByTier['S'] && penetByTier['S'].n > 0 ? penetByTier['S'].avgPenet : 0;
+      ins.push({ type:'opportunite', constat:`Potentiel cross-sell total estimé à <strong>${fmt.money(totalWhitespace)} XOF</strong> sur le périmètre filtré.`, implication:`C'est le CA additionnel théoriquement atteignable si chaque client utilisait l'ensemble des services AGL disponibles. Évidemment optimiste, mais donne l'ordre de grandeur du gisement.`, action:`Cibler le Top 20 par "Potentiel cross-sell" (tableau ci-dessous) — c'est là que l'effort commercial génère le plus.` });
+      if (monoLibelle.length > 0 && monoPct > 0.10) ins.push({ type:'risque', constat:`<strong>${monoLibelle.length} clients mono-service</strong> (${fmt.money(monoCA)} XOF, ${fmt.pct(monoPct)} du CA) — ils dépendent d'un seul service AGL.`, implication:`Très fragiles : si ce service unique pose problème (qualité, prix, concurrent), le client part. LTV faible et risque churn élevé.`, action:`Ouvrir un 2ᵉ service à au moins 30% d'entre eux dans les 12 mois (priorité aux Tier B+ mono-service).` });
+      if (avgPenetTier < 0.30 && penetByTier['S'].n > 0) ins.push({ type:'attention', constat:`Pénétration moyenne des Tier S = <strong>${fmt.pct(avgPenetTier)}</strong> seulement.`, implication:`Même les comptes stratégiques sont sous-exploités. Ils représentent un gisement majeur de cross-sell sécurisé (relation déjà établie, confiance acquise).`, action:`Programme dédié "Tier S 360°" — KAM doit pousser systématiquement les services adjacents lors de chaque revue trimestrielle.` });
+      return analyse(ins, 'Analyse stratégique — Gisement cross-sell');
+    })()}
 
     <div class="grid grid-3">
       <div class="kpi">
@@ -3443,14 +3504,7 @@ function render_crosssell() {
       </div>
     </div>
 
-    ${explain(`Le <strong>tableau de gauche</strong> liste les 20 plus gros « gisements » de cross-sell : des clients à fort CA mais qui n'utilisent qu'une partie des services AGL.
-      <ul>
-        <li><strong>CA</strong> : leur chiffre d'affaires actuel.</li>
-        <li><strong>Services</strong> : nombre de services qu'ils consomment / total disponible.</li>
-        <li><strong>Pénétration</strong> : pourcentage du catalogue activé.</li>
-        <li><strong>Potentiel cross-sell</strong> = CA × (1 − pénétration). Lecture : « si on leur vendait tous les services, on récupérerait jusqu'à ce montant en plus ». Trier par cette colonne pour prioriser.</li>
-      </ul>
-      Le <strong>graphique de droite</strong> compare la pénétration moyenne par tier : normalement les Tier S/A pénètrent plus de services que les D. Si ce n'est pas le cas, c'est un signal d'alerte stratégique.`, 'Comment lire les graphiques ci-dessous')}
+    
 
     <div class="grid grid-2 mt-3">
       <div class="card">
@@ -3558,13 +3612,25 @@ function render_geo() {
   el.innerHTML = `
     ${pageHeader(p)}
 
-    ${explain(`Une carte par site (ABJ = Abidjan, SPY = San Pedro, BYK = Bouaké, DLA = Douala). Sur chaque carte :
-      <ul>
-        <li>Le <strong>CAP du site</strong> sur la période filtrée.</li>
-        <li>Une <strong>flèche colorée</strong> avec l'évolution vs ${y - 1}, calculée sur les <em>mêmes mois</em>.</li>
-        <li>Le <strong>nombre de clients</strong> distincts qui ont facturé sur ce site.</li>
-      </ul>
-      Le bandeau de couleur en haut résume la santé : vert = forte croissance, jaune = stable, orange = baisse, rouge = baisse forte.`, 'Comment lire les cartes ci-dessous')}
+    ${(() => {
+      const ins = [];
+      const totalSiteCA = siteData.reduce((s,d) => s + d.ca, 0);
+      if (totalSiteCA === 0) return '';
+      const top1 = siteData[0];
+      const top1Pct = top1.ca / totalSiteCA;
+      ins.push({ type:'neutre', constat:`<strong>${top1.site}</strong> domine avec <strong>${fmt.pct(top1Pct)}</strong> du CA des sites (${fmt.money(top1.ca)} XOF).`, implication: top1Pct > 0.6 ? `Sur-dépendance à un site unique — toute disruption locale (sociale, douanière, infra) impacte directement le CA AGL global.` : `Diversification géographique acceptable.`, action: top1Pct > 0.6 ? `Plan de continuité opérationnelle prioritaire sur ${top1.site} et accélération des sites secondaires.` : `Maintenir la stratégie multi-sites.` });
+      const winners = siteData.filter(s => s.evol !== null && s.evol >= 0.05);
+      const losers = siteData.filter(s => s.evol !== null && s.evol <= -0.05);
+      if (losers.length > 0) {
+        const worst = losers[0];
+        ins.push({ type:'risque', constat:`<strong>${losers.length} site(s) en décroissance</strong> sur la période. Plus marqué : <strong>${worst.site}</strong> à <strong>${fmt.signed((worst.evol||0)*100)}</strong> vs N-1.`, implication:`Décrochage opérationnel ou commercial localisé. Cause probable : perte d'un compte structurant local OU baisse d'activité sectorielle locale.`, action:`Audit du site en baisse : top 5 clients, évolution mensuelle, comparaison sectorielle. Décision : redresser ou arbitrer.` });
+      }
+      if (winners.length > 0) {
+        const best = winners.sort((a,b) => b.evol - a.evol)[0];
+        ins.push({ type:'positif', constat:`<strong>${best.site}</strong> est en meilleure dynamique : <strong>+${(best.evol*100).toFixed(1)}%</strong> vs N-1.`, implication:`Bonne pratique commerciale ou opérationnelle locale. À documenter et à répliquer.`, action:`Identifier les 2 facteurs clés du succès local (équipe, offre, mix client) et les transposer aux autres sites.` });
+      }
+      return analyse(ins, 'Analyse stratégique — Performance par site');
+    })()}
 
     <div class="grid grid-${Math.min(sites.length,4)}">
       ${siteData.slice(0,4).map(s => `
@@ -3577,11 +3643,7 @@ function render_geo() {
       `).join('')}
     </div>
 
-    ${explain(`Deux graphiques pour comparer les sites entre eux :
-      <ul>
-        <li><strong>À gauche — CAP par site</strong> : pour chaque site, deux barres côte à côte. La barre grise = ${y - 1}, la barre bleue = ${y}. Permet de voir d'un coup d'œil quel site progresse, lequel stagne.</li>
-        <li><strong>À droite — Évolution % par site</strong> : la même information mais en pourcentage. Plus lisible quand les sites ont des tailles très différentes.</li>
-      </ul>`, 'Comment lire les graphiques ci-dessous')}
+    
 
     <div class="grid grid-2 mt-3">
       <div class="card">
@@ -3594,11 +3656,7 @@ function render_geo() {
       </div>
     </div>
 
-    ${explain(`Le tableau ci-dessous reprend tous les chiffres précis pour chaque site :
-      <ul>
-        <li><strong>CAP ${y}</strong> et <strong>CAP ${y-1}</strong> sont calculés sur les <em>mêmes mois</em> et avec les <em>mêmes filtres</em> (métier, département, recherche client) — comparaison à périmètre identique.</li>
-        <li><strong>Part %</strong> : poids du site dans le CA total des sites affichés.</li>
-      </ul>`, 'Comment lire le tableau ci-dessous')}
+    
 
     <div class="card mt-3">
       <div class="card-header"><div class="card-title">Détail chiffré par site</div></div>
@@ -3719,15 +3777,30 @@ function render_cohorts() {
   el.innerHTML = `
     ${pageHeader(p)}
 
-    ${explain(`Chaque client est rangé dans un <strong>statut</strong> selon son moment dans la vie commerciale :
-      <ul>
-        <li><strong>🆕 Nouveau</strong> : acquis dans la dernière année.</li>
-        <li><strong>📈 En croissance</strong> : évolution &gt; +10% vs N-1.</li>
-        <li><strong>⚓ Mature</strong> : stable, aucun signal particulier.</li>
-        <li><strong>📉 En déclin</strong> : évolution &lt; -10% vs N-1.</li>
-        <li><strong>💤 Dormant</strong> : pas de transaction depuis &gt; 6 mois.</li>
-        <li><strong>❌ Perdu</strong> : pas de transaction depuis &gt; 12 mois.</li>
-      </ul>`, 'Comment lire les compteurs ci-dessous')}
+    ${(() => {
+      const ins = [];
+      const total = clients.length;
+      const churned = byStatut['❌ Perdu'] || 0;
+      const dormant = byStatut['💤 Dormant'] || 0;
+      const grow = byStatut['📈 En croissance'] || 0;
+      const decline = byStatut['📉 En déclin'] || 0;
+      const newC = byStatut['🆕 Nouveau'] || 0;
+      const mature = byStatut['⚓ Stable'] || 0;
+      if (total === 0) return '';
+      ins.push({ type:'neutre', constat:`Cycle de vie du portefeuille : <strong>${grow}</strong> en croissance, <strong>${mature}</strong> stables, <strong>${decline}</strong> en déclin, <strong>${churned + dormant}</strong> dormants ou perdus, <strong>${newC}</strong> nouveaux.`, implication:`Le ratio "actifs sains" (croissance + stables) sur "à risque" (déclin + dormant + perdus) = <strong>${(decline + dormant + churned) > 0 ? ((grow + mature)/(decline + dormant + churned)).toFixed(2) : '∞'}×</strong>.`, action:null });
+      if (decline + dormant + churned > grow + mature) ins.push({ type:'risque', constat:`Plus de clients <strong>"à risque"</strong> que de clients <strong>"sains"</strong> dans le portefeuille — ${decline + dormant + churned} contre ${grow + mature}.`, implication:`Le portefeuille érode plus vite que la dynamique commerciale ne le compense. Sans correction, contraction durable du CA.`, action:`Plan de réduction du churn (page Risques) + accélération de la conquête de nouveaux logos (page Croissance).` });
+      else if (grow >= mature) ins.push({ type:'positif', constat:`Plus de clients <strong>en croissance</strong> (${grow}) que de stables (${mature}) — dynamique d'expansion forte.`, implication:`Portefeuille tonique. La masse en croissance constitue la base d'un cycle vertueux.`, action:`Documenter les bonnes pratiques (KAM, qualité, offre) pour les répliquer sur les comptes stables.` });
+      // Cohort retention diagonale
+      if (allYears.length >= 2) {
+        const lastY = allYears[allYears.length - 1];
+        const firstY = allYears[0];
+        const cohortFirstCA = cohortMatrix[firstY][firstY];
+        const cohortLastCA = cohortMatrix[firstY][lastY];
+        const retention = cohortFirstCA > 0 ? cohortLastCA / cohortFirstCA : 0;
+        if (cohortFirstCA > 0) ins.push({ type: retention >= 0.7 ? 'positif' : retention >= 0.4 ? 'attention' : 'risque', constat:`La cohorte <strong>${firstY}</strong> conserve <strong>${fmt.pct(retention)}</strong> de son CA initial en ${lastY}.`, implication: retention >= 0.7 ? `Excellente fidélisation de long terme — les clients acquis vivent plusieurs cycles.` : retention >= 0.4 ? `Rétention moyenne — la moitié de la cohorte s'érode au bout de quelques années.` : `Rétention faible — les clients acquis ne durent pas. Coût d'acquisition mal amorti.`, action: retention >= 0.7 ? `Capitaliser sur la qualité de la relation initiale — étendre les pratiques d'on-boarding.` : `Audit du parcours client post-acquisition (12-24 mois critiques) pour comprendre la fuite.` });
+      }
+      return analyse(ins, 'Analyse stratégique — Cycle de vie & cohortes');
+    })()}
 
     <div class="grid grid-3">
       ${Object.entries(byStatut).map(([s,n]) => `
@@ -3739,14 +3812,7 @@ function render_cohorts() {
       `).join('')}
     </div>
 
-    ${explain(`Cette matrice est l'outil clé pour <strong>mesurer la fidélité dans le temps</strong>.
-      <ul>
-        <li><strong>Chaque ligne</strong> = une cohorte = clients arrivés une certaine année (ex. ligne 2024 = tous les clients dont la 1ʳᵉ facture date de 2024).</li>
-        <li><strong>Chaque colonne</strong> = une année d'observation. Lecture en glissant horizontalement : combien cette cohorte a-t-elle pesé en CA chaque année ?</li>
-        <li><strong>Cellule</strong> : montant en haut, % par rapport à la 1ʳᵉ année en bas. Plus c'est vert foncé, plus la cohorte est fidèle et a grossi.</li>
-        <li><strong>Diagonale</strong> = première année (toujours 100%, base de comparaison).</li>
-      </ul>
-      <strong>Lecture stratégique</strong> : si une cohorte chute à 30% en 2 ans, c'est un problème de rétention sur cette génération de clients.`, 'Comment lire la matrice ci-dessous')}
+    
 
     <div class="card mt-3">
       <div class="card-header">
@@ -3795,21 +3861,19 @@ function render_risk() {
   el.innerHTML = `
     ${pageHeader(p)}
 
-    ${explain(`Le <strong>Health Score</strong> est une note qui combine 5 signaux faibles indépendants :
-      <ul>
-        <li><strong>Décroissance</strong> : -2 points si baisse &gt; 15% sur 3 mois.</li>
-        <li><strong>Inactivité récente</strong> : -2 points si pas de transaction depuis &gt; 3 mois.</li>
-        <li><strong>Baisse de diversité</strong> : -1 point si moins de services consommés qu'avant.</li>
-        <li><strong>Volatilité</strong> : -1 point si CA très instable d'un mois à l'autre.</li>
-        <li><strong>Mono-site</strong> : -1 point si le client n'est présent que sur un seul site.</li>
-      </ul>
-      Score total = somme des points. Plus c'est négatif, plus le client est en danger :
-      <ul>
-        <li>🟢 <strong>Sain</strong> : score ≥ 0</li>
-        <li>🟡 <strong>À surveiller</strong> : score -1 à -2</li>
-        <li>🟠 <strong>À risque</strong> : score -3 à -4</li>
-        <li>🔴 <strong>Critique</strong> : score &lt; -4 (action urgente)</li>
-      </ul>`, 'Comment lire les compteurs ci-dessous')}
+    ${(() => {
+      const ins = [];
+      const critCA = critical.reduce((s,c) => s + (c.CA_N||0), 0);
+      const atRiskCA = atRisk.reduce((s,c) => s + (c.CA_N||0), 0);
+      const totalActiveCA = clients.filter(c => c.CA_N > 0).reduce((s,c) => s + c.CA_N, 0);
+      if (critical.length > 0) {
+        const critS = critical.filter(c => c.tier === 'S' || c.tier === 'A').length;
+        ins.push({ type:'risque', constat:`<strong>${critical.length} clients en alerte critique</strong> (Health Score ≤ -4) — ${fmt.money(critCA)} XOF de CA en danger immédiat (${fmt.pct(totalActiveCA ? critCA/totalActiveCA : 0)} du portefeuille).`, implication: critS > 0 ? `Dont <strong>${critS} comptes Tier S/A premium</strong> — risque majeur sur des clients structurants.` : `Concentré sur les tiers inférieurs, mais à traiter quand même pour limiter la perte cumulée.`, action: critS > 0 ? `Revue COMEX immédiate — visite KAM senior dans les 7 jours sur chaque compte Tier S/A critique.` : `Plan d'appels commerciaux structuré sur 30 jours, en priorisant le CA en risque.` });
+      }
+      if (atRisk.length > 0) ins.push({ type:'attention', constat:`<strong>${atRisk.length} clients à surveiller</strong> (Health Score -2 à -3) — ${fmt.money(atRiskCA)} XOF de CA potentiellement en danger.`, implication:`Fenêtre de redressement encore ouverte. Sans action sous 60 jours, risque de basculement vers la zone critique.`, action:`Programme de prévention : 1 contact commercial structuré par client dans le mois.` });
+      if (critical.length === 0 && atRisk.length === 0) ins.push({ type:'positif', constat:`Aucun client en zone d'alerte (critique ou à surveiller).`, implication:`Portefeuille robuste sur la période — peu de signaux faibles convergents.`, action:`Maintenir la vigilance commerciale et la qualité de service.` });
+      return analyse(ins, 'Analyse stratégique — Risques de perte');
+    })()}
 
     <div class="grid grid-4">
       ${Object.entries(byStatus).map(([s,n]) => {
@@ -3829,13 +3893,7 @@ function render_risk() {
     </div>
     ` : ''}
 
-    ${explain(`Liste <strong>triée par CA décroissant</strong> : les plus gros clients critiques en premier (priorité commerciale absolue). Pour chaque client :
-      <ul>
-        <li><strong>CAP ${APP.filters.ANNEE}</strong> et <strong>Évol.</strong> : son chiffre actuel et sa tendance.</li>
-        <li><strong>Score</strong> : la note Health (négative = danger).</li>
-        <li><strong>Statut</strong> : niveau d'alerte (🔴 Critique / 🟠 À risque…).</li>
-        <li><strong>Recommandation</strong> : action concrète selon le tier — visite KAM senior pour les Tier S/A, relance commerciale pour les autres.</li>
-      </ul>`, 'Comment lire le tableau ci-dessous')}
+    
 
     <div class="card mt-3">
       <div class="card-header">
@@ -3863,7 +3921,7 @@ function render_risk() {
       </div>
     </div>
     
-    ${explain(`Clients dont le score est entre -2 et -3 : <strong>1 ou 2 signaux d'alerte présents</strong>, mais pas encore critique. C'est le moment idéal pour les remettre en route avant qu'ils ne basculent en rouge. Affichage limité aux 30 plus gros pour rester actionnable.`, 'Comment lire le tableau ci-dessous')}
+    
 
     <div class="card mt-3">
       <div class="card-header">
@@ -3956,13 +4014,21 @@ function render_forecast() {
   el.innerHTML = `
     ${pageHeader(p)}
 
-    ${explain(`Le moteur de prévision combine 2 logiques :
-      <ul>
-        <li><strong>Croissance moyenne historique</strong> : sur les ${years.length} années passées, le CAP a grossi de ${(cagr * 100).toFixed(1)}% par an en moyenne. Cette tendance est projetée sur l'avenir.</li>
-        <li><strong>Saisonnalité mensuelle</strong> : on apprend des années passées que par exemple décembre est toujours plus fort que février, et on applique ce profil sur les mois projetés.</li>
-        <li><strong>Bandes de confiance</strong> : la « base » est la prévision la plus probable. L'<strong>optimiste</strong> = +15% (vents porteurs), le <strong>pessimiste</strong> = -15% (vents contraires).</li>
-      </ul>
-      <strong>Note importante</strong> : la projection s'appuie sur l'historique global (toutes années) ; les filtres haut de page restent indicatifs sur cette page.`, 'Méthode de prévision')}
+    ${(() => {
+      const ins = [];
+      if (evolForecast !== null) {
+        if (evolForecast >= 0.10) ins.push({ type:'positif', constat:`Le modèle prévoit <strong>${fmt.money(forecastTotal)} XOF</strong> sur les ${APP.horizon} prochains mois — soit <strong>+${(evolForecast*100).toFixed(1)}%</strong> vs la même période historique équivalente.`, implication:`Trajectoire de croissance robuste fondée sur ${years.length} années d'historique et la saisonnalité observée. Hypothèse de continuité des conditions.`, action:`Caler le budget commercial annuel sur la projection base. Tester la résistance via les sliders What-If (perte d'un Top 10 / contraction macro).` });
+        else if (evolForecast >= 0) ins.push({ type:'neutre', constat:`Prévision : <strong>${fmt.money(forecastTotal)} XOF</strong> sur ${APP.horizon} mois — légère croissance de <strong>+${(evolForecast*100).toFixed(1)}%</strong>.`, implication:`Croissance molle, à peine au-dessus de l'inflation. Risque de stagnation réelle si les leviers d'acquisition / cross-sell ne sont pas activés.`, action:`Définir 2-3 paris commerciaux pour ramener la trajectoire à +10% : nouveaux logos, montée en valeur Tier B, ouverture sectorielle.` });
+        else ins.push({ type:'risque', constat:`Prévision en recul : <strong>${fmt.money(forecastTotal)} XOF</strong> sur ${APP.horizon} mois, soit <strong>${(evolForecast*100).toFixed(1)}%</strong> vs historique.`, implication:`Le modèle anticipe une décélération significative. Fondé sur la trajectoire récente — donc à confirmer / corriger par revue terrain.`, action:`Revue COMEX du modèle d'affaires. Identifier 1-2 leviers de redressement structurel à activer dans le trimestre.` });
+      }
+      // Concentration du forecast sur le top
+      if (forecastByClient.length > 0 && forecastTotal > 0) {
+        const top1Pct = forecastByClient[0].total / forecastTotal;
+        const top5Pct = forecastByClient.slice(0,5).reduce((s,c)=>s+c.total,0) / forecastTotal;
+        if (top1Pct > 0.15 || top5Pct > 0.50) ins.push({ type:'attention', constat:`Le Top 1 du forecast pèse <strong>${fmt.pct(top1Pct)}</strong> du total prévu, le Top 5 <strong>${fmt.pct(top5Pct)}</strong>.`, implication:`Sur-concentration prévisionnelle. Le scénario base est très dépendant du maintien de quelques comptes — fragile si l'un d'eux décroche.`, action:`Tester le scénario "perte du Top 1" via le slider What-If pour mesurer l'impact réel.` });
+      }
+      return analyse(ins, `Analyse stratégique — Prévision ${APP.horizon} mois`);
+    })()}
 
     <div class="grid grid-4 mt-2">
       <div class="kpi kpi-strong">
@@ -3987,7 +4053,7 @@ function render_forecast() {
       </div>
     </div>
 
-    ${explain(`Le graphique trace <strong>l'historique réel</strong> (ligne bleue continue) puis la <strong>projection sur ${APP.horizon} mois</strong> (3 lignes pointillées dorée/verte/rouge correspondant aux scénarios base/optimiste/pessimiste). On peut changer l'horizon via le menu en haut à droite (3, 6, 12 ou 24 mois).`, 'Comment lire le graphique ci-dessous')}
+    
 
     <div class="grid" style="grid-template-columns:1fr;">
       <div class="card mt-3">
@@ -4009,13 +4075,7 @@ function render_forecast() {
       </div>
     </div>
 
-    ${explain(`Le panneau bleu de gauche est un <strong>simulateur interactif</strong>. Bougez les 3 curseurs pour répondre à des questions stratégiques :
-      <ul>
-        <li><strong>Ajustement de croissance</strong> : « et si on accélérait/ralentissait notre croissance générale de X% ? »</li>
-        <li><strong>Variation des 10 plus gros clients</strong> : « et si on perdait 30% du CA des Top 10 ? » (ou si on en gagnait).</li>
-        <li><strong>Effet saisonnier</strong> : « et si la saison cacao était 1,3× plus forte qu'habituellement ? »</li>
-      </ul>
-      La <strong>prévision ajustée</strong> en bas du panneau se recalcule en temps réel. Le tableau de droite montre la répartition de la prévision par site.`, 'Comment utiliser la simulation ci-dessous')}
+    
 
     <div class="grid grid-1-2 mt-3">
       <div class="whatif-card">
@@ -4072,7 +4132,7 @@ function render_forecast() {
       </div>
     </div>
     
-    ${explain(`Le tableau classe les <strong>20 clients pour qui on prévoit le plus de CA</strong> sur les ${APP.horizon} prochains mois. La colonne « Part % » indique le poids de chaque client dans le total prévu : si la part du n°1 dépasse 15%, c'est un signal de surconcentration à surveiller.`, 'Comment lire le tableau ci-dessous')}
+    
 
     <div class="card mt-3">
       <div class="card-header">
