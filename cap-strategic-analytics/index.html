@@ -17,6 +17,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
 /* ============================================================
@@ -2281,7 +2283,7 @@ function buildApp() {
         <button class="btn-header" id="btn-reset-header" title="Réinitialiser tous les filtres (Année, Mois, Site, Métier, Département, Recherche client)">↻ Réinitialiser</button>
         <button class="btn-header" id="btn-presentation" title="Mode présentation COMEX : plein écran + rotation automatique toutes les 30 secondes">▶️ Présentation</button>
         <button class="btn-header gold" id="btn-export-html" title="Exporter le rapport en HTML interactif (à partager par mail/Teams — le destinataire ouvre directement, pas besoin de fichier de données)">📤 Exporter HTML interactif</button>
-        <button class="btn-header" id="btn-print" title="Imprimer / Exporter PDF">📄 Export PDF</button>
+        <button class="btn-header" id="btn-print" title="Exporter TOUTES les pages d'analyse en un seul PDF (page de garde + 19 pages, charts inclus)">📄 Export PDF complet</button>
         <button class="btn-header" id="btn-reload" title="Recharger un fichier">↻ Nouveau fichier</button>
       </div>
     </header>
@@ -3446,8 +3448,168 @@ function schedulePresentationNext() {
   }, APP.presentation.intervalSec * 1000);
 }
 
+// ============================================================
+// EXPORT PDF COMPLET — capture toutes les pages en PDF multipage
+// jsPDF + html2canvas (CDN). A4 paysage, 1 page PDF = 1 page analytique.
+// ============================================================
+async function exportFullPDF() {
+  if (!APP.data || !APP.data.fact || !APP.data.fact.length) {
+    alert('Aucune donnée chargée à exporter.');
+    return;
+  }
+  if (!window.jspdf || !window.html2canvas) {
+    alert('Librairies PDF non disponibles (CDN bloqué ?). Vérifiez votre connexion.');
+    return;
+  }
+  const btn = document.getElementById('btn-print');
+  const original = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Préparation PDF...'; }
+
+  // Overlay de progression
+  const overlay = document.createElement('div');
+  overlay.id = 'pdf-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,37,64,0.92);z-index:10000;display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif;color:white;';
+  overlay.innerHTML = `<div style="background:white;color:#0A2540;padding:30px 40px;border-radius:12px;text-align:center;max-width:420px;">
+    <div style="font-size:36px;margin-bottom:10px;">📑</div>
+    <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:600;margin-bottom:8px;">Export PDF en cours</div>
+    <div id="pdf-progress" style="font-size:13px;color:#6b7280;margin-bottom:16px;">Initialisation…</div>
+    <div style="background:#e5e7eb;height:8px;border-radius:4px;overflow:hidden;"><div id="pdf-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#D4A24E,#0A2540);transition:width 0.3s;"></div></div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:14px;">Ne fermez pas la fenêtre. Le PDF capture toutes les pages, charts compris (peut prendre 30-60s).</div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const setProg = (txt, pct) => {
+    const p = document.getElementById('pdf-progress'); if (p) p.textContent = txt;
+    const b = document.getElementById('pdf-bar'); if (b) b.style.width = pct + '%';
+  };
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = pdf.internal.pageSize.getWidth();   // 297mm
+    const pageH = pdf.internal.pageSize.getHeight();  // 210mm
+    const margin = 8;
+    const contentW = pageW - margin * 2;
+    const contentH = pageH - margin * 2 - 8;  // -8 pour pied de page
+
+    // ----- Page de garde -----
+    pdf.setFillColor(10, 37, 64);
+    pdf.rect(0, 0, pageW, pageH, 'F');
+    pdf.setTextColor(212, 162, 78);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(36);
+    pdf.text('CAP Strategic Analytics', pageW / 2, 70, { align: 'center' });
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('AGL · Africa Global Logistics', pageW / 2, 84, { align: 'center' });
+    pdf.setFontSize(11);
+    pdf.text('Direction Stratégie · Customer Intelligence Platform', pageW / 2, 92, { align: 'center' });
+    const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+    pdf.setFontSize(13);
+    pdf.text('Édition du ' + dateStr, pageW / 2, 120, { align: 'center' });
+    const nbClients = new Set(APP.data.fact.map(r => r.CLIENT)).size;
+    pdf.setFontSize(10);
+    pdf.setTextColor(180, 180, 180);
+    pdf.text(`${APP.data.fact.length.toLocaleString('fr-FR')} transactions · ${nbClients.toLocaleString('fr-FR')} clients · ${PAGES.length} pages d'analyse`, pageW / 2, 140, { align: 'center' });
+    // Filtres actifs
+    const filt = APP.filters || {};
+    const filtBits = [];
+    if (filt.metiers && filt.metiers.length) filtBits.push('Métiers : ' + filt.metiers.join(', '));
+    if (filt.libelles && filt.libelles.length) filtBits.push('Départements : ' + filt.libelles.slice(0, 3).join(', ') + (filt.libelles.length > 3 ? '…' : ''));
+    if (filt.sites && filt.sites.length) filtBits.push('Sites : ' + filt.sites.join(', '));
+    if (filt.year) filtBits.push('Année : ' + filt.year);
+    if (filtBits.length) {
+      pdf.setFontSize(9);
+      pdf.text('Filtres actifs : ' + filtBits.join(' · '), pageW / 2, 152, { align: 'center', maxWidth: contentW });
+    }
+    pdf.setFontSize(8);
+    pdf.setTextColor(120, 120, 120);
+    pdf.text('Document confidentiel — réservé à l\'usage interne AGL', pageW / 2, pageH - 12, { align: 'center' });
+
+    // ----- Pages de contenu -----
+    const savedPage = APP.currentPage;
+    const total = PAGES.length;
+    for (let i = 0; i < total; i++) {
+      const p = PAGES[i];
+      setProg(`Capture ${i + 1}/${total} · ${p.title}`, 5 + Math.round((i / total) * 90));
+      // Switch sur la page (déclenche le render)
+      switchPage(p.id);
+      // Attente pour que Plotly/Chart.js render (charts asynchrones)
+      await new Promise(r => setTimeout(r, 1200));
+      const pageEl = document.getElementById('page-' + p.id);
+      if (!pageEl) continue;
+      try {
+        const canvas = await html2canvas(pageEl, {
+          backgroundColor: '#FFFFFF',
+          scale: 1.5,
+          useCORS: true,
+          logging: false,
+          windowWidth: Math.max(pageEl.scrollWidth, 1280),
+          windowHeight: pageEl.scrollHeight,
+          onclone: (doc) => {
+            // Force display block sur la page clonée pour qu'elle soit bien rendue
+            const cl = doc.getElementById('page-' + p.id);
+            if (cl) cl.style.display = 'block';
+          }
+        });
+        // Ajouter une page PDF
+        pdf.addPage();
+        // En-tête de page
+        pdf.setFillColor(10, 37, 64);
+        pdf.rect(0, 0, pageW, 6, 'F');
+        pdf.setTextColor(10, 37, 64);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(11);
+        pdf.text(`${p.num} · ${p.title}`, margin, 13);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        pdf.setTextColor(120, 120, 120);
+        pdf.text(`${p.section} · ${p.subtitle}`, margin, 18);
+        // Image du contenu (préserve ratio, fit dans la zone disponible)
+        const imgData = canvas.toDataURL('image/jpeg', 0.85);
+        const imgRatio = canvas.width / canvas.height;
+        const availH = contentH - 14;  // -14 pour l'en-tête
+        let imgW = contentW;
+        let imgH = imgW / imgRatio;
+        if (imgH > availH) {
+          imgH = availH;
+          imgW = imgH * imgRatio;
+        }
+        const imgX = margin + (contentW - imgW) / 2;
+        const imgY = 22;
+        pdf.addImage(imgData, 'JPEG', imgX, imgY, imgW, imgH);
+        // Pied de page
+        pdf.setFontSize(7);
+        pdf.setTextColor(150, 150, 150);
+        pdf.text(`CAP Strategic Analytics · AGL · ${dateStr} · Page ${i + 2}/${total + 1}`, pageW / 2, pageH - 4, { align: 'center' });
+      } catch(err) {
+        console.error('Erreur capture page', p.id, err);
+        pdf.addPage();
+        pdf.setFontSize(12);
+        pdf.text(`[Erreur capture page ${p.title}]`, margin, 20);
+      }
+    }
+
+    // Restaurer la page initiale
+    switchPage(savedPage);
+
+    setProg('Génération du fichier PDF…', 98);
+    await new Promise(r => setTimeout(r, 100));
+    const fileName = `CAP_AGL_rapport_complet_${new Date().toISOString().slice(0, 10)}.pdf`;
+    pdf.save(fileName);
+    setProg('✅ Téléchargement lancé', 100);
+    setTimeout(() => overlay.remove(), 1500);
+  } catch(e) {
+    console.error('Export PDF complet — erreur', e);
+    alert('Erreur génération PDF : ' + e.message);
+    overlay.remove();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+}
+
 function attachEvents() {
-  document.getElementById('btn-print').addEventListener('click', () => window.print());
+  document.getElementById('btn-print').addEventListener('click', exportFullPDF);
   const btnExport = document.getElementById('btn-export-html');
   if (btnExport) btnExport.addEventListener('click', exportInteractiveHTML);
   const btnPres = document.getElementById('btn-presentation');
