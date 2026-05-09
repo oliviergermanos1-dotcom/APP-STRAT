@@ -2156,7 +2156,11 @@ const PAGES = [
   { id: 'anomalies', num: '16', title: 'Détection d\'anomalies', subtitle: 'Pics, chutes brutales, transactions suspectes', section: 'Risques',
     explanation: "Détection algorithmique des anomalies dans les transactions : pics inhabituels (z-score > 3), chutes brutales (-50% MoM), montants extrêmes, clients ayant changé brutalement de site. Chaque anomalie est typée et expliquée." },
   { id: 'velocity', num: '17', title: 'Customer Velocity', subtitle: 'Vitesse de progression entre tiers (rocket clients)', section: 'Clients',
-    explanation: "Analyse de la mobilité des clients dans la matrice tier S/A/B/C/D entre 2 années. Identifie les 'rocket clients' qui montent rapidement, les 'stagnants' qui ne bougent pas, et les 'décliners' qui rétrogradent. Matrice de transition complète." }
+    explanation: "Analyse de la mobilité des clients dans la matrice tier S/A/B/C/D entre 2 années. Identifie les 'rocket clients' qui montent rapidement, les 'stagnants' qui ne bougent pas, et les 'décliners' qui rétrogradent. Matrice de transition complète." },
+  { id: 'rfm', num: '18', title: 'Segmentation RFM comportementale', subtitle: 'Récence × Fréquence × Monétaire — 11 segments marketing', section: 'Clients',
+    explanation: "Segmentation comportementale standard du marketing relationnel : chaque client est noté 1-5 sur 3 axes (Récence depuis dernière transaction, Fréquence sur 12 mois, Monétaire cumulé). Classification automatique en 11 segments classiques (Champions, Loyal, At Risk, Lost…) chacun avec une stratégie d'action dédiée." },
+  { id: 'data_quality', num: '19', title: 'Qualité des données', subtitle: 'Audit data — anomalies, doublons, complétude', section: 'Risques',
+    explanation: "Audit objectif de la qualité du dataset utilisé : volumétrie, complétude des champs, nombre de lignes négatives (avoirs), nuls, variations de noms clients, dispersion des libellés. Permet de qualifier la fiabilité des analyses produites." }
 ];
 
 function buildApp() {
@@ -2475,6 +2479,16 @@ function applyFilters() {
   const lookback36ByClient = {};     // a facturé au moins 1 fois dans les 36 derniers mois précédant la période
   const histMetiersByClient = {};    // ensemble des métiers facturés AVANT la période courante
   const histMetiersCAByClient = {};  // CAP cumulé par métier historique → permet de trouver le métier dominant
+  const clientMonthlyCA = {};        // CA mensuel par client (pour RFM, anomalies, sparklines)
+  // Stats data quality (pour page dédiée)
+  APP.dataQuality = {
+    totalRows: APP.data.fact.length,
+    negativeRows: 0, negativeAmount: 0,
+    zeroRows: 0,
+    positiveRows: 0, positiveAmount: 0,
+    distinctClients: 0, distinctMetiers: 0, distinctLibelles: 0
+  };
+  const clientsSet = new Set(), metiersSet = new Set(), libellesSet = new Set();
   for (let i = 0; i < APP.data.fact.length; i++) {
     const r = APP.data.fact[i];
     if (!r.CLIENT) continue;
@@ -2483,12 +2497,115 @@ function applyFilters() {
     if (!lastByClient[r.CLIENT] || key > lastByClient[r.CLIENT]) lastByClient[r.CLIENT] = key;
     if (key >= lookbackStartKey && key < periodStartKey) lookbackByClient[r.CLIENT] = true;
     if (key >= newLookbackKey && key < periodStartKey) lookback36ByClient[r.CLIENT] = true;
+    // CA mensuel par client (pour RFM)
+    if (!clientMonthlyCA[r.CLIENT]) clientMonthlyCA[r.CLIENT] = {};
+    clientMonthlyCA[r.CLIENT][key] = (clientMonthlyCA[r.CLIENT][key] || 0) + (r.MONTANT || 0);
+    // Stats qualité
+    clientsSet.add(r.CLIENT);
+    if (r.METIER) metiersSet.add(r.METIER);
+    if (r.LIBELLE) libellesSet.add(r.LIBELLE);
+    if (r.MONTANT < 0) { APP.dataQuality.negativeRows++; APP.dataQuality.negativeAmount += r.MONTANT; }
+    else if (r.MONTANT === 0) APP.dataQuality.zeroRows++;
+    else { APP.dataQuality.positiveRows++; APP.dataQuality.positiveAmount += r.MONTANT; }
     if (key < periodStartKey && r.METIER) {
       if (!histMetiersByClient[r.CLIENT]) histMetiersByClient[r.CLIENT] = new Set();
       histMetiersByClient[r.CLIENT].add(r.METIER);
       if (!histMetiersCAByClient[r.CLIENT]) histMetiersCAByClient[r.CLIENT] = {};
       histMetiersCAByClient[r.CLIENT][r.METIER] = (histMetiersCAByClient[r.CLIENT][r.METIER] || 0) + (r.MONTANT || 0);
     }
+  }
+  APP.dataQuality.distinctClients = clientsSet.size;
+  APP.dataQuality.distinctMetiers = metiersSet.size;
+  APP.dataQuality.distinctLibelles = libellesSet.size;
+  APP.clientMonthlyCA = clientMonthlyCA;
+
+  // ============================================================
+  // RFM — Récence / Fréquence / Monétaire (12 mois glissants)
+  // Indicateur comportemental classique du marketing relationnel.
+  // Calculé sur les 12 mois précédant la fin de période courante.
+  // ============================================================
+  const rfmEndKey = refY * 100 + refM;          // dernier mois de la période
+  // Helper : 12 mois rolling jusqu'à refY-refM
+  const rfmStartY = refM === 12 ? refY : refY - 1;
+  const rfmStartM = refM === 12 ? 1 : refM + 1;
+  const rfmStartKey = rfmStartY * 100 + rfmStartM;
+  // Note : on accepte les "wrap" — on regarde simplement (refY-y)*12 + (refM-m) entre 0 et 11
+  // Calcul des valeurs brutes RFM par client (sur la base des CA mensuels positifs uniquement)
+  const rfmRaw = [];
+  for (const c of APP.clientsAgg) {
+    let freq = 0, monetary = 0;
+    const monthly = clientMonthlyCA[c.CLIENT] || {};
+    for (const k in monthly) {
+      const yy = Math.floor(k / 100), mm = k % 100;
+      const monthsDiff = (refY - yy) * 12 + (refM - mm);
+      // Dans la fenêtre 12 mois (0 = mois courant, 11 = il y a 11 mois)
+      if (monthsDiff >= 0 && monthsDiff < 12 && monthly[k] > 0) {
+        freq++;
+        monetary += monthly[k];
+      }
+    }
+    c.rfmRecency_raw  = c.monthsSinceLastTx !== null ? c.monthsSinceLastTx : 999;
+    c.rfmFrequency_raw = freq;
+    c.rfmMonetary_raw  = monetary;
+    rfmRaw.push(c);
+  }
+  // Score 1-5 sur chaque axe basé sur les quintiles
+  function quintileScore(values, asc) {
+    // asc = true → petite valeur = score haut (cas R où petite recency = bon)
+    // asc = false → grande valeur = score haut (cas F et M)
+    const sorted = [...values].sort((a,b) => asc ? a - b : b - a);
+    const n = sorted.length;
+    if (n === 0) return () => 1;
+    const thresholds = [0.20, 0.40, 0.60, 0.80].map(p => sorted[Math.floor(n * p)]);
+    return (v) => {
+      if (asc) {
+        if (v <= thresholds[0]) return 5;
+        if (v <= thresholds[1]) return 4;
+        if (v <= thresholds[2]) return 3;
+        if (v <= thresholds[3]) return 2;
+        return 1;
+      } else {
+        if (v >= thresholds[0]) return 5;
+        if (v >= thresholds[1]) return 4;
+        if (v >= thresholds[2]) return 3;
+        if (v >= thresholds[3]) return 2;
+        return 1;
+      }
+    };
+  }
+  // Pour le scoring on ne considère que les clients ayant eu au moins 1 transaction sur 12 mois
+  // (sinon F = 0 et M = 0 pour tout le monde, scoring inutilisable)
+  const activeClients = APP.clientsAgg.filter(c => c.rfmFrequency_raw > 0);
+  const scoreR = quintileScore(activeClients.map(c => c.rfmRecency_raw), true);
+  const scoreF = quintileScore(activeClients.map(c => c.rfmFrequency_raw), false);
+  const scoreM = quintileScore(activeClients.map(c => c.rfmMonetary_raw), false);
+  for (const c of APP.clientsAgg) {
+    if (c.rfmFrequency_raw > 0) {
+      c.rfmR = scoreR(c.rfmRecency_raw);
+      c.rfmF = scoreF(c.rfmFrequency_raw);
+      c.rfmM = scoreM(c.rfmMonetary_raw);
+    } else {
+      c.rfmR = 1; c.rfmF = 1; c.rfmM = 1;  // dormants/perdus
+    }
+    c.rfmCode = `${c.rfmR}${c.rfmF}${c.rfmM}`;
+    // Segmentation marketing classique en 11 groupes
+    const R = c.rfmR, F = c.rfmF, M = c.rfmM;
+    let seg = 'Indéterminé', segColor = '#7F7F7F', segIcon = '📊', segPriority = 99;
+    if (R >= 4 && F >= 4 && M >= 4)             { seg = 'Champions';            segColor = '#0B6E4F'; segIcon = '👑'; segPriority = 1; }
+    else if (R >= 2 && F >= 4 && M >= 4)        { seg = 'Cannot Lose Them';     segColor = '#D62828'; segIcon = '🚨'; segPriority = 2; }
+    else if (R >= 3 && F >= 3 && M >= 3)        { seg = 'Loyal Customers';      segColor = '#52B788'; segIcon = '💎'; segPriority = 3; }
+    else if (R >= 4 && F <= 2 && M <= 2)        { seg = 'Potential Loyalists';  segColor = '#1F77B4'; segIcon = '🌱'; segPriority = 4; }
+    else if (R === 5 && F === 1)                { seg = 'New Customers';        segColor = '#52B788'; segIcon = '🆕'; segPriority = 5; }
+    else if (R >= 3 && F === 1 && M === 1)      { seg = 'Promising';            segColor = '#F4D35E'; segIcon = '✨'; segPriority = 6; }
+    else if (R === 3 && F >= 2 && M >= 2)       { seg = 'Need Attention';       segColor = '#F77F00'; segIcon = '⚠'; segPriority = 7; }
+    else if (R <= 2 && F >= 2 && M >= 2)        { seg = 'At Risk';              segColor = '#D62828'; segIcon = '🔴'; segPriority = 8; }
+    else if (R === 3 && F <= 2 && M <= 2)       { seg = 'About to Sleep';       segColor = '#F4D35E'; segIcon = '😴'; segPriority = 9; }
+    else if (R === 2 && F === 2 && M === 2)     { seg = 'Hibernating';          segColor = '#7F7F7F'; segIcon = '💤'; segPriority = 10; }
+    else if (R === 1)                            { seg = 'Lost';                 segColor = '#404040'; segIcon = '❌'; segPriority = 11; }
+    c.rfmSegment = seg;
+    c.rfmSegmentColor = segColor;
+    c.rfmSegmentIcon = segIcon;
+    c.rfmSegmentPriority = segPriority;
   }
 
   // Pré-calcul percentiles + stats (une fois pour tous les clients)
@@ -7297,6 +7414,257 @@ table td { padding: 5px 8px; border-bottom: 1px solid #EAEAEA; }
   if (!w) { alert('Veuillez autoriser les popups pour générer la Battle Card.'); return; }
   w.document.write(html);
   w.document.close();
+}
+
+// ============================================================
+// PAGE 18 — SEGMENTATION RFM COMPORTEMENTALE
+// Récence × Fréquence × Monétaire sur 12 mois glissants
+// 11 segments marketing classiques
+// ============================================================
+function render_rfm() {
+  const p = PAGES.find(x => x.id === 'rfm');
+  const el = document.getElementById('page-rfm');
+  const clients = APP.clientsAgg;
+  const lbl = periodLabel();
+
+  // Méta-info des 11 segments avec stratégie d'action
+  const segmentMeta = {
+    'Champions':           { icon:'👑', color:'#0B6E4F', priority:1,  action:`Récompenser et fidéliser. Engagement pluriannuel, programme VIP, accès anticipé aux nouveautés.`, profile:`Achètent souvent, récemment et beaucoup. Ambassadeurs potentiels.` },
+    'Cannot Lose Them':    { icon:'🚨', color:'#D62828', priority:2,  action:`Action urgente — visite KAM senior dans 7 jours. Comprendre la cause du désengagement.`, profile:`Achetaient beaucoup et souvent, mais n'ont pas commandé récemment.` },
+    'Loyal Customers':     { icon:'💎', color:'#52B788', priority:3,  action:`Cross-sell + upsell prioritaires. Programme de fidélité, recommandations personnalisées.`, profile:`Achètent régulièrement, valeur solide. Cœur de portefeuille.` },
+    'Potential Loyalists': { icon:'🌱', color:'#1F77B4', priority:4,  action:`Pousser le 2ᵉ achat. Offres ciblées, on-boarding renforcé pour transformer en Loyal.`, profile:`Récents, valeur encore faible mais profil engageable.` },
+    'New Customers':       { icon:'🆕', color:'#52B788', priority:5,  action:`On-boarding soigné. Premier mois critique pour la rétention.`, profile:`Toute première transaction très récente.` },
+    'Promising':           { icon:'✨', color:'#F4D35E', priority:6,  action:`Encourager la 2ᵉ transaction. Promotion ciblée, accompagnement KAM.`, profile:`Récents avec petite valeur — potentiel à confirmer.` },
+    'Need Attention':      { icon:'⚠',  color:'#F77F00', priority:7,  action:`Réactiver avant qu'ils basculent en At Risk. Email/appel personnalisé.`, profile:`Activité moyenne — ni récente ni totalement absente.` },
+    'At Risk':             { icon:'🔴', color:'#D62828', priority:8,  action:`Plan de retention immédiat. Comprendre la dérive.`, profile:`Achetaient souvent, valeur correcte, mais hiatus récent.` },
+    'About to Sleep':      { icon:'😴', color:'#F4D35E', priority:9,  action:`Réveiller : campagne de réactivation, offre spéciale.`, profile:`Activité faible récemment, danger de basculement.` },
+    'Hibernating':         { icon:'💤', color:'#7F7F7F', priority:10, action:`Win-back campaign. Offre forte ou produit nouveau.`, profile:`Inactivité prolongée, faible engagement passé.` },
+    'Lost':                { icon:'❌', color:'#404040', priority:11, action:`Coût de reconquête souvent supérieur au revenu — arbitrer.`, profile:`Pratiquement perdus. Ne plus dépenser dessus prioritairement.` }
+  };
+  // Compter par segment
+  const bySegment = {};
+  for (const seg in segmentMeta) bySegment[seg] = { clients: [], ca: 0, count: 0 };
+  for (const c of clients) {
+    const s = c.rfmSegment || 'Lost';
+    if (!bySegment[s]) bySegment[s] = { clients: [], ca: 0, count: 0 };
+    bySegment[s].clients.push(c);
+    bySegment[s].ca += (c.rfmMonetary_raw || 0);
+    bySegment[s].count++;
+  }
+  const totalCA = Object.values(bySegment).reduce((s,v) => s + v.ca, 0);
+  const segOrder = Object.keys(segmentMeta).sort((a,b) => segmentMeta[a].priority - segmentMeta[b].priority);
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      const champs = bySegment['Champions'] || { count: 0, ca: 0 };
+      const cantLose = bySegment['Cannot Lose Them'] || { count: 0, ca: 0 };
+      const atRisk = bySegment['At Risk'] || { count: 0, ca: 0 };
+      const lost = bySegment['Lost'] || { count: 0, ca: 0 };
+      const newC = bySegment['New Customers'] || { count: 0, ca: 0 };
+      const totalActiveCount = clients.filter(c => c.rfmFrequency_raw > 0).length;
+      ins.push({ type:'neutre', constat:`Segmentation comportementale RFM sur les <strong>12 mois glissants</strong> précédant ${lbl.longue}. ${totalActiveCount} clients actifs répartis en 11 segments marketing standards.`, implication:`La méthode RFM (Récence × Fréquence × Monétaire) est le fondement du marketing relationnel B2B/B2C. Chaque segment a un profil typique et une stratégie d'action dédiée.`, action:`Aligner les actions commerciales et marketing sur ces segments — un Champion ne se traite pas comme un At Risk.` });
+      if (champs.count > 0) ins.push({ type:'positif', constat:`<strong>${champs.count} Champions</strong> identifiés (${fmt.money(champs.ca)} XOF cumulés sur 12 mois) — élite du portefeuille.`, implication:`Ils achètent souvent, récemment et beaucoup. Ambassadeurs potentiels et garants de la base CA.`, action:`Programme VIP : engagement pluriannuel, accès anticipé aux nouveautés, contact privilégié.` });
+      if (cantLose.count > 0) ins.push({ type:'risque', constat:`<strong>${cantLose.count} clients "Cannot Lose Them"</strong> (${fmt.money(cantLose.ca)} XOF) — gros consommateurs en désengagement récent.`, implication:`Ils achetaient beaucoup et souvent, mais n'ont pas commandé récemment. Risque de perte critique.`, action:`Visite KAM senior dans 7 jours. Comprendre la cause du désengagement avant qu'ils basculent en Lost.` });
+      if (atRisk.count > 0) ins.push({ type:'attention', constat:`<strong>${atRisk.count} At Risk</strong> — clients de valeur correcte avec hiatus récent.`, implication:`Trajectoire de churn possible. À traiter avant qu'ils ne basculent en "Cannot Lose Them" puis "Lost".`, action:`Plan de rétention ciblé. Comprendre la dérive — diagnostic offre/prix/qualité.` });
+      if (newC.count > 0) ins.push({ type:'opportunite', constat:`<strong>${newC.count} New Customers</strong> — premières transactions très récentes.`, implication:`Le 1er mois post-acquisition est critique pour la rétention long terme. Ne pas les laisser sans suivi.`, action:`On-boarding soigné, contact relationnel dans les 30 jours.` });
+      return analyseToSynthese(ins, '🎯 Synthèse stratégique — Segmentation RFM comportementale');
+    })()}
+
+    <div class="grid grid-3 mt-3">
+      ${segOrder.map(seg => {
+        const meta = segmentMeta[seg];
+        const data = bySegment[seg];
+        const pct = totalCA > 0 ? data.ca / totalCA : 0;
+        return `<div class="card" style="border-left:4px solid ${meta.color};">
+          <div class="card-header" style="padding:10px 14px;">
+            <div class="card-title" style="font-size:13px;color:${meta.color};">${meta.icon} ${seg}</div>
+            <div class="text-sm text-muted" style="font-size:10px;">${meta.profile}</div>
+          </div>
+          <div class="card-body" style="padding:12px 14px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px;">
+              <div>
+                <div style="font-family:var(--font-display);font-size:24px;font-weight:700;color:${meta.color};">${data.count}</div>
+                <div class="text-sm text-muted" style="font-size:10px;">clients</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:13px;font-weight:700;color:var(--gold-700);">${fmt.money(data.ca)}</div>
+                <div class="text-sm text-muted" style="font-size:10px;">${fmt.pct(pct)} du CA RFM</div>
+              </div>
+            </div>
+            <div style="font-size:11px;color:${meta.color};font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--grey-100);line-height:1.5;">→ ${meta.action}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">📊 Matrice Récence × Fréquence (heatmap par nombre de clients)</div><div class="text-sm text-muted">Lignes = Récence (5 = très récent, 1 = très ancien), Colonnes = Fréquence (5 = très fréquent). Carrés colorés selon densité de clients.</div></div>
+      <div class="card-body">
+        ${(() => {
+          // Matrice 5×5 R × F : compter les clients par cellule
+          const mat = Array(5).fill(0).map(() => Array(5).fill(0));
+          for (const c of clients) {
+            if (c.rfmFrequency_raw > 0) mat[5 - c.rfmR][c.rfmF - 1]++;
+          }
+          const max = mat.flat().reduce((m,v) => v > m ? v : m, 0);
+          return `<table style="border-collapse:collapse;margin:0 auto;font-size:11px;">
+            <thead><tr><th style="padding:6px;text-align:right;color:var(--grey-700);">R↓ \\ F→</th>${[1,2,3,4,5].map(f => `<th style="padding:8px 12px;background:var(--navy-800);color:white;font-weight:600;text-align:center;">F=${f}</th>`).join('')}</tr></thead>
+            <tbody>${[5,4,3,2,1].map((r,ri) => `<tr><th style="padding:8px 12px;background:var(--navy-800);color:white;font-weight:600;text-align:right;">R=${r}</th>${[1,2,3,4,5].map(f => {
+              const v = mat[ri][f-1];
+              const intensity = max > 0 ? v / max : 0;
+              const bg = v === 0 ? '#fafafa' : `rgba(212,162,78,${0.10 + intensity * 0.7})`;
+              return `<td style="padding:14px 18px;text-align:center;background:${bg};font-weight:${v > 0 ? '700' : '400'};font-family:var(--font-mono);min-width:50px;color:${intensity > 0.5 ? 'var(--navy-900)' : 'var(--grey-700)'};">${v || '·'}</td>`;
+            }).join('')}</tr>`).join('')}</tbody>
+          </table>`;
+        })()}
+      </div>
+    </div>
+
+    ${segOrder.filter(s => bySegment[s].count > 0).slice(0, 6).map(seg => {
+      const meta = segmentMeta[seg];
+      const list = [...bySegment[seg].clients].sort((a,b) => b.rfmMonetary_raw - a.rfmMonetary_raw).slice(0, 30);
+      return `<div class="card mt-3">
+        <div class="card-header" style="border-left:4px solid ${meta.color};padding-left:14px;">
+          <div class="card-title" style="color:${meta.color};">${meta.icon} ${seg} — Top ${list.length} clients</div>
+          <div class="text-sm text-muted">${meta.profile} · Action : ${meta.action}</div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap" style="max-height:400px;">
+            <table class="data">
+              <thead><tr><th>#</th><th>Client</th><th>Tier</th><th class="num">CA 12 mois</th><th class="num">Fréquence (mois)</th><th class="num">Récence (mois)</th><th>Code RFM</th></tr></thead>
+              <tbody>
+                ${list.map((c, i) => `<tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong class="client-link" data-client="${c.CLIENT}" style="cursor:pointer;color:var(--navy-700);">${c.CLIENT}</strong></td>
+                  <td><span class="tier-${c.tier}">${c.tier}</span></td>
+                  <td class="num">${fmt.money(c.rfmMonetary_raw || 0)}</td>
+                  <td class="num">${c.rfmFrequency_raw || 0}/12</td>
+                  <td class="num">${c.rfmRecency_raw === 999 ? '—' : c.rfmRecency_raw + ' m'}</td>
+                  <td class="text-sm" style="font-family:var(--font-mono);font-weight:700;">${c.rfmCode}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}
+  `;
+}
+
+// ============================================================
+// PAGE 19 — QUALITÉ DES DONNÉES
+// Audit transparent du dataset (avoirs, nuls, doublons, complétude)
+// ============================================================
+function render_data_quality() {
+  const p = PAGES.find(x => x.id === 'data_quality');
+  const el = document.getElementById('page-data_quality');
+  const dq = APP.dataQuality || {};
+  const lbl = periodLabel();
+
+  // Doublons probables (clients avec match historique trouvé)
+  const duplicateCandidates = APP.clientsAgg.filter(c => c.suspectedDuplicate);
+  // Top noms suspects
+  const topDuplicates = duplicateCandidates.slice(0, 30);
+  // Échantillon lignes négatives
+  const negSample = APP.data.fact.filter(r => r.MONTANT < 0).sort((a,b) => a.MONTANT - b.MONTANT).slice(0, 20);
+  const zeroSample = APP.data.fact.filter(r => r.MONTANT === 0).slice(0, 10);
+
+  const totalNet = (dq.positiveAmount || 0) + (dq.negativeAmount || 0);
+
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${(() => {
+      const ins = [];
+      const negPct = dq.totalRows > 0 ? dq.negativeRows / dq.totalRows : 0;
+      const zeroPct = dq.totalRows > 0 ? dq.zeroRows / dq.totalRows : 0;
+      const dupPct = dq.distinctClients > 0 ? duplicateCandidates.length / dq.distinctClients : 0;
+      ins.push({ type:'neutre', constat:`Dataset : <strong>${(dq.totalRows || 0).toLocaleString('fr-FR')} lignes</strong>, <strong>${dq.distinctClients || 0} clients distincts</strong>, ${dq.distinctMetiers || 0} métiers, ${dq.distinctLibelles || 0} libellés.`, implication:`CA brut positif : ${fmt.money(dq.positiveAmount || 0)} XOF. Avoirs cumulés : ${fmt.money(Math.abs(dq.negativeAmount || 0))} XOF (${fmt.pct(negPct)} des lignes). CA net après avoirs : ${fmt.money(totalNet)} XOF.`, action:`Documenter les règles de gestion des avoirs auprès de la facturation.` });
+      if (negPct >= 0.02) ins.push({ type:'attention', constat:`<strong>${dq.negativeRows} lignes négatives</strong> (${fmt.pct(negPct)} du dataset, total ${fmt.money(Math.abs(dq.negativeAmount || 0))} XOF).`, implication:`Avoirs / corrections / rejets — leur typologie n'est pas documentée. Sans règle métier explicite, certains KPI (CAP brut vs net, comptage transactions) peuvent être biaisés.`, action:`Créer un référentiel "type de pièce" (Facture / Avoir / Régularisation) en amont de l'export IRIS.` });
+      if (zeroPct >= 0.001) ins.push({ type:'attention', constat:`<strong>${dq.zeroRows} lignes à montant nul</strong>.`, implication:`Une transaction à 0 XOF n'a pas de sens commercial. Probablement saisies techniques ou annulations.`, action:`Vérifier auprès de l'équipe facturation si ces lignes peuvent être filtrées en amont.` });
+      if (duplicateCandidates.length > 5) ins.push({ type:'risque', constat:`<strong>${duplicateCandidates.length} clients</strong> (${fmt.pct(dupPct)} de la base) ont un nom orthographiquement proche d'un autre client historique — doublons probables.`, implication:`Ces variations (espaces, casse, suffixes juridiques, abréviations) génèrent de faux nouveaux clients et faussent les KPI HHI / Tier / Top clients.`, action:`Mettre en place un référentiel client maître unifié (chantier MDM). À court terme : utiliser la liste "À vérifier" sur le Cockpit pour fusionner manuellement.` });
+      return analyseToSynthese(ins, '🎯 Audit qualité du dataset');
+    })()}
+
+    <div class="grid grid-4 mt-3">
+      <div class="kpi"><div class="kpi-label">Lignes totales</div><div class="kpi-value">${(dq.totalRows || 0).toLocaleString('fr-FR')}</div><div class="kpi-bench">transactions importées</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-strong-up);"><div class="kpi-label">Lignes positives</div><div class="kpi-value">${(dq.positiveRows || 0).toLocaleString('fr-FR')}</div><div class="kpi-bench">${fmt.money(dq.positiveAmount || 0)} XOF cumulés</div></div>
+      <div class="kpi" style="border-top:3px solid var(--evol-down);"><div class="kpi-label">Lignes négatives (avoirs)</div><div class="kpi-value">${(dq.negativeRows || 0).toLocaleString('fr-FR')}</div><div class="kpi-bench">${fmt.money(Math.abs(dq.negativeAmount || 0))} XOF d'avoirs</div></div>
+      <div class="kpi" style="border-top:3px solid var(--grey-400);"><div class="kpi-label">Lignes à zéro</div><div class="kpi-value">${(dq.zeroRows || 0).toLocaleString('fr-FR')}</div><div class="kpi-bench">non documentées</div></div>
+    </div>
+
+    <div class="grid grid-3 mt-2">
+      <div class="kpi" style="border-top:3px solid var(--evol-new);"><div class="kpi-label">Clients distincts</div><div class="kpi-value">${dq.distinctClients || 0}</div><div class="kpi-bench">⚠ peut inclure doublons</div></div>
+      <div class="kpi"><div class="kpi-label">Métiers distincts</div><div class="kpi-value">${dq.distinctMetiers || 0}</div><div class="kpi-bench">familles d'activité</div></div>
+      <div class="kpi"><div class="kpi-label">Libellés / départements</div><div class="kpi-value">${dq.distinctLibelles || 0}</div><div class="kpi-bench">fragmentation potentielle</div></div>
+    </div>
+
+    ${duplicateCandidates.length > 0 ? `
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">🔍 Top doublons probables (${duplicateCandidates.length} détectés)</div><div class="text-sm text-muted">Clients avec nom orthographiquement proche d'un autre client historique. Algorithme : 5 critères pondérés (Jaccard, préfixe, premier mot, sous-chaîne, Levenshtein).</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:400px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client (nouveau)</th><th>≈ Match historique</th><th>Raison du match</th><th class="num">Score</th><th class="num">CAP</th></tr></thead>
+            <tbody>
+              ${topDuplicates.map((c, i) => `<tr>
+                <td class="text-muted">${i+1}</td>
+                <td><strong>${c.CLIENT}</strong></td>
+                <td><strong style="color:var(--evol-down);">${c.suspectedDuplicate.name}</strong></td>
+                <td class="text-sm text-muted">${c.suspectedDuplicate.reason}</td>
+                <td class="num">${(c.suspectedDuplicate.score * 100).toFixed(0)}%</td>
+                <td class="num">${fmt.money(c.CA_N || 0)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    ` : ''}
+
+    ${negSample.length > 0 ? `
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">📉 Échantillon — Top 20 lignes négatives (avoirs / corrections)</div><div class="text-sm text-muted">Plus gros avoirs en valeur absolue. À analyser pour comprendre la nature.</div></div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:400px;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Client</th><th>Date</th><th>Site</th><th>Métier</th><th>Libellé</th><th class="num">Montant</th></tr></thead>
+            <tbody>
+              ${negSample.map((r, i) => {
+                const moisAbr = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+                return `<tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong>${r.CLIENT}</strong></td>
+                  <td class="text-sm">${moisAbr[r.MOIS - 1]} ${r.ANNEE}</td>
+                  <td>${r.SITE || '—'}</td>
+                  <td class="text-sm">${r.METIER || '—'}</td>
+                  <td class="text-sm">${r.LIBELLE || '—'}</td>
+                  <td class="num"><strong style="color:var(--evol-strong-dn);">${fmt.money(r.MONTANT)}</strong></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="card mt-3">
+      <div class="card-header"><div class="card-title">📋 Recommandations pour améliorer la qualité du dataset</div></div>
+      <div class="card-body">
+        <ul style="font-size:13px;line-height:1.8;color:var(--grey-900);">
+          <li><strong>Référentiel client maître (MDM)</strong> : créer un identifiant unique persistant côté IRIS pour éviter les variations de raison sociale. Solution standard : SIRET / RCCM / code interne consolidé.</li>
+          <li><strong>Typologie des pièces</strong> : ajouter un champ "Type pièce" (Facture / Avoir / Régularisation) dans l'export, pour traiter chaque catégorie selon une règle métier explicite.</li>
+          <li><strong>Filtrage des montants nuls</strong> : exclure les lignes 0 XOF en amont (ou les marquer "Annulation") — pas de valeur analytique.</li>
+          <li><strong>Référentiel libellés</strong> : consolider les ${dq.distinctLibelles || 0} libellés en 15-20 catégories stratégiques (groupement métier-cohérent). Réduit le bruit dans les analyses cross-sell.</li>
+          <li><strong>Documentation gouvernance</strong> : formaliser les règles de gestion (qui crée/modifie/désactive un client, à quel moment, sous quelle responsabilité).</li>
+        </ul>
+      </div>
+    </div>
+  `;
 }
 </script>
 
