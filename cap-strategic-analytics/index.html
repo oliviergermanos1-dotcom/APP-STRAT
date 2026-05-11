@@ -2695,7 +2695,9 @@ const PAGES = [
   { id: 'zscore', num: '22', title: 'Anomalies statistiques (Z-score robuste)', subtitle: 'Détection auto des transactions hors distribution', section: 'Risques',
     explanation: "Détection statistique des transactions anormales par client : on calcule pour chaque ligne sa déviation vs la distribution historique du même client (z-score robuste basé sur médiane + MAD, résistant aux outliers). Toute transaction avec |z| ≥ 3 est flaggée comme statistiquement improbable (< 0,3% des cas en loi normale). Utile pour audit data, détection erreurs IRIS, suspicion fraude/double facturation." },
   { id: 'mlchurn', num: '23', title: 'Score de churn probabiliste (ML)', subtitle: 'Probabilité de perte client 0-100% calibrée', section: 'Risques',
-    explanation: "Score de churn par client basé sur une régression logistique JS multi-variables (récence, évolution CAP, diversité métiers, ancienneté, régularité). Calibré sur les pertes historiques observées dans le dataset. Sortie : probabilité 0-100% qu'un client soit en perte dans les 12 prochains mois, avec décomposition des facteurs explicatifs et action recommandée." }
+    explanation: "Score de churn par client basé sur une régression logistique JS multi-variables (récence, évolution CAP, diversité métiers, ancienneté, régularité). Calibré sur les pertes historiques observées dans le dataset. Sortie : probabilité 0-100% qu'un client soit en perte dans les 12 prochains mois, avec décomposition des facteurs explicatifs et action recommandée." },
+  { id: 'bu_compare', num: '24', title: 'Comparatif Métiers × Départements', subtitle: 'Classement complet BU + libellés + évolution + matrice', section: 'Périmètre',
+    explanation: "Vue exhaustive comparative des Métiers (BU AGL) et Départements (libellés) : classement par CAP, évolution N vs N-1, panier moyen, nombre de clients, matrice de saisonnalité Métier × Mois, top variations à la hausse / baisse. Permet d'arbitrer l'allocation des ressources commerciales et opérationnelles entre BU." }
 ];
 
 function buildApp() {
@@ -10209,6 +10211,408 @@ function render_mlchurn() {
       </div>
     </div>
   `;
+}
+
+// ============================================================
+// PAGE 24 — COMPARATIF MÉTIERS × DÉPARTEMENTS
+// Vue exhaustive : classement BU + libellés, évolution N vs N-1,
+// matrice saisonnalité Métier × Mois, top variations.
+// ============================================================
+function render_bu_compare() {
+  const p = PAGES.find(x => x.id === 'bu_compare');
+  const el = document.getElementById('page-bu_compare');
+  if (!el) return;
+  const rows = APP.filtered;
+  const all = APP.data.fact;
+  const y = APP.filters.ANNEE;
+  const lbl = periodLabel();
+  const monthSet = APP.periodMonths;
+
+  if (!rows.length) {
+    el.innerHTML = `${pageHeader(p)}<div class="card mt-3"><div class="card-body" style="text-align:center;padding:40px;color:var(--grey-500);">Aucune donnée filtrée. Ajuste tes filtres.</div></div>`;
+    return;
+  }
+
+  // ===== AGRÉGATION MÉTIERS (BU) =====
+  const byMetier = new Map(); // metier → { ca, caN1, clients, libs, sites, monthCA[12] }
+  const byLibelle = new Map(); // libelle → { ca, caN1, metier, clients, sites }
+  // CAP N : périmètre filtré courant
+  for (const r of rows) {
+    const mt = r.METIER || '(non renseigné)';
+    const lb = r.LIBELLE || '(non renseigné)';
+    let m = byMetier.get(mt);
+    if (!m) { m = { ca: 0, caN1: 0, clients: new Set(), libs: new Set(), sites: new Set(), monthCA: Array(12).fill(0) }; byMetier.set(mt, m); }
+    m.ca += r.MONTANT || 0;
+    if (r.CLIENT) m.clients.add(r.CLIENT);
+    if (r.LIBELLE) m.libs.add(r.LIBELLE);
+    if (r.SITE) m.sites.add(r.SITE);
+    if (r.MOIS >= 1 && r.MOIS <= 12) m.monthCA[r.MOIS - 1] += r.MONTANT || 0;
+
+    let l = byLibelle.get(lb);
+    if (!l) { l = { ca: 0, caN1: 0, metier: mt, clients: new Set(), sites: new Set() }; byLibelle.set(lb, l); }
+    l.ca += r.MONTANT || 0;
+    if (r.CLIENT) l.clients.add(r.CLIENT);
+    if (r.SITE) l.sites.add(r.SITE);
+  }
+  // CAP N-1 sur les mêmes mois + mêmes filtres (hors année)
+  const f = APP.filters;
+  for (const r of all) {
+    if (r.ANNEE !== y - 1) continue;
+    if (!monthSet.has(r.MOIS)) continue;
+    if (f.SITE && f.SITE !== 'Tout' && r.SITE !== f.SITE) continue;
+    if (f.METIER && f.METIER !== 'Tout' && r.METIER !== f.METIER) continue;
+    if (f.LIBELLE && f.LIBELLE !== 'Tout' && r.LIBELLE !== f.LIBELLE) continue;
+    if (f.CLIENT_Q && (!r.CLIENT || !r.CLIENT.toLowerCase().includes(f.CLIENT_Q.toLowerCase()))) continue;
+    const mt = r.METIER || '(non renseigné)';
+    const lb = r.LIBELLE || '(non renseigné)';
+    const m = byMetier.get(mt);
+    if (m) m.caN1 += r.MONTANT || 0;
+    const l = byLibelle.get(lb);
+    if (l) l.caN1 += r.MONTANT || 0;
+  }
+
+  // Listes triées
+  const metiersList = [...byMetier.entries()].map(([name, m]) => ({
+    name,
+    ca: m.ca,
+    caN1: m.caN1,
+    evol: m.caN1 > 0 ? (m.ca - m.caN1) / m.caN1 : null,
+    nbClients: m.clients.size,
+    nbLibs: m.libs.size,
+    nbSites: m.sites.size,
+    panier: m.clients.size > 0 ? m.ca / m.clients.size : 0,
+    monthCA: m.monthCA
+  })).sort((a, b) => b.ca - a.ca);
+
+  const libsList = [...byLibelle.entries()].map(([name, l]) => ({
+    name,
+    metier: l.metier,
+    ca: l.ca,
+    caN1: l.caN1,
+    evol: l.caN1 > 0 ? (l.ca - l.caN1) / l.caN1 : null,
+    nbClients: l.clients.size,
+    nbSites: l.sites.size,
+    panier: l.clients.size > 0 ? l.ca / l.clients.size : 0
+  })).sort((a, b) => b.ca - a.ca);
+
+  const totalCA = metiersList.reduce((s, m) => s + m.ca, 0);
+  const totalCAN1 = metiersList.reduce((s, m) => s + m.caN1, 0);
+  const totalEvol = totalCAN1 > 0 ? (totalCA - totalCAN1) / totalCAN1 : null;
+
+  // ===== TOP VARIATIONS (sur métiers + libellés) =====
+  const metiersGrowth = metiersList.filter(m => m.evol !== null && m.caN1 > 0).sort((a, b) => b.evol - a.evol);
+  const metiersDecline = [...metiersGrowth].reverse();
+  const libsGrowth = libsList.filter(l => l.evol !== null && l.caN1 > 0 && l.ca > 0).sort((a, b) => b.evol - a.evol);
+  const libsDecline = [...libsGrowth].reverse();
+
+  // ===== HHI MÉTIER =====
+  const hhiMet = totalCA > 0 ? metiersList.reduce((s, m) => s + Math.pow((m.ca / totalCA) * 100, 2), 0) : 0;
+
+  // ===== SYNTHÈSE STRATÉGIQUE =====
+  const ins = [];
+  if (totalEvol !== null) {
+    const dir = totalEvol >= 0 ? 'progresse' : 'recule';
+    ins.push({
+      type: totalEvol >= 0.05 ? 'opportunite' : totalEvol <= -0.05 ? 'risque' : 'neutre',
+      constat: `Sur ${lbl.longue}, le CAP global ${dir} de <strong>${(totalEvol*100).toFixed(1)}%</strong> vs ${lbl.ref} (${fmt.money(totalCA - totalCAN1)} XOF). <strong>${metiersList.length} métiers</strong> et <strong>${libsList.length} départements</strong> dans le périmètre.`,
+      implication: `HHI métier = <strong>${Math.round(hhiMet)}</strong> (${hhiMet >= 2500 ? 'concentration élevée' : hhiMet >= 1500 ? 'concentration modérée' : 'bien diversifié'}).`,
+      action: `Analyser ci-dessous quels métiers tirent la croissance et lesquels pèsent — arbitrage ressources commerciales.`
+    });
+  }
+  if (metiersGrowth.length > 0) {
+    const top = metiersGrowth[0];
+    if (top.evol >= 0.10) {
+      ins.push({
+        type: 'opportunite',
+        constat: `<strong>${top.name}</strong> est le métier le plus dynamique : <strong>+${(top.evol*100).toFixed(1)}%</strong> vs ${lbl.ref} (${fmt.money(top.ca)} XOF · ${top.nbClients} clients).`,
+        implication: `Ce métier porte la croissance — à sécuriser et amplifier.`,
+        action: `Renforcer l'effort commercial et opérationnel sur cette BU. Identifier les libellés moteurs en dessous.`
+      });
+    }
+  }
+  if (metiersDecline.length > 0) {
+    const top = metiersDecline[0];
+    if (top.evol <= -0.10) {
+      ins.push({
+        type: 'risque',
+        constat: `<strong>${top.name}</strong> est le métier le plus en repli : <strong>${(top.evol*100).toFixed(1)}%</strong> vs ${lbl.ref} (${fmt.money(top.caN1 - top.ca)} XOF perdus).`,
+        implication: `Décroissance significative — risque de basculement si pas d'action.`,
+        action: `Plan de redressement dédié à présenter au COMEX. Cause à investiguer : marché ? concurrence ? capacité opérationnelle ?`
+      });
+    }
+  }
+  // Concentration sur top 3 métiers
+  if (metiersList.length >= 3 && totalCA > 0) {
+    const top3 = metiersList.slice(0, 3).reduce((s, m) => s + m.ca, 0);
+    const top3Pct = top3 / totalCA;
+    if (top3Pct >= 0.75) {
+      ins.push({
+        type: 'attention',
+        constat: `Le top 3 métiers concentre <strong>${(top3Pct*100).toFixed(1)}%</strong> du CAP (${metiersList.slice(0,3).map(m => m.name).join(', ')}).`,
+        implication: `Le portefeuille AGL est très dépendant de 3 BU. Une disruption sur l'une d'elles impacte directement le P&L.`,
+        action: `Stratégie de diversification : pousser les métiers émergents (3 derniers du classement) pour rééquilibrer.`
+      });
+    }
+  }
+
+  // ===== HEATMAP MÉTIER × MOIS (top 10 métiers) =====
+  const top10Met = metiersList.slice(0, 10);
+  const maxMonthVal = top10Met.reduce((m, met) => Math.max(m, ...met.monthCA), 0) || 1;
+  const moisShort = ['J','F','M','A','M','J','J','A','S','O','N','D'];
+  function heatColor(v, max) {
+    if (max <= 0 || v <= 0) return '#F1F3F5';
+    const ratio = Math.min(1, v / max);
+    // Gold gradient
+    const r = Math.round(251 - ratio * (251 - 176));
+    const g = Math.round(243 - ratio * (243 - 131));
+    const b = Math.round(221 - ratio * (221 - 44));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // ===== METIER FILTER POUR DÉPARTEMENTS =====
+  const metierFilter = APP.buCompareMetierFilter || 'Tout';
+  const filteredLibsList = metierFilter === 'Tout' ? libsList : libsList.filter(l => l.metier === metierFilter);
+
+  // ===== RENDU =====
+  el.innerHTML = `
+    ${pageHeader(p)}
+
+    ${analyseToSynthese(ins, '🎯 Synthèse — Comparatif Métiers × Départements')}
+
+    <!-- KPI globaux -->
+    <div class="grid grid-4 mt-3">
+      <div class="kpi"><div class="kpi-label">Métiers actifs</div><div class="kpi-value">${metiersList.length}</div><div class="kpi-bench">BU AGL dans le périmètre</div></div>
+      <div class="kpi"><div class="kpi-label">Départements actifs</div><div class="kpi-value">${libsList.length}</div><div class="kpi-bench">libellés distincts</div></div>
+      <div class="kpi" style="border-top:3px solid var(${totalEvol === null ? '--grey-400' : totalEvol >= 0 ? '--evol-strong-up' : '--evol-strong-dn'});"><div class="kpi-label">CAP global</div><div class="kpi-value">${fmt.money(totalCA)}</div><div class="kpi-bench">${totalEvol === null ? '—' : (totalEvol >= 0 ? '+' : '') + (totalEvol*100).toFixed(1) + '% vs ' + lbl.ref}</div></div>
+      <div class="kpi" style="border-top:3px solid var(${hhiMet >= 2500 ? '--evol-strong-dn' : hhiMet >= 1500 ? '--evol-down' : '--evol-strong-up'});"><div class="kpi-label">HHI Métier</div><div class="kpi-value">${Math.round(hhiMet)}</div><div class="kpi-bench">${hhiMet >= 2500 ? 'concentration élevée' : hhiMet >= 1500 ? 'modérée' : 'diversifié'}</div></div>
+    </div>
+
+    <!-- Classement complet des Métiers -->
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Classement des Métiers (BU AGL)</div>
+        <div class="text-sm text-muted">Trié par CAP décroissant. Évolution calculée sur les mêmes mois entre ${y} et ${y - 1}.</div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:none;">
+          <table class="data">
+            <thead><tr>
+              <th>#</th>
+              <th>Métier (BU)</th>
+              <th class="num">CAP ${y}</th>
+              <th class="num">CAP ${y - 1}</th>
+              <th class="num">Évol.</th>
+              <th class="num">% portefeuille</th>
+              <th class="num">Clients actifs</th>
+              <th class="num">Libellés</th>
+              <th class="num">Sites</th>
+              <th class="num">Panier moyen / client</th>
+            </tr></thead>
+            <tbody>
+              ${metiersList.map((m, i) => {
+                const color = CALC.couleurEvolution(m.ca, m.caN1, m.evol);
+                const pctPort = totalCA > 0 ? m.ca / totalCA : 0;
+                return `<tr>
+                  <td class="text-muted">${i+1}</td>
+                  <td><strong>${escapeHtml(m.name)}</strong></td>
+                  <td class="num"><strong>${fmt.money(m.ca)}</strong></td>
+                  <td class="num text-muted">${fmt.money(m.caN1)}</td>
+                  <td class="num">${m.evol === null ? '<span class="text-muted">—</span>' : `<span class="evol-cell" style="background:${color};color:${color === '#F4D35E' ? '#000' : 'white'};">${fmt.signed(m.evol*100)}</span>`}</td>
+                  <td class="num">${fmt.pct(pctPort)}</td>
+                  <td class="num">${m.nbClients}</td>
+                  <td class="num">${m.nbLibs}</td>
+                  <td class="num">${m.nbSites}</td>
+                  <td class="num">${fmt.money(m.panier)}</td>
+                </tr>`;
+              }).join('')}
+              <tr style="background:var(--navy-900);color:white;font-weight:700;">
+                <td></td>
+                <td>TOTAL</td>
+                <td class="num">${fmt.money(totalCA)}</td>
+                <td class="num">${fmt.money(totalCAN1)}</td>
+                <td class="num">${totalEvol === null ? '—' : fmt.signed(totalEvol*100)}</td>
+                <td class="num">100%</td>
+                <td colspan="4"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Heatmap Métier × Mois -->
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Heatmap saisonnalité — Top 10 Métiers × Mois ${y}</div>
+        <div class="text-sm text-muted">Intensité visuelle = part du CAP. Permet de repérer rapidement la saisonnalité par BU (pics de prospection, creux à compenser).</div>
+      </div>
+      <div class="card-body">
+        <div style="overflow-x:auto;">
+          <table style="border-collapse:collapse;width:100%;min-width:780px;font-size:11.5px;">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:8px 12px;background:var(--navy-900);color:var(--gold-300);font-size:10.5px;letter-spacing:0.6px;text-transform:uppercase;">Métier</th>
+                ${moisShort.map(m => `<th style="padding:6px 4px;background:var(--navy-900);color:var(--gold-300);font-size:10px;width:54px;">${m}</th>`).join('')}
+                <th style="padding:6px 12px;background:var(--navy-900);color:var(--gold-300);font-size:10px;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${top10Met.map(m => `<tr>
+                <td style="padding:6px 12px;border-bottom:1px solid var(--grey-100);font-weight:600;">${escapeHtml(m.name)}</td>
+                ${m.monthCA.map(v => `<td style="padding:6px 4px;text-align:center;border-bottom:1px solid var(--grey-100);background:${heatColor(v, maxMonthVal)};font-family:var(--font-mono);font-size:10px;color:${v / maxMonthVal > 0.5 ? 'white' : 'var(--navy-900)'};font-weight:600;" title="${fmt.money(v)} XOF">${v > 0 ? fmt.money(v).replace(' XOF','') : '—'}</td>`).join('')}
+                <td style="padding:6px 12px;text-align:right;border-bottom:1px solid var(--grey-100);font-weight:700;font-family:var(--font-mono);">${fmt.money(m.ca)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top variations -->
+    <div class="grid grid-2 mt-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">🚀 Top 5 Métiers en croissance</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Métier</th><th class="num">CAP ${y}</th><th class="num">Évol.</th><th class="num">Gain absolu</th></tr></thead>
+              <tbody>
+                ${metiersGrowth.slice(0, 5).length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--grey-500);padding:16px;">—</td></tr>' :
+                  metiersGrowth.slice(0, 5).map(m => `<tr>
+                    <td><strong>${escapeHtml(m.name)}</strong></td>
+                    <td class="num">${fmt.money(m.ca)}</td>
+                    <td class="num"><span class="evol-cell" style="background:var(--evol-strong-up);color:white;">${fmt.signed(m.evol*100)}</span></td>
+                    <td class="num" style="color:var(--evol-strong-up);font-weight:600;">+${fmt.money(m.ca - m.caN1)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">📉 Top 5 Métiers en repli</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Métier</th><th class="num">CAP ${y}</th><th class="num">Évol.</th><th class="num">Perte absolue</th></tr></thead>
+              <tbody>
+                ${metiersDecline.slice(0, 5).filter(m => m.evol < 0).length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--grey-500);padding:16px;">Aucun métier en repli</td></tr>' :
+                  metiersDecline.slice(0, 5).filter(m => m.evol < 0).map(m => `<tr>
+                    <td><strong>${escapeHtml(m.name)}</strong></td>
+                    <td class="num">${fmt.money(m.ca)}</td>
+                    <td class="num"><span class="evol-cell" style="background:var(--evol-strong-dn);color:white;">${fmt.signed(m.evol*100)}</span></td>
+                    <td class="num" style="color:var(--evol-strong-dn);font-weight:600;">${fmt.money(m.ca - m.caN1)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Classement Départements (libellés) -->
+    <div class="card mt-3">
+      <div class="card-header">
+        <div class="card-title">Classement des Départements (libellés)</div>
+        <div class="text-sm text-muted">${filteredLibsList.length} départements ${metierFilter !== 'Tout' ? `(filtrés sur métier "${metierFilter}")` : 'au total'}. Tri par CAP décroissant.</div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--grey-600);font-weight:600;">Filtrer par métier :</span>
+          <select id="bu-compare-met-filter" style="padding:5px 10px;border:1px solid var(--grey-300);border-radius:4px;font-size:12px;background:white;">
+            <option value="Tout"${metierFilter === 'Tout' ? ' selected' : ''}>Tous les métiers</option>
+            ${metiersList.map(m => `<option value="${escapeHtml(m.name)}"${metierFilter === m.name ? ' selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <div class="tbl-wrap" style="max-height:520px;">
+          <table class="data">
+            <thead><tr>
+              <th>#</th>
+              <th>Département (libellé)</th>
+              <th>Métier parent</th>
+              <th class="num">CAP ${y}</th>
+              <th class="num">CAP ${y - 1}</th>
+              <th class="num">Évol.</th>
+              <th class="num">% portefeuille</th>
+              <th class="num">Clients</th>
+              <th class="num">Sites</th>
+              <th class="num">Panier moyen</th>
+            </tr></thead>
+            <tbody>
+              ${filteredLibsList.length === 0 ? '<tr><td colspan="10" style="text-align:center;color:var(--grey-500);padding:20px;">Aucun département dans ce périmètre.</td></tr>' :
+                filteredLibsList.slice(0, 200).map((l, i) => {
+                  const color = CALC.couleurEvolution(l.ca, l.caN1, l.evol);
+                  const pctPort = totalCA > 0 ? l.ca / totalCA : 0;
+                  return `<tr>
+                    <td class="text-muted">${i+1}</td>
+                    <td><strong>${escapeHtml(l.name)}</strong></td>
+                    <td class="text-sm text-muted">${escapeHtml(l.metier)}</td>
+                    <td class="num"><strong>${fmt.money(l.ca)}</strong></td>
+                    <td class="num text-muted">${fmt.money(l.caN1)}</td>
+                    <td class="num">${l.evol === null ? '<span class="text-muted">—</span>' : `<span class="evol-cell" style="background:${color};color:${color === '#F4D35E' ? '#000' : 'white'};">${fmt.signed(l.evol*100)}</span>`}</td>
+                    <td class="num">${fmt.pct(pctPort)}</td>
+                    <td class="num">${l.nbClients}</td>
+                    <td class="num">${l.nbSites}</td>
+                    <td class="num">${fmt.money(l.panier)}</td>
+                  </tr>`;
+                }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top variations départements -->
+    <div class="grid grid-2 mt-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">🚀 Top 10 Départements en croissance</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Département</th><th>Métier</th><th class="num">CAP</th><th class="num">Évol.</th></tr></thead>
+              <tbody>
+                ${libsGrowth.slice(0, 10).length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--grey-500);padding:16px;">—</td></tr>' :
+                  libsGrowth.slice(0, 10).map(l => `<tr>
+                    <td><strong>${escapeHtml(l.name)}</strong></td>
+                    <td class="text-sm text-muted">${escapeHtml(l.metier)}</td>
+                    <td class="num">${fmt.money(l.ca)}</td>
+                    <td class="num"><span class="evol-cell" style="background:var(--evol-strong-up);color:white;">${fmt.signed(l.evol*100)}</span></td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">📉 Top 10 Départements en repli</div></div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table class="data">
+              <thead><tr><th>Département</th><th>Métier</th><th class="num">CAP</th><th class="num">Évol.</th></tr></thead>
+              <tbody>
+                ${libsDecline.slice(0, 10).filter(l => l.evol < 0).length === 0 ? '<tr><td colspan="4" style="text-align:center;color:var(--grey-500);padding:16px;">Aucun département en repli</td></tr>' :
+                  libsDecline.slice(0, 10).filter(l => l.evol < 0).map(l => `<tr>
+                    <td><strong>${escapeHtml(l.name)}</strong></td>
+                    <td class="text-sm text-muted">${escapeHtml(l.metier)}</td>
+                    <td class="num">${fmt.money(l.ca)}</td>
+                    <td class="num"><span class="evol-cell" style="background:var(--evol-strong-dn);color:white;">${fmt.signed(l.evol*100)}</span></td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Wire métier filter
+  const selFilter = document.getElementById('bu-compare-met-filter');
+  if (selFilter) {
+    selFilter.addEventListener('change', e => {
+      APP.buCompareMetierFilter = e.target.value;
+      render_bu_compare();
+    });
+  }
 }
 </script>
 
