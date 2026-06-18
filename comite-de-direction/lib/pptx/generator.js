@@ -1,8 +1,11 @@
-// AGL – Générateur Étude de Marché Jan–Mai 2026
-// Reproduit exactement les 33 slides du document de référence
-// node generate_AGL_2026.js → AGL_Etude_Marche_Jan_Mai_2026.pptx
+// Comité de Direction – Générateur Étude de Marché AGL
+// Reproduit fidèlement les slides du document de référence (33 + DSM enrichi).
+// Exposé comme une fonction `generateStudyBuffer()` → Node Buffer (PPTX).
+// CLI : `node lib/pptx/generator.js` écrit le PPTX dans le cwd.
 
 const PptxGenJS = require('pptxgenjs');
+
+async function generateStudyBuffer() {
 const pptx = new PptxGenJS();
 pptx.layout = 'LAYOUT_WIDE'; // 33.867 x 19.05 cm = 13.33" x 7.5"
 
@@ -1143,7 +1146,7 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
 
 // ─── SLIDES 26–27 – DSM ──────────────────────────────────────────────────────
 // Source : examples/dsm_import_2025.xlsx → lib/pptx/data/dsm.json (Import 2025 hors PP)
-const dsmData = require('../lib/pptx/data/dsm.json');
+const dsmData = require('./data/dsm.json');
 
 const fmtTon = (v) => Math.round(v).toLocaleString('fr-FR').replace(/,/g, ' ');
 const fmtPdm = (v) => v.toFixed(2).replace('.', ',') + ' %';
@@ -1499,7 +1502,24 @@ addSeparator('06', 'ACTIONS STRATÉGIQUES PRIORITAIRES', 'Synthèse transversale
   );
 }
 
-// ─── EXPORT ──────────────────────────────────────────────────────────────────
-pptx.writeFile({ fileName: 'AGL_Etude_Marche_Jan_Mai_2026.pptx' })
-  .then(() => console.log('✅ Export réussi : AGL_Etude_Marche_Jan_Mai_2026.pptx (33 slides)'))
-  .catch(err => console.error('❌ Erreur :', err));
+// ─── RETURN BUFFER ───────────────────────────────────────────────────────────
+  return pptx.stream();
+}
+
+module.exports = { generateStudyBuffer };
+
+// CLI entry point
+if (require.main === module) {
+  const fs = require('fs');
+  const path = require('path');
+  generateStudyBuffer()
+    .then((buf) => {
+      const out = path.join(process.cwd(), 'AGL_Etude_Marche_Jan_Mai_2026.pptx');
+      fs.writeFileSync(out, buf);
+      console.log(`✅ Export réussi : ${out}`);
+    })
+    .catch((err) => {
+      console.error('❌ Erreur :', err);
+      process.exit(1);
+    });
+}
