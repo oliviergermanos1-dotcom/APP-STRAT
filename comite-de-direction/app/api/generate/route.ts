@@ -9,6 +9,7 @@ export const maxDuration = 60;
 const { generateStudyBuffer } = require("@/lib/pptx/generator.js") as {
   generateStudyBuffer: (options?: {
     plan?: Array<{ key: string; enabled: boolean }>;
+    study?: unknown;
   }) => Promise<Buffer>;
 };
 
@@ -16,10 +17,11 @@ export async function GET(request: NextRequest) {
   try {
     const studyId = request.nextUrl.searchParams.get("studyId");
     let plan: Array<{ key: string; enabled: boolean }> | undefined;
+    let study: Awaited<ReturnType<typeof getStudy>> = null;
     let titleSlug = "default";
 
     if (studyId) {
-      const study = await getStudy(studyId);
+      study = await getStudy(studyId);
       if (!study) {
         return NextResponse.json({ error: "Étude introuvable" }, { status: 404 });
       }
@@ -27,7 +29,10 @@ export async function GET(request: NextRequest) {
       titleSlug = study.title.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 60);
     }
 
-    const buffer = await generateStudyBuffer(plan ? { plan } : undefined);
+    const buffer = await generateStudyBuffer({
+      plan,
+      study: study ?? undefined,
+    });
     const body = new Uint8Array(buffer);
     const filename = `Comite_de_Direction_${titleSlug}_${new Date()
       .toISOString()

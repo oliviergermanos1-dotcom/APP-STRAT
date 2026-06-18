@@ -5,13 +5,25 @@
 
 const PptxGenJS = require('pptxgenjs');
 const { BLOCK_SEQUENCE } = require('./blocks');
+const dataAdapter = require('./data-adapter');
 
 /**
- * @param {{ plan?: Array<{ key: string, enabled: boolean }> }} [options]
+ * @param {{
+ *   plan?: Array<{ key: string, enabled: boolean }>,
+ *   study?: {
+ *     title?: string,
+ *     periodStart?: string,
+ *     periodEnd?: string,
+ *     datasets?: Array<{ metier: string, datasetType: string, filename: string, rows: unknown[] }>,
+ *     n1Runs?: unknown[],
+ *   },
+ * }} [options]
  */
 async function generateStudyBuffer(options = {}) {
 const pptx = new PptxGenJS();
 pptx.layout = 'LAYOUT_WIDE'; // 33.867 x 19.05 cm = 13.33" x 7.5"
+
+const study = options.study || null;
 
 // Plan de montage filter: replace pptx.addSlide() with a wrapper that
 // consults BLOCK_SEQUENCE + the supplied plan. Disabled blocks return a
@@ -390,23 +402,46 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
 // ─── SLIDE 4 – TIM VUE D'ENSEMBLE ───────────────────────────────────────────
 {
   const s = pptx.addSlide();
-  addHeader(s, 'TIM – VUE D\'ENSEMBLE  |  Jan–Mai 2026',
-    'Marché qualifié : 193 989 TEU  |  AGL : 15 133 TEU  |  PDM AGL : 7,8% (Leader #1)');
-  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.4');
+  const live = dataAdapter.buildTimOverviewData(study);
+  const periodLabel = study?.periodStart && study?.periodEnd
+    ? `${study.periodStart} → ${study.periodEnd}`
+    : 'Jan–Mai 2026';
+  const headerSub = live
+    ? `Marché qualifié : ${live.kpis.marche} TEU  |  AGL : ${live.kpis.agl} TEU  |  PDM AGL : ${live.kpis.pdm} ${live.aglRank ? `(Rang #${live.aglRank})` : ''}`
+    : 'Marché qualifié : 193 989 TEU  |  AGL : 15 133 TEU  |  PDM AGL : 7,8% (Leader #1)';
+  addHeader(s, `TIM – VUE D'ENSEMBLE  |  ${periodLabel}`, headerSub);
+  addFooter(s, `Africa Global Logistics – Étude de Marché ${periodLabel}  |  p.4`);
 
-  addKpiBar(s, [
-    { label: 'Marché qualifié', value: '193 989', sub: 'TEU Jan–Mai 2026' },
-    { label: 'Volume AGL',      value: '15 133',  sub: 'TEU Jan–Mai 2026' },
-    { label: 'PDM AGL',         value: '7,8 %',   sub: '#1 – Leader', color: GREEN, big: true },
-    { label: 'Écart vs #2 STRACOTRANS', value: '+558', sub: 'TEU d\'avance', color: ORANGE },
-    { label: 'Cumul PDM TOP 4', value: '29,1 %',  sub: 'AGL+STRAC+TGR+GTC', color: BLUE2 },
-  ]);
+  if (live) {
+    const ecartColor = live.ecart >= 0 ? GREEN : RED;
+    const ecartLabel = live.secondName ? `Écart vs #2 ${live.secondName.slice(0, 18)}` : 'Écart vs #2';
+    addKpiBar(s, [
+      { label: 'Marché qualifié', value: live.kpis.marche, sub: `TEU ${periodLabel}` },
+      { label: 'Volume AGL',      value: live.kpis.agl,    sub: `TEU ${periodLabel}` },
+      { label: 'PDM AGL',         value: live.kpis.pdm,    sub: live.aglRank === 1 ? '#1 – Leader' : `Rang #${live.aglRank || '—'}`, color: GREEN, big: true },
+      { label: ecartLabel,        value: live.kpis.ecart,  sub: 'TEU d\'écart', color: ecartColor },
+      { label: 'Cumul PDM TOP 4', value: live.kpis.top4,   sub: 'leaders cumul.', color: BLUE2 },
+    ]);
+  } else {
+    addKpiBar(s, [
+      { label: 'Marché qualifié', value: '193 989', sub: 'TEU Jan–Mai 2026' },
+      { label: 'Volume AGL',      value: '15 133',  sub: 'TEU Jan–Mai 2026' },
+      { label: 'PDM AGL',         value: '7,8 %',   sub: '#1 – Leader', color: GREEN, big: true },
+      { label: 'Écart vs #2 STRACOTRANS', value: '+558', sub: 'TEU d\'avance', color: ORANGE },
+      { label: 'Cumul PDM TOP 4', value: '29,1 %',  sub: 'AGL+STRAC+TGR+GTC', color: BLUE2 },
+    ]);
+  }
 
   // Graphique barres – marché & AGL
-  const chartData = [
-    { name: 'Marché qualifié', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [41800,36800,43600,38500,33200] },
-    { name: 'AGL',             labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [3470,2544,3270,3278,2571] },
-  ];
+  const chartData = live && live.monthlyMarket
+    ? [
+        { name: 'Marché qualifié', labels: live.monthLabels, values: live.monthlyMarket },
+        { name: 'AGL',             labels: live.monthLabels, values: live.monthlyAgl },
+      ]
+    : [
+        { name: 'Marché qualifié', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [41800,36800,43600,38500,33200] },
+        { name: 'AGL',             labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [3470,2544,3270,3278,2571] },
+      ];
   s.addText('Évolution mensuelle marché TIM & AGL (TEU)', {
     x: 0.25, y: 2.28, w: 6.5, h: 0.28,
     fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
@@ -418,50 +453,58 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
     x: 7.1, y: 2.28, w: 5.8, h: 0.28,
     fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addMensuelBars(s, 7.1, 2.62,
-    ['Janvier','Février','Mars','Avril','Mai'],
-    [8.3, 6.9, 7.5, 8.5, 7.8], 7.5
-  );
+  const pdmLabels = live && live.monthLabels
+    ? live.monthLabels.map((l, i) => dataAdapter.MONTHS_FR_FULL.find((m) => m.startsWith(l)) || l)
+    : ['Janvier','Février','Mars','Avril','Mai'];
+  const pdmValues = live && live.monthlyPdm ? live.monthlyPdm : [8.3, 6.9, 7.5, 8.5, 7.8];
+  addMensuelBars(s, 7.1, 2.62, pdmLabels, pdmValues, live ? live.aglPdm : 7.5);
 
-  addInsightBox(s, 7.1, 5.7, 6.0, 0.75, '✓',
-    ['PDM réelle (qualifiée) : 7,8% vs 7,3% brut. L\'exclusion du Non Apuré révèle la vraie position AGL. Avance sur STRACOTRANS : seulement +558 TEU — position à consolider en urgence.'],
-    'F0FDF4'
-  );
+  const insightText = live
+    ? `Données live (${live.source}). PDM AGL : ${live.kpis.pdm}${live.aglRank ? ` — rang #${live.aglRank}` : ''}. ${live.secondName && live.aglRank === 1 ? `Avance sur ${live.secondName} : ${live.kpis.ecart} TEU.` : ''} Cumul TOP 4 = ${live.kpis.top4} du marché.`
+    : 'PDM réelle (qualifiée) : 7,8% vs 7,3% brut. L\'exclusion du Non Apuré révèle la vraie position AGL. Avance sur STRACOTRANS : seulement +558 TEU — position à consolider en urgence.';
+  addInsightBox(s, 7.1, 5.7, 6.0, 0.75, '✓', [insightText], 'F0FDF4');
 }
 
 // ─── SLIDE 5 – TIM ANALYSE CONCURRENTIELLE ───────────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildTimConcurrentsData(study);
   addHeader(s, 'TIM – ANALYSE CONCURRENTIELLE & SEGMENTS',
-    'Classement PDM qualifié  |  Top marchandises AGL  |  Opportunités');
+    live ? `Classement live (${live.source})  |  Top marchandises AGL  |  Opportunités`
+         : 'Classement PDM qualifié  |  Top marchandises AGL  |  Opportunités');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.5');
 
-  s.addText('Classement Transitaires – TIM (hors Non Apuré, SIR CI, SMB)', {
+  s.addText(live
+    ? 'Classement Transitaires – TIM (données uploadées)'
+    : 'Classement Transitaires – TIM (hors Non Apuré, SIR CI, SMB)', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const concurrentsRows = live ? live.rows : [
+    ['#1','AFRICA GLOBAL LOGISTICS','15 133','7,8 %'],
+    ['#2','STRACOTRANS CI','14 575','7,5 %'],
+    ['#3','TGR (Transit Général Rapide)','13 663','7,0 %'],
+    ['#4','GENERAL TRANSIT CI','12 028','6,2 %'],
+    ['#5','DJAM DKS TRANSIT','10 862','5,6 %'],
+    ['#6','GLOBAL MANUTENTION CI','10 203','5,3 %'],
+    ['#7','PROFESIONNEL TRANSIT','9 479','4,9 %'],
+    ['#8','AG TRANSIT CI','6 137','3,2 %'],
+    ['#9','SDMA','5 680','2,9 %'],
+    ['#10','SAS TRANSIT','5 274','2,7 %'],
+  ];
+  const aglHighlight = live && live.aglRowIdx >= 0 && live.aglRowIdx < 10 ? live.aglRowIdx : 0;
   addRankTable(s, 0.15, 1.5, 6.8,
-    ['Rang','Transitaire','TEU','PDM'],
-    [
-      ['#1','AFRICA GLOBAL LOGISTICS','15 133','7,8 %'],
-      ['#2','STRACOTRANS CI','14 575','7,5 %'],
-      ['#3','TGR (Transit Général Rapide)','13 663','7,0 %'],
-      ['#4','GENERAL TRANSIT CI','12 028','6,2 %'],
-      ['#5','DJAM DKS TRANSIT','10 862','5,6 %'],
-      ['#6','GLOBAL MANUTENTION CI','10 203','5,3 %'],
-      ['#7','PROFESIONNEL TRANSIT','9 479','4,9 %'],
-      ['#8','AG TRANSIT CI','6 137','3,2 %'],
-      ['#9','SDMA','5 680','2,9 %'],
-      ['#10','SAS TRANSIT','5 274','2,7 %'],
-    ]
-  );
+    ['Rang','Transitaire','TEU','PDM'], concurrentsRows, aglHighlight);
+
   addInsightBox(s, 0.15, 5.45, 6.8, 0.75, '💡',
-    ['INSIGHT TIM : Leader de justesse (+558 TEU sur STRACOTRANS). Forces : Mat. Miniers (74% PDM), Médicaments (50%), PVC (32%).']
+    [live
+      ? `INSIGHT TIM (live) : AGL ${live.aglRowIdx === 0 ? 'leader' : `#${live.aglRowIdx + 1}`}. Données : ${live.source}.`
+      : 'INSIGHT TIM : Leader de justesse (+558 TEU sur STRACOTRANS). Forces : Mat. Miniers (74% PDM), Médicaments (50%), PVC (32%).']
   );
 
   s.addText('PDM AGL par segment – TIM', {
     x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addSegmentBars(s, 7.1, 1.52, [
+  const segmentBars = live && live.segmentBars ? live.segmentBars : [
     { label: 'Matériels Miniers',    vol: '2 231 TEU', pdm: 74 },
     { label: 'Médicaments',          vol: '1 936 TEU', pdm: 50 },
     { label: 'PVC Résine',           vol: '2 881 TEU', pdm: 32 },
@@ -473,7 +516,8 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
     { label: 'Produits Mer Congelé', vol: '22 915 TEU', pdm: 2 },
     { label: 'Riz',                  vol: '9 586 TEU', pdm: 0 },
     { label: 'Viandes Congelées',    vol: '9 470 TEU', pdm: 2 },
-  ]);
+  ];
+  addSegmentBars(s, 7.1, 1.52, segmentBars);
 }
 
 // ─── SLIDE 6 – TIM CLIENTÈLE ─────────────────────────────────────────────────
