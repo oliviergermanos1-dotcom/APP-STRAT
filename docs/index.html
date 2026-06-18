@@ -73,19 +73,49 @@
       </div>
     </section>
 
-    <!-- Section 2: Datasets -->
+    <!-- Section 2: STATCOM uploads -->
     <section class="bg-white rounded-lg border border-gray-200 p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-bold text-navy">② Données par métier</h2>
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-bold text-navy">② Fichiers STATCOM bruts</h2>
         <button id="reset-btn" class="text-xs text-aglred hover:underline">
           Tout effacer
         </button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">
-        Dépose tes exports STATCOM / IRIS / CRM par métier et type. Formats acceptés :
-        CSV, TSV, XLSX. Auto-détection du séparateur. Stocké en local dans ton navigateur
-        (rien n'est envoyé sur un serveur).
+      <p class="text-xs text-gray-500 mb-3">
+        Dépose 2 exports STATCOM par métier : <strong>N</strong> = période courante
+        (sert à dériver concurrents/clients/segments/mensuel), <strong>N-1</strong> =
+        année précédente complète (sert à la validation des nouveaux entrants).
+        Format XLSX, 1 ligne par B/L. Schémas maritime (TIM/TEM/HIMP/HEXP, en TEU) et
+        aérien (AER IMP/EXP, en kg) auto-détectés. Tout est parsé en local dans ton
+        navigateur, rien n'est envoyé sur un serveur.
       </p>
+
+      <div class="bg-gray-50 border border-gray-200 rounded p-3 mb-4">
+        <div class="text-xs font-bold uppercase tracking-wide text-gray-700 mb-2">
+          Filtres d'exclusion (appliqués à chaque parsing)
+        </div>
+        <div class="flex flex-wrap gap-4 text-xs text-gray-700">
+          <label class="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="filter-non-apure" checked class="h-4 w-4" />
+            <span>Exclure <strong>Non Apuré</strong></span>
+          </label>
+          <label class="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="filter-petroleum" checked class="h-4 w-4" />
+            <span>Exclure <strong>produits pétroliers &amp; brut</strong>
+              <span class="text-gray-400">(pétrole, gazole, fuel, hydrocarbures...)</span>
+            </span>
+          </label>
+          <label class="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="filter-sir-smb" checked class="h-4 w-4" />
+            <span>Exclure <strong>SIR CI &amp; SMB</strong></span>
+          </label>
+        </div>
+        <div class="text-[10px] text-gray-500 mt-2 italic">
+          Les filtres s'appliquent au moment du parsing. Modifier ces options après
+          un upload nécessite de retirer puis re-déposer le fichier.
+        </div>
+      </div>
+
       <div id="datasets" class="space-y-3"></div>
     </section>
 
@@ -118,6 +148,7 @@
   <script src="./blocks.js"></script>
   <script src="./data-adapter.js"></script>
   <script src="./generator.js"></script>
+  <script src="./statcom-parser.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

@@ -1,26 +1,21 @@
-// Comité de Direction — vanilla browser app.
-// Loads DSM + Mining JSON, manages a single in-memory "study" (datasets per
-// metier), and calls window.generateStudyBuffer() to produce + download PPTX.
+// Comité de Direction — vanilla browser app (STATCOM-driven).
+//
+// Workflow:
+//   1. Olivier uploads one raw STATCOM xlsx per metier (one row per B/L).
+//   2. window.parseStatcomBuffer() derives concurrents/clients/segments/mensuel
+//      datasets directly from the raw export.
+//   3. window.generateStudyBuffer() builds the 35-slide PPTX.
 
 const METIERS = [
-  { code: 'TIM', label: 'Transit Import Maritime', unit: 'TEU' },
-  { code: 'TEM', label: 'Transit Export Maritime', unit: 'TEU' },
-  { code: 'HIMP', label: 'Hinterland Import', unit: 'TEU' },
-  { code: 'HEXP', label: 'Hinterland Export', unit: 'TEU' },
-  { code: 'AER', label: 'Aérien Import', unit: 'kg' },
-  { code: 'DSM', label: 'Direction Solutions Maritimes', unit: 'T' },
+  { code: 'TIM',  label: 'Transit Import Maritime', unit: 'TEU' },
+  { code: 'TEM',  label: 'Transit Export Maritime', unit: 'TEU' },
+  { code: 'HIMP', label: 'Hinterland Import',       unit: 'TEU' },
+  { code: 'HEXP', label: 'Hinterland Export',       unit: 'TEU' },
+  { code: 'AER',  label: 'Aérien Import',           unit: 'kg'  },
+  { code: 'DSM',  label: 'Direction Solutions Maritimes', unit: 'T' },
 ];
 
-const DATASET_TYPES = [
-  { key: 'concurrents',    label: 'Concurrents (rang/transitaire/volume/pdm)' },
-  { key: 'clients',        label: 'Clients top 10 (client/volume/segment)' },
-  { key: 'segments',       label: 'Segments (segment/volume_marche/pdm_agl)' },
-  { key: 'mensuel',        label: 'Mensuel (mois/volume_marche/volume_agl)' },
-  { key: 'nouveaux',       label: 'Nouveaux entrants (nom/volume/segment)' },
-  { key: 'referentiel_n1', label: 'Référentiel N-1 (nom_entite/volume_annuel_n1)' },
-];
-
-const STORAGE_KEY = 'cdd_study_v1';
+const STORAGE_KEY = 'cdd_study_v2';
 
 const state = {
   study: {
@@ -32,120 +27,113 @@ const state = {
     datasets: [],
     n1Runs: [],
   },
+  // Per-metier raw STATCOM file metadata (n = current year, n1 = N-1 reference)
+  statcomFiles: {},
 };
 
-// ─── PERSISTENCE (localStorage) ──────────────────────────────────────────────
+// ─── PERSISTENCE ─────────────────────────────────────────────────────────────
+// localStorage stores derived datasets only (not the raw STATCOM file which
+// can be 50+ MB and would blow the 5 MB quota). Raw file metadata (name +
+// derived stats) is kept so the user sees what was uploaded.
 function saveState() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.study));
+    const payload = { study: state.study, statcomFiles: state.statcomFiles };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (e) {
-    console.warn('localStorage save failed:', e);
+    console.warn('localStorage save failed (probably quota):', e);
   }
 }
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) state.study = { ...state.study, ...JSON.parse(raw) };
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (p.study) state.study = { ...state.study, ...p.study };
+    if (p.statcomFiles) state.statcomFiles = p.statcomFiles;
   } catch (e) {
     console.warn('localStorage load failed:', e);
   }
 }
 
-// ─── PARSERS ─────────────────────────────────────────────────────────────────
-function detectSeparator(sample) {
-  const firstLine = sample.split(/\r?\n/, 1)[0] || '';
-  const counts = {
-    ',': (firstLine.match(/,/g) || []).length,
-    ';': (firstLine.match(/;/g) || []).length,
-    '\t': (firstLine.match(/\t/g) || []).length,
-  };
-  const best = Object.keys(counts).reduce((a, b) => (counts[a] >= counts[b] ? a : b));
-  return counts[best] > 0 ? best : ',';
-}
+// ─── STATCOM UPLOAD ──────────────────────────────────────────────────────────
+async function handleStatcomUpload(metier, scope, file) {
+  const tile = document.querySelector(`[data-tile="${metier}|${scope}"]`);
+  setTileBusy(tile, `Parsing ${file.name}… (peut prendre 30s sur les gros fichiers)`);
 
-function parseCsv(content) {
-  const separator = detectSeparator(content);
-  const parsed = Papa.parse(content, {
-    header: true,
-    skipEmptyLines: 'greedy',
-    delimiter: separator,
-    transformHeader: (h) => h.trim().toLowerCase(),
-  });
-  const columns = (parsed.meta.fields || []).map((f) => f.trim().toLowerCase());
-  return { columns, rows: parsed.data, errors: parsed.errors };
-}
+  try {
+    const buffer = await file.arrayBuffer();
+    const filterOpts = {
+      excludeNonApure: document.getElementById('filter-non-apure').checked,
+      excludePetroleum: document.getElementById('filter-petroleum').checked,
+      excludeSirSmb: document.getElementById('filter-sir-smb').checked,
+    };
+    const result = await new Promise((resolve, reject) => {
+      // Yield to the browser so the busy indicator shows
+      setTimeout(() => {
+        try {
+          resolve(window.parseStatcomBuffer(buffer, metier, file.name, filterOpts));
+        } catch (err) {
+          reject(err);
+        }
+      }, 50);
+    });
 
-function parseXlsx(buffer) {
-  const wb = XLSX.read(buffer, { type: 'array' });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const json = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
-  const rows = json.map((r) => {
-    const out = {};
-    for (const [k, v] of Object.entries(r)) out[k.trim().toLowerCase()] = v;
-    return out;
-  });
-  const columns = rows.length ? Object.keys(rows[0]) : [];
-  return { columns, rows, errors: [] };
-}
-
-async function parseFile(file) {
-  const name = file.name.toLowerCase();
-  if (name.endsWith('.csv') || name.endsWith('.tsv')) {
-    return parseCsv(await file.text());
-  }
-  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-    return parseXlsx(await file.arrayBuffer());
-  }
-  throw new Error('Format non supporté : ' + file.name);
-}
-
-// Coerce French-formatted numbers ("1 234,5") into JS numbers.
-function frenchNum(v) {
-  if (typeof v === 'number') return v;
-  if (v == null) return 0;
-  const n = Number(String(v).replace(/\s/g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function normaliseRows(rows) {
-  return rows.map((r) => {
-    const out = {};
-    for (const [k, v] of Object.entries(r)) {
-      if (k.toLowerCase().includes('volume') || k.toLowerCase().includes('pdm') ||
-          k.toLowerCase().includes('pct') || k.toLowerCase() === 'rang') {
-        out[k] = frenchNum(v);
-      } else {
-        out[k] = v;
+    // Remove previously derived datasets for this metier
+    state.study.datasets = state.study.datasets.filter(
+      (d) => !(d.metier === metier && d._fromStatcom === scope),
+    );
+    if (scope === 'n') {
+      // For N (current period), inject concurrents/clients/segments/mensuel
+      for (const ds of result.datasets.filter((d) => d.datasetType !== 'referentiel_n1')) {
+        state.study.datasets.push({
+          metier,
+          datasetType: ds.datasetType,
+          filename: file.name,
+          rowCount: ds.rowCount,
+          rows: ds.rows,
+          _fromStatcom: 'n',
+        });
+      }
+    } else {
+      // For N-1, only inject the referential
+      const ref = result.datasets.find((d) => d.datasetType === 'referentiel_n1');
+      if (ref) {
+        state.study.datasets.push({
+          metier,
+          datasetType: 'referentiel_n1',
+          filename: file.name,
+          rowCount: ref.rowCount,
+          rows: ref.rows,
+          _fromStatcom: 'n1',
+        });
       }
     }
-    return out;
-  });
+
+    state.statcomFiles[`${metier}|${scope}`] = {
+      filename: file.name,
+      uploadedAt: new Date().toISOString(),
+      rowCount: result.rowCount,
+      qualifiedCount: result.qualifiedCount,
+      market: result.market,
+      dropped: result.dropped,
+      schema: result.schema,
+    };
+
+    saveState();
+    renderDatasets();
+    renderStatus();
+  } catch (err) {
+    alert(`Erreur parsing ${file.name} : ${err.message}`);
+    console.error(err);
+    renderDatasets();
+  }
 }
 
-// ─── DATASET MANAGEMENT ──────────────────────────────────────────────────────
-async function handleUpload(metier, datasetType, file) {
-  const parsed = await parseFile(file);
-  const rows = normaliseRows(parsed.rows);
+function removeStatcom(metier, scope) {
+  delete state.statcomFiles[`${metier}|${scope}`];
   state.study.datasets = state.study.datasets.filter(
-    (d) => !(d.metier === metier && d.datasetType === datasetType),
-  );
-  state.study.datasets.push({
-    metier,
-    datasetType,
-    filename: file.name,
-    rowCount: rows.length,
-    rows,
-    uploadedAt: new Date().toISOString(),
-  });
-  saveState();
-  renderDatasets();
-  renderStatus();
-}
-
-function removeDataset(metier, datasetType) {
-  state.study.datasets = state.study.datasets.filter(
-    (d) => !(d.metier === metier && d.datasetType === datasetType),
+    (d) => !(d.metier === metier && d._fromStatcom === scope),
   );
   saveState();
   renderDatasets();
@@ -153,85 +141,120 @@ function removeDataset(metier, datasetType) {
 }
 
 function resetAll() {
-  if (!confirm('Effacer toutes les données uploadées ?')) return;
+  if (!confirm('Effacer toutes les données uploadées et les datasets dérivés ?')) return;
   state.study.datasets = [];
   state.study.n1Runs = [];
-  saveState();
+  state.statcomFiles = {};
+  localStorage.removeItem(STORAGE_KEY);
   renderDatasets();
   renderStatus();
 }
 
 // ─── RENDER ──────────────────────────────────────────────────────────────────
+function setTileBusy(tile, message) {
+  if (!tile) return;
+  tile.innerHTML = `
+    <div class="text-xs text-aglblue flex items-center gap-2">
+      <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="50 100" />
+      </svg>
+      ${message}
+    </div>`;
+}
+
 function renderStatus() {
   const el = document.getElementById('status');
-  const count = state.study.datasets.length;
-  el.textContent = count === 0
-    ? '0 dataset chargé — la génération produira le PPTX de référence Jan-Mai 2026.'
-    : `${count} dataset${count > 1 ? 's' : ''} chargé${count > 1 ? 's' : ''} — la génération utilisera ces données.`;
+  const loaded = Object.keys(state.statcomFiles).length;
+  if (loaded === 0) {
+    el.innerHTML = '<span class="text-gray-500">Aucun fichier STATCOM chargé — la génération produira le PPTX de référence Jan-Mai 2026.</span>';
+  } else {
+    const mNames = [...new Set(Object.keys(state.statcomFiles).map((k) => k.split('|')[0]))];
+    el.innerHTML = `<span class="text-aglgreen font-semibold">${loaded} fichier(s) STATCOM parsé(s)</span> sur ${mNames.length} métier(s) (${mNames.join(', ')}). La génération utilisera ces données.`;
+  }
 }
 
 function renderDatasets() {
   const container = document.getElementById('datasets');
   container.innerHTML = '';
+
   for (const m of METIERS) {
     const card = document.createElement('section');
     card.className = 'border border-gray-200 rounded-lg p-4 bg-white';
-    const uploaded = state.study.datasets.filter((d) => d.metier === m.code);
 
     const header = document.createElement('div');
     header.className = 'flex items-center justify-between mb-3';
+    const hasN = state.statcomFiles[`${m.code}|n`];
+    const hasN1 = state.statcomFiles[`${m.code}|n1`];
     header.innerHTML = `
       <div>
         <span class="text-sm font-bold text-navy">${m.code}</span>
         <span class="text-xs text-gray-600 ml-2">${m.label}</span>
         <span class="text-[10px] text-gray-400 ml-1">(${m.unit})</span>
       </div>
-      <span class="text-xs ${uploaded.length ? 'text-aglgreen' : 'text-gray-400'}">${uploaded.length}/6</span>
+      <span class="text-[10px] ${hasN ? 'text-aglgreen' : 'text-gray-400'}">
+        ${hasN ? '✓ N' : '— N'} · ${hasN1 ? '✓ N-1' : '— N-1'}
+      </span>
     `;
     card.appendChild(header);
 
     const grid = document.createElement('div');
-    grid.className = 'grid grid-cols-2 gap-2';
-    for (const dt of DATASET_TYPES) {
-      const existing = uploaded.find((d) => d.datasetType === dt.key);
-      const tile = document.createElement('div');
-      tile.className = 'border border-gray-200 rounded p-2 text-xs';
-      tile.innerHTML = `
-        <div class="font-semibold text-navy text-[10px] mb-1">${dt.label}</div>
-        ${existing
-          ? `<div class="flex items-center justify-between">
-              <span class="text-aglgreen">✓ ${existing.rowCount} lignes — ${existing.filename}</span>
-              <button class="text-aglred text-[10px] hover:underline" data-remove="${m.code}|${dt.key}">retirer</button>
-            </div>`
-          : `<label class="block text-center text-gray-500 cursor-pointer hover:text-navy">
-              <input type="file" class="hidden" data-upload="${m.code}|${dt.key}" accept=".csv,.tsv,.xlsx,.xls">
-              déposer un fichier
-            </label>`
-        }
+    grid.className = 'grid grid-cols-2 gap-3';
+
+    for (const scope of ['n', 'n1']) {
+      const meta = state.statcomFiles[`${m.code}|${scope}`];
+      const slot = document.createElement('div');
+      slot.className = 'border border-gray-200 rounded p-3';
+      slot.innerHTML = `
+        <div class="font-semibold text-navy text-xs mb-1">
+          STATCOM ${scope === 'n' ? 'année courante (N)' : 'référentiel N-1'}
+        </div>
+        <div class="text-[10px] text-gray-500 mb-2">
+          ${scope === 'n'
+            ? 'Sert à dériver concurrents / clients / segments / mensuel'
+            : 'Sert à valider les nouveaux entrants (croisement N vs N-1)'}
+        </div>
+        <div data-tile="${m.code}|${scope}">
+          ${meta
+            ? `<div class="text-xs">
+                <div class="text-aglgreen">✓ ${meta.filename}</div>
+                <div class="text-gray-600 mt-1">
+                  ${meta.rowCount.toLocaleString('fr-FR')} B/L · qualifiés ${meta.qualifiedCount.toLocaleString('fr-FR')}
+                  ${meta.market ? ` · marché ${Math.round(meta.market).toLocaleString('fr-FR')} ${m.unit}` : ''}
+                </div>
+                ${meta.dropped ? `<div class="text-[10px] text-gray-500 mt-0.5">
+                  filtrés : non-qual. ${meta.dropped.nonQualified || 0} ·
+                  non-apuré ${meta.dropped.nonApure || 0} ·
+                  SIR/SMB ${meta.dropped.sirSmb || 0} ·
+                  pétroliers ${meta.dropped.petroleum || 0}
+                </div>` : ''}
+                <button class="text-aglred text-[10px] hover:underline mt-2" data-remove="${m.code}|${scope}">retirer</button>
+              </div>`
+            : `<label class="block text-center text-gray-500 cursor-pointer hover:text-navy text-xs border border-dashed border-gray-300 rounded p-2">
+                <input type="file" class="hidden" data-upload="${m.code}|${scope}" accept=".xlsx,.xls">
+                déposer un xlsx STATCOM
+              </label>`
+          }
+        </div>
       `;
-      grid.appendChild(tile);
+      grid.appendChild(slot);
     }
+
     card.appendChild(grid);
     container.appendChild(card);
   }
 
-  // Wire up handlers
   container.querySelectorAll('input[data-upload]').forEach((input) => {
     input.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const [metier, dt] = e.target.dataset.upload.split('|');
-      try {
-        await handleUpload(metier, dt, file);
-      } catch (err) {
-        alert('Erreur : ' + err.message);
-      }
+      const [metier, scope] = e.target.dataset.upload.split('|');
+      await handleStatcomUpload(metier, scope, file);
     });
   });
   container.querySelectorAll('button[data-remove]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const [metier, dt] = btn.dataset.remove.split('|');
-      removeDataset(metier, dt);
+      const [metier, scope] = btn.dataset.remove.split('|');
+      removeStatcom(metier, scope);
     });
   });
 }
@@ -270,7 +293,6 @@ async function generatePptx() {
 
 // ─── BOOT ────────────────────────────────────────────────────────────────────
 async function boot() {
-  // Load embedded reference data
   const [dsmRes, miningRes] = await Promise.all([
     fetch('./data/dsm.json'),
     fetch('./data/mining_clients.json'),
