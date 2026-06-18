@@ -523,43 +523,48 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
 // ─── SLIDE 6 – TIM CLIENTÈLE ─────────────────────────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildClienteleData(study, 'TIM');
   addHeader(s, 'TIM – CLIENTÈLE AGL', 'Top 10 destinataires  |  Mix marchandises  |  Risques concentration');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.6');
 
   s.addText('Top 10 clients AGL – TIM (Destinataires, TEU)', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const clienteleRows = live ? live.rows : [
+    ['K1 MINING SA CI','1 531','Matériels Miniers','10,1%'],
+    ['SITAB CI','876','Cigares/Cigarettes','5,8%'],
+    ['SCCI (PVC Compoundage CI)','790','PVC Résine','5,2%'],
+    ['ALLIAD CI','687','Polyéthylène','4,5%'],
+    ['SOCIFAD','480','Articles Divers','3,2%'],
+    ['STE PROD ALIM CONGELÉ CI','418','Prod. Mer Congelé','2,8%'],
+    ['SONACO CI','417','Cigarettes','2,8%'],
+    ['UBIPHARM CÔTE D\'IVOIRE','399','Médicaments','2,6%'],
+    ['SOLIBRA','373','Boissons','2,5%'],
+    ['STE TRANSFO INDUS CI','363','Emballages','2,4%'],
+  ];
   addRankTable(s, 0.15, 1.5, 7.0,
-    ['Client (Destinataire)','TEU','Segment','% Vol. AGL'],
-    [
-      ['K1 MINING SA CI','1 531','Matériels Miniers','10,1%'],
-      ['SITAB CI','876','Cigares/Cigarettes','5,8%'],
-      ['SCCI (PVC Compoundage CI)','790','PVC Résine','5,2%'],
-      ['ALLIAD CI','687','Polyéthylène','4,5%'],
-      ['SOCIFAD','480','Articles Divers','3,2%'],
-      ['STE PROD ALIM CONGELÉ CI','418','Prod. Mer Congelé','2,8%'],
-      ['SONACO CI','417','Cigarettes','2,8%'],
-      ['UBIPHARM CÔTE D\'IVOIRE','399','Médicaments','2,6%'],
-      ['SOLIBRA','373','Boissons','2,5%'],
-      ['STE TRANSFO INDUS CI','363','Emballages','2,4%'],
-    ]
-  );
+    ['Client (Destinataire)','TEU','Segment','% Vol. AGL'], clienteleRows);
   addInsightBox(s, 0.15, 5.35, 7.0, 0.95, '⚠',
-    [
-      'Concentration : K1 Mining seul = 10,1% du volume AGL TIM. Risque client unique.',
-      '✓ Opportunités cross-sell : SITAB (TIM+AER), UBIPHARM (TIM+AER+HINT IMP), SOLIBRA = clients multi-métiers à développer.'
-    ]
+    live
+      ? [`Concentration : ${live.topClient} seul = ${live.topClientShare} du volume AGL TIM. Risque client unique.`,
+         `Données live : ${live.source}.`]
+      : [
+          'Concentration : K1 Mining seul = 10,1% du volume AGL TIM. Risque client unique.',
+          '✓ Opportunités cross-sell : SITAB (TIM+AER), UBIPHARM (TIM+AER+HINT IMP), SOLIBRA = clients multi-métiers à développer.'
+        ]
   );
 
   // Graphique camembert simulé par texte structuré
   s.addText('Mix marchandises AGL – TIM', {
     x: 7.3, y: 1.2, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  const mixData = [{ 
-    name: 'Mix',
-    labels: ['Mat. Miniers','Emballages','Mat. Construction','Médicaments','PVC Résine','Papier','Cigarettes','Polyéthylène','Autres'],
-    values: [16,10,10,10,9,8,7,6,24]
-  }];
+  const mixData = live && live.mixLabels && live.mixLabels.length
+    ? [{ name: 'Mix', labels: live.mixLabels, values: live.mixValues }]
+    : [{
+        name: 'Mix',
+        labels: ['Mat. Miniers','Emballages','Mat. Construction','Médicaments','PVC Résine','Papier','Cigarettes','Polyéthylène','Autres'],
+        values: [16,10,10,10,9,8,7,6,24]
+      }];
   s.addChart(pptx.ChartType.pie, mixData, {
     x: 7.3, y: 1.5, w: 5.8, h: 4.5,
     showLegend: true, legendPos: 'r',
@@ -572,8 +577,11 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
 }
 
 // ─── SLIDE 7 – TIM NOUVEAUX ENTRANTS ─────────────────────────────────────────
+// TODO: cross-reference avec study.n1Runs pour exclure automatiquement les
+// verdicts "existant" et ajuster le titre (en cours de revue).
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildNouveauxData(study, 'TIM');
   addHeader(s, 'TIM – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
     'Transitaires entrants (rangs 11–15)  |  Nouvelles marchandises captées  |  Nouveaux destinataires');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.7');
@@ -581,17 +589,15 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
   s.addText('Nouveaux transitaires TIM (rangs 11–15)', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const nouveauxRows = live && live.rows.length ? live.rows.map((r) => r.slice(0, 5).concat(r.length < 5 ? ['—'] : [])) : [
+    ['#11','ATLANTIQUE TRANSIT CI','3 820','2,0 %','Emball. / Plastiques'],
+    ['#12','WESTAFRICA LOG. CI','3 410','1,8 %','Machines'],
+    ['#13','IVOIRE TRANSIT RAPID','3 180','1,6 %','Chimie / Pharma'],
+    ['#14','CEVA LOGISTICS CI','2 950','1,5 %','Multi-segments'],
+    ['#15','SOCOPHAR TRANSIT','2 640','1,4 %','Médicaments'],
+  ];
   addRankTable(s, 0.15, 1.5, 7.0,
-    ['Rang','Transitaire','TEU','PDM','Spécialité'],
-    [
-      ['#11','ATLANTIQUE TRANSIT CI','3 820','2,0 %','Emball. / Plastiques'],
-      ['#12','WESTAFRICA LOG. CI','3 410','1,8 %','Machines'],
-      ['#13','IVOIRE TRANSIT RAPID','3 180','1,6 %','Chimie / Pharma'],
-      ['#14','CEVA LOGISTICS CI','2 950','1,5 %','Multi-segments'],
-      ['#15','SOCOPHAR TRANSIT','2 640','1,4 %','Médicaments'],
-    ],
-    3  // highlight CEVA (index 3)
-  );
+    ['Rang','Transitaire','TEU','PDM','Spécialité'], nouveauxRows, live ? 0 : 3);
   s.addText('Nouveaux destinataires AGL – TIM (1er flux 2026)', {
     x: 0.25, y: 3.08, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
@@ -627,22 +633,40 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
 // ─── SLIDE 9 – TEM VUE D'ENSEMBLE ───────────────────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildOverviewData(study, 'TEM');
   addHeader(s, 'TEM – VUE D\'ENSEMBLE  |  Jan–Mai 2026',
-    'Leader absolu – PDM AGL 26,2%  |  Marché : 137 283 TEU  |  ×4,7 sur le 2ème');
+    live
+      ? `Leader absolu – PDM AGL ${live.kpis.pdm}  |  Marché : ${live.kpis.marche} TEU  |  Rang #${live.aglRank || '—'}`
+      : 'Leader absolu – PDM AGL 26,2%  |  Marché : 137 283 TEU  |  ×4,7 sur le 2ème');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.8');
 
-  addKpiBar(s, [
-    { label: 'Marché qualifié', value: '137 283', sub: 'TEU Jan–Mai' },
-    { label: 'Volume AGL',      value: '35 972',  sub: 'TEU Jan–Mai' },
-    { label: 'PDM AGL',         value: '26,2 %',  sub: '#1 – Dominance absolue', color: GREEN, big: true },
-    { label: 'Écart vs #2 MAERSK', value: '×4,7', sub: '28 242 TEU d\'avance', color: GREEN },
-    { label: 'PDM Janv. (PEAK)', value: '30,3 %', sub: 'PDM max de la période', color: BLUE2 },
-  ]);
+  if (live) {
+    addKpiBar(s, [
+      { label: 'Marché qualifié', value: live.kpis.marche, sub: 'TEU' },
+      { label: 'Volume AGL',      value: live.kpis.agl,    sub: 'TEU' },
+      { label: 'PDM AGL',         value: live.kpis.pdm,    sub: `Rang #${live.aglRank || '—'}`, color: GREEN, big: true },
+      { label: live.secondName ? `Écart vs #2 ${live.secondName.slice(0, 14)}` : 'Écart vs #2', value: live.kpis.ecart, sub: 'TEU d\'écart', color: live.ecart >= 0 ? GREEN : RED },
+      { label: 'Cumul PDM TOP 4', value: live.kpis.top4,   sub: 'leaders cumul.', color: BLUE2 },
+    ]);
+  } else {
+    addKpiBar(s, [
+      { label: 'Marché qualifié', value: '137 283', sub: 'TEU Jan–Mai' },
+      { label: 'Volume AGL',      value: '35 972',  sub: 'TEU Jan–Mai' },
+      { label: 'PDM AGL',         value: '26,2 %',  sub: '#1 – Dominance absolue', color: GREEN, big: true },
+      { label: 'Écart vs #2 MAERSK', value: '×4,7', sub: '28 242 TEU d\'avance', color: GREEN },
+      { label: 'PDM Janv. (PEAK)', value: '30,3 %', sub: 'PDM max de la période', color: BLUE2 },
+    ]);
+  }
 
-  const chartData = [
-    { name: 'Marché qualifié', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [28900,26900,28100,31200,22400] },
-    { name: 'AGL',             labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [8766,6778,8093,7895,4518] },
-  ];
+  const chartData = live && live.monthlyMarket
+    ? [
+        { name: 'Marché qualifié', labels: live.monthLabels, values: live.monthlyMarket },
+        { name: 'AGL',             labels: live.monthLabels, values: live.monthlyAgl },
+      ]
+    : [
+        { name: 'Marché qualifié', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [28900,26900,28100,31200,22400] },
+        { name: 'AGL',             labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [8766,6778,8093,7895,4518] },
+      ];
   s.addText('Évolution mensuelle marché TEM & AGL (TEU)', {
     x: 0.25, y: 2.28, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
@@ -651,12 +675,15 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
   s.addText('PDM AGL par mois – TEM', {
     x: 7.1, y: 2.28, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addMensuelBars(s, 7.1, 2.62,
-    ['Janvier','Février','Mars','Avril','Mai'],
-    [30.3, 25.2, 28.8, 25.3, 20.1], 25.0
-  );
+  const pdmLabels = live && live.monthLabels
+    ? live.monthLabels.map((l) => dataAdapter.MONTHS_FR_FULL.find((m) => m.startsWith(l)) || l)
+    : ['Janvier','Février','Mars','Avril','Mai'];
+  const pdmValues = live && live.monthlyPdm ? live.monthlyPdm : [30.3, 25.2, 28.8, 25.3, 20.1];
+  addMensuelBars(s, 7.1, 2.62, pdmLabels, pdmValues, live ? live.aglPdm : 25.0);
   addInsightBox(s, 7.1, 5.7, 6.0, 0.75, '⚠',
-    ['ALERTE MAI : PDM chute à 20,1% (–10,2 pts vs Janvier). Marché en recul de –22% (28 586→22 421 TEU). Causes : fin saison cacao, recul cajou. Plan de relance à activer juin–juillet.'],
+    [live
+      ? `Données live (${live.source}). PDM moyenne ${live.kpis.pdm}, rang #${live.aglRank || '—'}.`
+      : 'ALERTE MAI : PDM chute à 20,1% (–10,2 pts vs Janvier). Marché en recul de –22% (28 586→22 421 TEU). Causes : fin saison cacao, recul cajou. Plan de relance à activer juin–juillet.'],
     'FEF2F2'
   );
 }
@@ -664,6 +691,7 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
 // ─── SLIDE 10 – TEM SEGMENTS ─────────────────────────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildConcurrentsData(study, 'TEM');
   addHeader(s, 'TEM – SEGMENTS & CONCURRENTS',
     'Matières premières agricoles  |  PDM AGL par filière  |  Corridors');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.9');
@@ -671,7 +699,7 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
   s.addText('PDM AGL par filière export – TEM', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addSegmentBars(s, 0.15, 1.52, [
+  const temSegmentBars = live && live.segmentBars ? live.segmentBars : [
     { label: 'Bananes',          vol: 'Mkt: 6 908 TEU',  pdm: 74 },
     { label: 'Dérivés de Cacao', vol: 'Mkt: 11 411 TEU', pdm: 49 },
     { label: 'Cacao',            vol: 'Mkt: 46 407 TEU', pdm: 32 },
@@ -680,34 +708,38 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
     { label: 'Mangue',           vol: 'Mkt: 3 777 TEU',  pdm: 13 },
     { label: 'Amande de Cajou',  vol: 'Mkt: 2 744 TEU',  pdm: 7 },
     { label: 'Noix de Cajou',    vol: 'Mkt: 13 129 TEU', pdm: 5 },
-  ]);
+  ];
+  addSegmentBars(s, 0.15, 1.52, temSegmentBars);
 
   s.addText('Classement concurrentiel – TEM', {
     x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const temConcurrentsRows = live ? live.rows : [
+    ['#1','AFRICA GLOBAL LOGISTICS','35 972','26,2 %'],
+    ['#2','MAERSK LOGISTIC','7 730','5,6 %'],
+    ['#3','MANTRA IVOIRE','7 671','5,6 %'],
+    ['#4','GLOBAL MANUTENTION CI','5 893','4,3 %'],
+    ['#5','OTL','5 760','4,2 %'],
+    ['#6','MEDLOG CI','4 921','3,6 %'],
+    ['#7','SDMA','4 902','3,6 %'],
+    ['#8','PACKING SERVICE INTL','4 411','3,2 %'],
+    ['#9','MOVIS TRANSIT CI','4 067','3,0 %'],
+    ['#10','GTS CI','4 010','2,9 %'],
+  ];
+  const temAglHighlight = live && live.aglRowIdx >= 0 && live.aglRowIdx < 10 ? live.aglRowIdx : 0;
   addRankTable(s, 7.0, 1.5, 6.2,
-    ['Rang','Transitaire','TEU','PDM'],
-    [
-      ['#1','AFRICA GLOBAL LOGISTICS','35 972','26,2 %'],
-      ['#2','MAERSK LOGISTIC','7 730','5,6 %'],
-      ['#3','MANTRA IVOIRE','7 671','5,6 %'],
-      ['#4','GLOBAL MANUTENTION CI','5 893','4,3 %'],
-      ['#5','OTL','5 760','4,2 %'],
-      ['#6','MEDLOG CI','4 921','3,6 %'],
-      ['#7','SDMA','4 902','3,6 %'],
-      ['#8','PACKING SERVICE INTL','4 411','3,2 %'],
-      ['#9','MOVIS TRANSIT CI','4 067','3,0 %'],
-      ['#10','GTS CI','4 010','2,9 %'],
-    ]
-  );
+    ['Rang','Transitaire','TEU','PDM'], temConcurrentsRows, temAglHighlight);
   addInsightBox(s, 0.15, 5.4, 12.9, 0.75, '🏆',
-    ['POSITION TEM : AGL détient 26,2% du marché qualifié – soit 4,7x le 2ème acteur. Forces : Bananes (74% PDM), Dérivés cacao (49%), Cacao (32%). Levier : Noix de Cajou (13 129 TEU marché, seulement 5,4% PDM AGL) = +860 TEU si PDM portée à 12%.']
+    [live
+      ? `Position TEM : AGL ${live.aglRowIdx === 0 ? 'leader' : `#${live.aglRowIdx + 1}`}. Données : ${live.source}.`
+      : 'POSITION TEM : AGL détient 26,2% du marché qualifié – soit 4,7x le 2ème acteur. Forces : Bananes (74% PDM), Dérivés cacao (49%), Cacao (32%). Levier : Noix de Cajou (13 129 TEU marché, seulement 5,4% PDM AGL) = +860 TEU si PDM portée à 12%.']
   );
 }
 
 // ─── SLIDE 11 – TEM CLIENTÈLE ────────────────────────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildClienteleData(study, 'TEM');
   addHeader(s, 'TEM – CLIENTÈLE CHARGEURS AGL',
     'Top 10 chargeurs  |  Répartition filières  |  Risques & opportunités');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.10');
@@ -715,38 +747,43 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
   s.addText('Top 10 chargeurs AGL – TEM (TEU)', {
     x: 0.25, y: 1.2, w: 7.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const temClienteleRows = live ? live.rows : [
+    ['CARGILL WEST AFRICA (CACAO)','3 219','Cacao','9,0%'],
+    ['JEAN EGLIN (PLANTATION)','2 500','Bananes','6,9%'],
+    ['AFRICA SOURCING PRODUCE CI','2 425','Bananes','6,7%'],
+    ['CARGILL COCOA SA (DÉRIVÉS)','2 264','Dérivés cacao','6,3%'],
+    ['CYRIAN INTERNATIONAL CI','2 191','Bananes','6,1%'],
+    ['OLAM COCOA PROCESSING','2 068','Cacao','5,7%'],
+    ['KINEDEN COMMODITIES SA CI','1 256','Cacao','3,5%'],
+    ['OLAM AGRI RUBBER','1 203','Caoutchouc','3,3%'],
+    ['SAPH','1 155','Caoutchouc','3,2%'],
+    ['IVOIRE COTON','1 092','Coton','3,0%'],
+  ];
   addRankTable(s, 0.15, 1.5, 7.0,
-    ['Chargeur','TEU','Filière','% Vol. AGL'],
-    [
-      ['CARGILL WEST AFRICA (CACAO)','3 219','Cacao','9,0%'],
-      ['JEAN EGLIN (PLANTATION)','2 500','Bananes','6,9%'],
-      ['AFRICA SOURCING PRODUCE CI','2 425','Bananes','6,7%'],
-      ['CARGILL COCOA SA (DÉRIVÉS)','2 264','Dérivés cacao','6,3%'],
-      ['CYRIAN INTERNATIONAL CI','2 191','Bananes','6,1%'],
-      ['OLAM COCOA PROCESSING','2 068','Cacao','5,7%'],
-      ['KINEDEN COMMODITIES SA CI','1 256','Cacao','3,5%'],
-      ['OLAM AGRI RUBBER','1 203','Caoutchouc','3,3%'],
-      ['SAPH','1 155','Caoutchouc','3,2%'],
-      ['IVOIRE COTON','1 092','Coton','3,0%'],
-    ]
-  );
+    ['Chargeur','TEU','Filière','% Vol. AGL'], temClienteleRows);
   addInsightBox(s, 0.15, 5.35, 7.0, 1.0, '⚠',
-    [
-      'Cargill groupe (Cacao + Dérivés) = 15,3% du volume AGL TEM. Concentration filière cacao à surveiller.',
-      '✓ Bananes (74% PDM) : JEAN EGLIN, AFRICA SOURCING, CYRIAN = 3 chargeurs = 23,1% du volume. Fidélisation critique.',
-      '▶ Cajou (5,4% PDM, 13 129 TEU marché) : objectif +860 TEU via approche commerciale OUTSPAN CI, STE IVOIRIENNE NOIX.'
-    ]
+    live
+      ? [`Top chargeur : ${live.topClient} = ${live.topClientShare} du volume AGL TEM.`,
+         `Données live : ${live.source}.`]
+      : [
+          'Cargill groupe (Cacao + Dérivés) = 15,3% du volume AGL TEM. Concentration filière cacao à surveiller.',
+          '✓ Bananes (74% PDM) : JEAN EGLIN, AFRICA SOURCING, CYRIAN = 3 chargeurs = 23,1% du volume. Fidélisation critique.',
+          '▶ Cajou (5,4% PDM, 13 129 TEU marché) : objectif +860 TEU via approche commerciale OUTSPAN CI, STE IVOIRIENNE NOIX.'
+        ]
   );
 
   // Graphique donut filières
   s.addText('Répartition AGL par filière export – TEM', {
     x: 7.3, y: 1.2, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  s.addChart(pptx.ChartType.pie, [{
-    name: 'Filières TEM',
-    labels: ['Cacao','Bananes','Caoutchouc','Dérivés cacao','Coton','Cajou','Autres'],
-    values: [36,20,18,13,8,3,2]
-  }], {
+  const temPie = live && live.mixLabels && live.mixLabels.length
+    ? [{ name: 'Filières TEM', labels: live.mixLabels, values: live.mixValues }]
+    : [{
+        name: 'Filières TEM',
+        labels: ['Cacao','Bananes','Caoutchouc','Dérivés cacao','Coton','Cajou','Autres'],
+        values: [36,20,18,13,8,3,2]
+      }];
+  s.addChart(pptx.ChartType.pie, temPie, {
     x: 7.3, y: 1.5, w: 5.8, h: 4.5,
     showLegend: true, legendPos: 'r', legendFontSize: 9,
     chartColors: [NAVY, GREEN, GOLD, ORANGE, BLUE2, TEAL, MGRAY],
@@ -755,8 +792,10 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
 }
 
 // ─── SLIDE 12 – TEM NOUVEAUX CHARGEURS ──────────────────────────────────────
+// TODO: cross-référencer study.n1Runs pour annoter les verdicts (en revue).
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildNouveauxData(study, 'TEM');
   addHeader(s, 'TEM – NOUVEAUX CHARGEURS & NOUVELLES FILIÈRES',
     'Chargeurs entrés en 2026  |  Nouvelles filières export AGL  |  Opportunité Cajou');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.11');
@@ -764,16 +803,15 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
   s.addText('Nouveaux chargeurs AGL – TEM 2026', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const temNouveauxRows = live && live.rows.length ? live.rows.map((r) => [r[1], r[2], r[4], r[0]]) : [
+    ['CI-ÉNERGIES','890','Caoutchouc','Q1 2026'],
+    ['SITA GROUP','760','Mangue / Fruits','Q1 2026'],
+    ['COOPERX CAJOU CI','640','Noix de Cajou','Q2 2026'],
+    ['SECO INDUSTRIE','520','Caoutchouc usiné','Q2 2026'],
+    ['OLAM PALM','410','Huile de Palme','Q1 2026'],
+  ];
   addRankTable(s, 0.15, 1.5, 6.8,
-    ['Chargeur','TEU','Filière','Entrée'],
-    [
-      ['CI-ÉNERGIES','890','Caoutchouc','Q1 2026'],
-      ['SITA GROUP','760','Mangue / Fruits','Q1 2026'],
-      ['COOPERX CAJOU CI','640','Noix de Cajou','Q2 2026'],
-      ['SECO INDUSTRIE','520','Caoutchouc usiné','Q2 2026'],
-      ['OLAM PALM','410','Huile de Palme','Q1 2026'],
-    ]
-  );
+    ['Chargeur','TEU','Filière','Entrée'], temNouveauxRows);
   s.addText('Nouvelles filières export – PDM AGL', {
     x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
@@ -789,22 +827,40 @@ addSeparator('03', 'HINTERLAND IMPORT MARITIME', '28 457 TEU qualifiés  |  AGL 
 // ─── SLIDE 14 – HINTERLAND IMPORT VUE D'ENSEMBLE ────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildOverviewData(study, 'HIMP');
   addHeader(s, 'HINTERLAND IMPORT – VUE D\'ENSEMBLE  |  Jan–Mai 2026',
-    'Marché qualifié : 28 457 TEU  |  AGL : 3 214 TEU  |  PDM : 11,3%  |  Rang : #3');
+    live
+      ? `Marché qualifié : ${live.kpis.marche} TEU  |  AGL : ${live.kpis.agl} TEU  |  PDM : ${live.kpis.pdm}  |  Rang : #${live.aglRank || '—'}`
+      : 'Marché qualifié : 28 457 TEU  |  AGL : 3 214 TEU  |  PDM : 11,3%  |  Rang : #3');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.12');
 
-  addKpiBar(s, [
-    { label: 'Marché qualifié', value: '28 457',  sub: 'TEU Jan–Mai' },
-    { label: 'Volume AGL',      value: '3 214',   sub: 'TEU Jan–Mai' },
-    { label: 'PDM AGL',         value: '11,3 %',  sub: '#3 – Progression vs brut', color: ORANGE, big: true },
-    { label: 'Leader UCT',      value: '26,6 %',  sub: '7 559 TEU – Écart ×2,4', color: RED },
-    { label: 'PDM Janv. (PEAK)', value: '16,4 %', sub: 'Meilleure PDM période', color: BLUE2 },
-  ]);
+  if (live) {
+    addKpiBar(s, [
+      { label: 'Marché qualifié', value: live.kpis.marche, sub: 'TEU' },
+      { label: 'Volume AGL',      value: live.kpis.agl,    sub: 'TEU' },
+      { label: 'PDM AGL',         value: live.kpis.pdm,    sub: `Rang #${live.aglRank || '—'}`, color: ORANGE, big: true },
+      { label: live.secondName ? `vs ${live.secondName.slice(0, 14)}` : 'Écart vs #2', value: live.kpis.ecart, sub: 'TEU d\'écart', color: live.ecart >= 0 ? GREEN : RED },
+      { label: 'Cumul PDM TOP 4', value: live.kpis.top4,   sub: 'leaders cumul.', color: BLUE2 },
+    ]);
+  } else {
+    addKpiBar(s, [
+      { label: 'Marché qualifié', value: '28 457',  sub: 'TEU Jan–Mai' },
+      { label: 'Volume AGL',      value: '3 214',   sub: 'TEU Jan–Mai' },
+      { label: 'PDM AGL',         value: '11,3 %',  sub: '#3 – Progression vs brut', color: ORANGE, big: true },
+      { label: 'Leader UCT',      value: '26,6 %',  sub: '7 559 TEU – Écart ×2,4', color: RED },
+      { label: 'PDM Janv. (PEAK)', value: '16,4 %', sub: 'Meilleure PDM période', color: BLUE2 },
+    ]);
+  }
 
-  const chartData = [
-    { name: 'Marché qualifié', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [5400,5800,5600,6100,5550] },
-    { name: 'AGL',             labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [886,598,431,652,647] },
-  ];
+  const chartData = live && live.monthlyMarket
+    ? [
+        { name: 'Marché qualifié', labels: live.monthLabels, values: live.monthlyMarket },
+        { name: 'AGL',             labels: live.monthLabels, values: live.monthlyAgl },
+      ]
+    : [
+        { name: 'Marché qualifié', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [5400,5800,5600,6100,5550] },
+        { name: 'AGL',             labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [886,598,431,652,647] },
+      ];
   s.addText('Évolution mensuelle marché qualifié & AGL – Hinterland Import', {
     x: 0.25, y: 2.28, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
@@ -813,10 +869,11 @@ addSeparator('03', 'HINTERLAND IMPORT MARITIME', '28 457 TEU qualifiés  |  AGL 
   s.addText('PDM AGL par mois – Hinterland Import', {
     x: 7.1, y: 2.28, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addMensuelBars(s, 7.1, 2.62,
-    ['Janvier','Février','Mars','Avril','Mai'],
-    [16.4, 10.3, 7.7, 10.7, 10.8], 11.3
-  );
+  const pdmLabels = live && live.monthLabels
+    ? live.monthLabels.map((l) => dataAdapter.MONTHS_FR_FULL.find((m) => m.startsWith(l)) || l)
+    : ['Janvier','Février','Mars','Avril','Mai'];
+  const pdmValues = live && live.monthlyPdm ? live.monthlyPdm : [16.4, 10.3, 7.7, 10.7, 10.8];
+  addMensuelBars(s, 7.1, 2.62, pdmLabels, pdmValues, live ? live.aglPdm : 11.3);
 
   s.addText('Destinations : Bamako 55,5% (17 407 TEU) | Ouagadougou 40,0% (12 549 TEU) | Bobo-Dioulasso 2,1%', {
     x: 0.15, y: 6.45, w: 13, h: 0.25, fontSize: 9, color: MGRAY, fontFace: 'Calibri', italic: true
@@ -829,6 +886,7 @@ addSeparator('03', 'HINTERLAND IMPORT MARITIME', '28 457 TEU qualifiés  |  AGL 
 // ─── SLIDE 15 – HINTERLAND IMPORT CONCURRENTS ────────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildConcurrentsData(study, 'HIMP');
   addHeader(s, 'HINTERLAND IMPORT – CONCURRENTS & SEGMENTS',
     'UCT & Sitracom dominent  |  AGL en reconquête  |  Cibles prioritaires');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.13');
@@ -836,30 +894,31 @@ addSeparator('03', 'HINTERLAND IMPORT MARITIME', '28 457 TEU qualifiés  |  AGL 
   s.addText('Classement transitaires – Hinterland Import (qualifié)', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const himpConcurrentsRows = live ? live.rows : [
+    ['#1','UNION CENTER TRANSIT CI','7 559','26,6 %'],
+    ['#2','SITRACOM CI','7 208','25,3 %'],
+    ['#3','AFRICA GLOBAL LOGISTICS','3 214','11,3 %'],
+    ['#4','ECOTRAM CI','1 249','4,4 %'],
+    ['#5','CEVA LOGISTICS CI','1 242','4,4 %'],
+    ['#6','MAERSK LOGISTIC','1 062','3,7 %'],
+    ['#7','FM GENERAL SERVICES','955','3,4 %'],
+    ['#8','EBURNEENE LOG. TRANSIT.','928','3,3 %'],
+    ['#9','SOCOCIB TRANSIT','886','3,1 %'],
+    ['#10','MEDLOG CI','855','3,0 %'],
+  ];
+  const himpAglHighlight = live && live.aglRowIdx >= 0 && live.aglRowIdx < 10 ? live.aglRowIdx : 2;
   addRankTable(s, 0.15, 1.5, 6.8,
-    ['Rang','Transitaire','TEU','PDM'],
-    [
-      ['#1','UNION CENTER TRANSIT CI','7 559','26,6 %'],
-      ['#2','SITRACOM CI','7 208','25,3 %'],
-      ['#3','AFRICA GLOBAL LOGISTICS','3 214','11,3 %'],
-      ['#4','ECOTRAM CI','1 249','4,4 %'],
-      ['#5','CEVA LOGISTICS CI','1 242','4,4 %'],
-      ['#6','MAERSK LOGISTIC','1 062','3,7 %'],
-      ['#7','FM GENERAL SERVICES','955','3,4 %'],
-      ['#8','EBURNEENE LOG. TRANSIT.','928','3,3 %'],
-      ['#9','SOCOCIB TRANSIT','886','3,1 %'],
-      ['#10','MEDLOG CI','855','3,0 %'],
-    ],
-    2  // highlight AGL (index 2)
-  );
+    ['Rang','Transitaire','TEU','PDM'], himpConcurrentsRows, himpAglHighlight);
   addInsightBox(s, 0.15, 5.35, 6.8, 0.95, '🎯',
-    ['STRATÉGIE HINT IMP : Écart de 3 994 TEU avec Sitracom (#2). Cibles filières à 0% PDM : Thé (928 TEU) + Motos (1 172 TEU) = 2 100 TEU de potentiel immédiat. Clients têtes de pont : SOFAO BF (926 TEU), BRAKINA (552 TEU), CODIMEX BF (461 TEU). Commercial dédié Ouagadougou requis.']
+    [live
+      ? `Position HIMP : AGL ${live.aglRowIdx === 0 ? 'leader' : `#${live.aglRowIdx + 1}`}. Données : ${live.source}.`
+      : 'STRATÉGIE HINT IMP : Écart de 3 994 TEU avec Sitracom (#2). Cibles filières à 0% PDM : Thé (928 TEU) + Motos (1 172 TEU) = 2 100 TEU de potentiel immédiat. Clients têtes de pont : SOFAO BF (926 TEU), BRAKINA (552 TEU), CODIMEX BF (461 TEU). Commercial dédié Ouagadougou requis.']
   );
 
   s.addText('PDM AGL par marchandise – Hinterland Import', {
     x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addSegmentBars(s, 7.1, 1.52, [
+  const himpSegmentBars = live && live.segmentBars ? live.segmentBars : [
     { label: 'Malt',               vol: '439 TEU',   pdm: 73 },
     { label: 'Matériels Miniers',  vol: '600 TEU',   pdm: 50 },
     { label: 'Pâtes Alimentaires', vol: '528 TEU',   pdm: 31 },
@@ -871,12 +930,15 @@ addSeparator('03', 'HINTERLAND IMPORT MARITIME', '28 457 TEU qualifiés  |  AGL 
     { label: 'Thé Alimentaire',    vol: '928 TEU',   pdm: 0 },
     { label: 'Prod. Mer Congelé',  vol: '1 296 TEU', pdm: 0 },
     { label: 'Motos & Bicyclettes',vol: '1 172 TEU', pdm: 1 },
-  ]);
+  ];
+  addSegmentBars(s, 7.1, 1.52, himpSegmentBars);
 }
 
 // ─── SLIDE 16 – HINTERLAND IMPORT NOUVEAUX ENTRANTS ──────────────────────────
+// TODO: cross-référencer study.n1Runs pour annoter les verdicts (en revue).
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildNouveauxData(study, 'HIMP');
   addHeader(s, 'HINTERLAND IMPORT – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
     'Transitaires entrants  |  Nouvelles marchandises  |  Nouveaux destinataires Bamako–Ouagadougou');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.16');
@@ -884,15 +946,14 @@ addSeparator('03', 'HINTERLAND IMPORT MARITIME', '28 457 TEU qualifiés  |  AGL 
   s.addText('Nouveaux transitaires – Hinterland Import', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const himpNouveauxRows = live && live.rows.length ? live.rows : [
+    ['#11','SAHEL TRANSIT','620','2,2 %','Sucre / Alimentaire'],
+    ['#12','BURKINATRANS','580','2,0 %','BTP Burkina'],
+    ['#13','TRANS-SAHEL LOG.','450','1,6 %','Machines'],
+    ['#14','KARAMOKOTRAKRANSIT','380','1,3 %','Alimentation'],
+  ];
   addRankTable(s, 0.15, 1.5, 6.8,
-    ['Rang','Transitaire','TEU','PDM','Spécialité'],
-    [
-      ['#11','SAHEL TRANSIT','620','2,2 %','Sucre / Alimentaire'],
-      ['#12','BURKINATRANS','580','2,0 %','BTP Burkina'],
-      ['#13','TRANS-SAHEL LOG.','450','1,6 %','Machines'],
-      ['#14','KARAMOKOTRAKRANSIT','380','1,3 %','Alimentation'],
-    ]
-  );
+    ['Rang','Transitaire','TEU','PDM','Spécialité'], himpNouveauxRows);
   s.addText('Nouveaux destinataires AGL – Hinterland Import', {
     x: 0.25, y: 3.0, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
@@ -931,22 +992,40 @@ addSeparator('04', 'HINTERLAND EXPORT MARITIME', '4 294 TEU  |  PDM AGL : 66,1% 
 // ─── SLIDE 18 – HINTERLAND EXPORT VUE D'ENSEMBLE ─────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildOverviewData(study, 'HEXP');
   addHeader(s, 'HINTERLAND EXPORT – VUE D\'ENSEMBLE  |  Jan–Mai 2026',
-    'AGL #1 ABSOLU – PDM 66,1%  |  Marché : 4 294 TEU  |  Coton dominant');
+    live
+      ? `AGL #${live.aglRank || '—'} – PDM ${live.kpis.pdm}  |  Marché : ${live.kpis.marche} TEU  |  Coton dominant`
+      : 'AGL #1 ABSOLU – PDM 66,1%  |  Marché : 4 294 TEU  |  Coton dominant');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.15');
 
-  addKpiBar(s, [
-    { label: 'Marché total',     value: '4 294',   sub: 'TEU Jan–Mai' },
-    { label: 'Volume AGL',       value: '2 840',   sub: 'TEU Jan–Mai' },
-    { label: 'PDM AGL',          value: '66,1 %',  sub: '#1 ABSOLU', color: GREEN, big: true },
-    { label: 'Coton AGL',        value: '2 522',   sub: 'TEU – 88,8% du portef.', color: NAVY },
-    { label: 'PDM Fév. (PEAK)',  value: '72,9 %',  sub: 'Meilleure PDM période', color: BLUE2 },
-  ]);
+  if (live) {
+    addKpiBar(s, [
+      { label: 'Marché total',     value: live.kpis.marche, sub: 'TEU' },
+      { label: 'Volume AGL',       value: live.kpis.agl,    sub: 'TEU' },
+      { label: 'PDM AGL',          value: live.kpis.pdm,    sub: `Rang #${live.aglRank || '—'}`, color: GREEN, big: true },
+      { label: live.secondName ? `vs ${live.secondName.slice(0, 14)}` : 'Écart vs #2', value: live.kpis.ecart, sub: 'TEU d\'écart', color: live.ecart >= 0 ? GREEN : RED },
+      { label: 'Cumul PDM TOP 4',  value: live.kpis.top4,   sub: 'leaders cumul.', color: BLUE2 },
+    ]);
+  } else {
+    addKpiBar(s, [
+      { label: 'Marché total',     value: '4 294',   sub: 'TEU Jan–Mai' },
+      { label: 'Volume AGL',       value: '2 840',   sub: 'TEU Jan–Mai' },
+      { label: 'PDM AGL',          value: '66,1 %',  sub: '#1 ABSOLU', color: GREEN, big: true },
+      { label: 'Coton AGL',        value: '2 522',   sub: 'TEU – 88,8% du portef.', color: NAVY },
+      { label: 'PDM Fév. (PEAK)',  value: '72,9 %',  sub: 'Meilleure PDM période', color: BLUE2 },
+    ]);
+  }
 
-  const chartData = [
-    { name: 'Marché total', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [870,950,900,820,754] },
-    { name: 'AGL',          labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [441,693,647,559,500] },
-  ];
+  const chartData = live && live.monthlyMarket
+    ? [
+        { name: 'Marché total', labels: live.monthLabels, values: live.monthlyMarket },
+        { name: 'AGL',          labels: live.monthLabels, values: live.monthlyAgl },
+      ]
+    : [
+        { name: 'Marché total', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [870,950,900,820,754] },
+        { name: 'AGL',          labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [441,693,647,559,500] },
+      ];
   s.addText('Évolution mensuelle – Hinterland Export', {
     x: 0.25, y: 2.28, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
@@ -955,10 +1034,11 @@ addSeparator('04', 'HINTERLAND EXPORT MARITIME', '4 294 TEU  |  PDM AGL : 66,1% 
   s.addText('PDM AGL par mois – Hinterland Export', {
     x: 7.1, y: 2.28, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addMensuelBars(s, 7.1, 2.62,
-    ['Janvier','Février','Mars','Avril','Mai'],
-    [50.7, 72.9, 71.9, 68.1, 56.7], 60.0
-  );
+  const pdmLabels = live && live.monthLabels
+    ? live.monthLabels.map((l) => dataAdapter.MONTHS_FR_FULL.find((m) => m.startsWith(l)) || l)
+    : ['Janvier','Février','Mars','Avril','Mai'];
+  const pdmValues = live && live.monthlyPdm ? live.monthlyPdm : [50.7, 72.9, 71.9, 68.1, 56.7];
+  addMensuelBars(s, 7.1, 2.62, pdmLabels, pdmValues, live ? live.aglPdm : 60.0);
 
   s.addText('Concurrents : FM General Services 12,1% (518 TEU)  |  Movis Transit 5,8% (251 TEU)  |  CEVA Logistics 5,1% (220 TEU)', {
     x: 0.15, y: 6.5, w: 13, h: 0.25, fontSize: 9, color: MGRAY, fontFace: 'Calibri', italic: true
@@ -969,8 +1049,10 @@ addSeparator('04', 'HINTERLAND EXPORT MARITIME', '4 294 TEU  |  PDM AGL : 66,1% 
 }
 
 // ─── SLIDE 19 – HINTERLAND EXPORT NOUVEAUX CHARGEURS ─────────────────────────
+// TODO: cross-référencer study.n1Runs pour annoter les verdicts (en revue).
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildNouveauxData(study, 'HEXP');
   addHeader(s, 'HINTERLAND EXPORT – NOUVEAUX CHARGEURS',
     'Chargeurs entrés en 2026  |  Sécurisation du portefeuille coton  |  Nouvelle filière huile de palme');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.19');
@@ -978,15 +1060,14 @@ addSeparator('04', 'HINTERLAND EXPORT MARITIME', '4 294 TEU  |  PDM AGL : 66,1% 
   s.addText('Nouveaux chargeurs AGL – Hinterland Export 2026', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const hexpNouveauxRows = live && live.rows.length ? live.rows.map((r) => [r[1], r[2], r[4], r[0]]) : [
+    ['IVOIRE COTON EXPORT','280','Coton','Q1 2026'],
+    ['COTON BURKINA SUD','195','Coton','Q2 2026'],
+    ['SODECOTON ML (Mali)','160','Coton','Q2 2026'],
+    ['OIL PALM CI EXPORT','140','Huile de Palme','Q1 2026'],
+  ];
   addRankTable(s, 0.15, 1.5, 6.8,
-    ['Chargeur','TEU','Filière','Entrée'],
-    [
-      ['IVOIRE COTON EXPORT','280','Coton','Q1 2026'],
-      ['COTON BURKINA SUD','195','Coton','Q2 2026'],
-      ['SODECOTON ML (Mali)','160','Coton','Q2 2026'],
-      ['OIL PALM CI EXPORT','140','Huile de Palme','Q1 2026'],
-    ]
-  );
+    ['Chargeur','TEU','Filière','Entrée'], hexpNouveauxRows);
   s.addText('Portefeuille existant à sécuriser', {
     x: 0.25, y: 3.35, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
@@ -1023,22 +1104,40 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
 // ─── SLIDE 21 – AÉRIEN VUE D'ENSEMBLE ───────────────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildOverviewData(study, 'AER');
   addHeader(s, 'AÉRIEN IMPORT – VUE D\'ENSEMBLE  |  Jan–Mai 2025 vs 2026',
-    'Marché qualifié : +1,5% vs 2025  |  AGL #1 ABSOLU – PDM 20,8%  |  Montée en puissance Jan→Mai');
+    live
+      ? `Marché qualifié : ${live.kpis.marche} kg  |  AGL : ${live.kpis.agl} kg  |  PDM ${live.kpis.pdm} (Rang #${live.aglRank || '—'})`
+      : 'Marché qualifié : +1,5% vs 2025  |  AGL #1 ABSOLU – PDM 20,8%  |  Montée en puissance Jan→Mai');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.17');
 
-  addKpiBar(s, [
-    { label: 'Marché qualifié 2025', value: '5 521 T',  sub: 'Jan–Mai 2025' },
-    { label: 'Marché qualifié 2026', value: '5 603 T',  sub: '+1,5% vs 2025' },
-    { label: 'AGL 2026',             value: '1 166 T',  sub: '#1 ABSOLU', color: GREEN },
-    { label: 'PDM AGL 2026',         value: '20,8 %',   sub: 'vs ~18% estimé 2025', color: GREEN, big: true },
-    { label: 'PDM Mai 2026',         value: '31,2 %',   sub: 'Record de la période', color: BLUE2 },
-  ]);
+  if (live) {
+    addKpiBar(s, [
+      { label: 'Marché qualifié 2025', value: '5 521 T',  sub: 'Jan–Mai 2025 (réf.)' },
+      { label: 'Marché qualifié',      value: live.kpis.marche + ' kg', sub: 'période courante' },
+      { label: 'AGL période',          value: live.kpis.agl + ' kg', sub: `Rang #${live.aglRank || '—'}`, color: GREEN },
+      { label: 'PDM AGL',              value: live.kpis.pdm, sub: 'période courante', color: GREEN, big: true },
+      { label: 'Cumul PDM TOP 4',      value: live.kpis.top4, sub: 'leaders cumul.', color: BLUE2 },
+    ]);
+  } else {
+    addKpiBar(s, [
+      { label: 'Marché qualifié 2025', value: '5 521 T',  sub: 'Jan–Mai 2025' },
+      { label: 'Marché qualifié 2026', value: '5 603 T',  sub: '+1,5% vs 2025' },
+      { label: 'AGL 2026',             value: '1 166 T',  sub: '#1 ABSOLU', color: GREEN },
+      { label: 'PDM AGL 2026',         value: '20,8 %',   sub: 'vs ~18% estimé 2025', color: GREEN, big: true },
+      { label: 'PDM Mai 2026',         value: '31,2 %',   sub: 'Record de la période', color: BLUE2 },
+    ]);
+  }
 
-  const chartData = [
-    { name: 'Marché 2025 (kg)', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [1180000,1020000,1100000,1150000,1071000] },
-    { name: 'Marché 2026 (kg)', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [1220000,1050000,1130000,1050000,1153000] },
-  ];
+  const chartData = live && live.monthlyMarket
+    ? [
+        { name: 'Marché qualifié (kg)', labels: live.monthLabels, values: live.monthlyMarket },
+        { name: 'AGL (kg)',             labels: live.monthLabels, values: live.monthlyAgl },
+      ]
+    : [
+        { name: 'Marché 2025 (kg)', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [1180000,1020000,1100000,1150000,1071000] },
+        { name: 'Marché 2026 (kg)', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [1220000,1050000,1130000,1050000,1153000] },
+      ];
   s.addText('Marché aérien import qualifié (kg) – 2025 vs 2026', {
     x: 0.25, y: 2.28, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
@@ -1047,12 +1146,15 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
   s.addText('PDM AGL aérien – Progression Jan→Mai 2026 (%)', {
     x: 7.1, y: 2.28, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addMensuelBars(s, 7.1, 2.62,
-    ['Janvier','Février','Mars','Avril','Mai'],
-    [10.9, 15.2, 22.4, 28.1, 31.2], 20.0
-  );
+  const pdmLabels = live && live.monthLabels
+    ? live.monthLabels.map((l) => dataAdapter.MONTHS_FR_FULL.find((m) => m.startsWith(l)) || l)
+    : ['Janvier','Février','Mars','Avril','Mai'];
+  const pdmValues = live && live.monthlyPdm ? live.monthlyPdm : [10.9, 15.2, 22.4, 28.1, 31.2];
+  addMensuelBars(s, 7.1, 2.62, pdmLabels, pdmValues, live ? live.aglPdm : 20.0);
   addInsightBox(s, 7.1, 5.7, 6.0, 0.75, '🏆',
-    ['AGL #1 ABSOLU aérien import (qualifié) : 20,8% de PDM sur 5 603 tonnes. Progression remarquable : 10,9% en Janvier → 31,2% en Mai, soit +20,3 pts en 5 mois.'],
+    [live
+      ? `Données live (${live.source}). AGL #${live.aglRank || '—'}, PDM ${live.kpis.pdm}.`
+      : 'AGL #1 ABSOLU aérien import (qualifié) : 20,8% de PDM sur 5 603 tonnes. Progression remarquable : 10,9% en Janvier → 31,2% en Mai, soit +20,3 pts en 5 mois.'],
     'F0FDF4'
   );
 }
@@ -1086,29 +1188,34 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
   s.addText('Classement transitaires – Aérien Import 2026 (qualifié)', {
     x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const aerConcurrentsLive = dataAdapter.buildConcurrentsData(study, 'AER');
+  const aerConcurrentsRows = aerConcurrentsLive ? aerConcurrentsLive.rows : [
+    ['#1','AFRICA GLOBAL LOGISTICS','1 165 994','20,8 %'],
+    ['#2','OSMOZ AFRICA','525 506','9,4 %'],
+    ['#3','GTS CI','468 097','8,4 %'],
+    ['#4','IVOIRE INTL TRANSIT','333 558','6,0 %'],
+    ['#5','MANUEL','292 408','5,2 %'],
+    ['#6','TRANSIT-COSS','274 613','4,9 %'],
+    ['#7','HANNYYAH ET SAID','273 092','4,9 %'],
+    ['#8','DHL','217 874','3,9 %'],
+    ['#9','INTL LOGISTICS SA','187 906','3,4 %'],
+    ['#10','IVOIRE PHENIX TRANSIT','133 527','2,4 %'],
+  ];
+  const aerAglHighlight = aerConcurrentsLive && aerConcurrentsLive.aglRowIdx >= 0 && aerConcurrentsLive.aglRowIdx < 10
+    ? aerConcurrentsLive.aglRowIdx : 0;
   addRankTable(s, 7.0, 1.5, 6.2,
-    ['Rang','Transitaire','Poids kg','PDM'],
-    [
-      ['#1','AFRICA GLOBAL LOGISTICS','1 165 994','20,8 %'],
-      ['#2','OSMOZ AFRICA','525 506','9,4 %'],
-      ['#3','GTS CI','468 097','8,4 %'],
-      ['#4','IVOIRE INTL TRANSIT','333 558','6,0 %'],
-      ['#5','MANUEL','292 408','5,2 %'],
-      ['#6','TRANSIT-COSS','274 613','4,9 %'],
-      ['#7','HANNYYAH ET SAID','273 092','4,9 %'],
-      ['#8','DHL','217 874','3,9 %'],
-      ['#9','INTL LOGISTICS SA','187 906','3,4 %'],
-      ['#10','IVOIRE PHENIX TRANSIT','133 527','2,4 %'],
-    ]
-  );
+    ['Rang','Transitaire','Poids kg','PDM'], aerConcurrentsRows, aerAglHighlight);
   addInsightBox(s, 0.15, 5.38, 12.9, 0.85, '🏆',
-    ['AGL #1 : 20,8% PDM sur marché qualifié. Progression continue Jan→Mai (+20 pts). ⚠ Transit-Coss : –60% (696K→274K kg). Clients récupérés partiellement par AGL. 🎯 Cibles : GTS CI (#3, 8,4%) à surveiller. Osmoz Africa (#2, 9,4%) à challenger sur Matériels Miniers.']
+    [aerConcurrentsLive
+      ? `AGL ${aerConcurrentsLive.aglRowIdx === 0 ? 'leader' : `#${aerConcurrentsLive.aglRowIdx + 1}`} aérien import. Données : ${aerConcurrentsLive.source}.`
+      : 'AGL #1 : 20,8% PDM sur marché qualifié. Progression continue Jan→Mai (+20 pts). ⚠ Transit-Coss : –60% (696K→274K kg). Clients récupérés partiellement par AGL. 🎯 Cibles : GTS CI (#3, 8,4%) à surveiller. Osmoz Africa (#2, 9,4%) à challenger sur Matériels Miniers.']
   );
 }
 
 // ─── SLIDE 23 – AÉRIEN CLIENTÈLE ─────────────────────────────────────────────
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildClienteleData(study, 'AER');
   addHeader(s, 'AÉRIEN IMPORT – CLIENTÈLE AGL',
     'Top 10 destinataires  |  Mix produits  |  Risques & leviers de croissance');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.19');
@@ -1116,37 +1223,42 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
   s.addText('Top 10 clients AGL – Aérien Import (Destinataires, kg)', {
     x: 0.25, y: 1.2, w: 7.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const aerClienteleRows = live ? live.rows : [
+    ['K1 MINING SA CI','308 596','Mat. Miniers','26,5%'],
+    ['PROSUMA','268 633','Prod. Alimentaires','23,1%'],
+    ['UBIPHARM CÔTE D\'IVOIRE','61 130','Médicaments','5,2%'],
+    ['ORANGE CI','49 988','Télécoms','4,3%'],
+    ['NESTLÉ CÔTE D\'IVOIRE','38 474','Alimentaire','3,3%'],
+    ['SIFAAP CI','24 694','Alim. Animal','2,1%'],
+    ['SITAB CI','23 535','Cigarettes','2,0%'],
+    ['ROCHE DIAGNOSTICS CI','22 633','Mat. Labo.','1,9%'],
+    ['MTN CI','20 141','Télécoms','1,7%'],
+    ['FOXTROT INTERNATIONAL','18 721','Pétrole','1,6%'],
+  ];
   addRankTable(s, 0.15, 1.5, 7.0,
-    ['Client (Destinataire)','Poids (kg)','Segment','% Vol. AGL'],
-    [
-      ['K1 MINING SA CI','308 596','Mat. Miniers','26,5%'],
-      ['PROSUMA','268 633','Prod. Alimentaires','23,1%'],
-      ['UBIPHARM CÔTE D\'IVOIRE','61 130','Médicaments','5,2%'],
-      ['ORANGE CI','49 988','Télécoms','4,3%'],
-      ['NESTLÉ CÔTE D\'IVOIRE','38 474','Alimentaire','3,3%'],
-      ['SIFAAP CI','24 694','Alim. Animal','2,1%'],
-      ['SITAB CI','23 535','Cigarettes','2,0%'],
-      ['ROCHE DIAGNOSTICS CI','22 633','Mat. Labo.','1,9%'],
-      ['MTN CI','20 141','Télécoms','1,7%'],
-      ['FOXTROT INTERNATIONAL','18 721','Pétrole','1,6%'],
-    ]
-  );
+    ['Client (Destinataire)','Poids (kg)','Segment','% Vol. AGL'], aerClienteleRows);
   addInsightBox(s, 0.15, 5.3, 7.0, 1.05, '⚠',
-    [
-      'Hyper-concentration : K1 Mining (26,5%) + PROSUMA (23,1%) = 49,6% du volume AGL aérien sur 2 clients. Risque élevé.',
-      '✓ Télécoms (Orange + MTN) : 70 129 kg – Secteur en forte croissance. Contrats cadres 2026/2027 à signer.',
-      '▶ Nestlé + SIFAAP = 63 168 kg (filière agro-alim). Ubipharm = pont TIM/AER. Développer offre multi-métiers.'
-    ]
+    live
+      ? [`Top client : ${live.topClient} = ${live.topClientShare} du volume AGL aérien.`,
+         `Données live : ${live.source}.`]
+      : [
+          'Hyper-concentration : K1 Mining (26,5%) + PROSUMA (23,1%) = 49,6% du volume AGL aérien sur 2 clients. Risque élevé.',
+          '✓ Télécoms (Orange + MTN) : 70 129 kg – Secteur en forte croissance. Contrats cadres 2026/2027 à signer.',
+          '▶ Nestlé + SIFAAP = 63 168 kg (filière agro-alim). Ubipharm = pont TIM/AER. Développer offre multi-métiers.'
+        ]
   );
 
   s.addText('Mix produits AGL – Aérien Import', {
     x: 7.3, y: 1.2, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  s.addChart(pptx.ChartType.pie, [{
-    name: 'Mix Aérien',
-    labels: ['Mat. Miniers','Prod. Alimentaires','Médicaments','Télécoms','Alimentaire','Autres'],
-    values: [27,23,5,6,3,36]
-  }], {
+  const aerPie = live && live.mixLabels && live.mixLabels.length
+    ? [{ name: 'Mix Aérien', labels: live.mixLabels, values: live.mixValues }]
+    : [{
+        name: 'Mix Aérien',
+        labels: ['Mat. Miniers','Prod. Alimentaires','Médicaments','Télécoms','Alimentaire','Autres'],
+        values: [27,23,5,6,3,36]
+      }];
+  s.addChart(pptx.ChartType.pie, aerPie, {
     x: 7.3, y: 1.5, w: 5.8, h: 4.5,
     showLegend: true, legendPos: 'r', legendFontSize: 9,
     chartColors: [NAVY, GREEN, GOLD, ORANGE, TEAL, MGRAY],
@@ -1155,8 +1267,10 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
 }
 
 // ─── SLIDE 24 – AÉRIEN NOUVEAUX ENTRANTS ──────────────────────────────────────
+// TODO: cross-référencer study.n1Runs pour annoter les verdicts (en revue).
 {
   const s = pptx.addSlide();
+  const live = dataAdapter.buildNouveauxData(study, 'AER');
   addHeader(s, 'AÉRIEN IMPORT – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
     'Transitaires entrants  |  Nouvelles marchandises en croissance  |  Récupération clients Transit-Coss');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.24');
@@ -1164,13 +1278,12 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
   s.addText('Nouveaux transitaires – Aérien Import 2026', {
     x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
+  const aerNouveauxRows = live && live.rows.length ? live.rows.map((r) => [r[1], r[2], r[4], r[0]]) : [
+    ['FRET INTER CI','94 200','Alimentaire','Q1 2026'],
+    ['SOTRA FRET','78 400','Pièces détachées','Q2 2026'],
+  ];
   addRankTable(s, 0.15, 1.5, 6.8,
-    ['Transitaire','Poids kg','Spécialité','Entrée'],
-    [
-      ['FRET INTER CI','94 200','Alimentaire','Q1 2026'],
-      ['SOTRA FRET','78 400','Pièces détachées','Q2 2026'],
-    ]
-  );
+    ['Transitaire','Poids kg','Spécialité','Entrée'], aerNouveauxRows);
   s.addText('Marchandises en forte croissance 2025 → 2026', {
     x: 0.25, y: 2.95, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
