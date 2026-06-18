@@ -1,13 +1,42 @@
 // Comité de Direction – Générateur Étude de Marché AGL
 // Reproduit fidèlement les slides du document de référence (33 + DSM enrichi).
-// Exposé comme une fonction `generateStudyBuffer()` → Node Buffer (PPTX).
+// Exposé comme une fonction `generateStudyBuffer({ plan })` → Node Buffer (PPTX).
 // CLI : `node lib/pptx/generator.js` écrit le PPTX dans le cwd.
 
 const PptxGenJS = require('pptxgenjs');
+const { BLOCK_SEQUENCE } = require('./blocks');
 
-async function generateStudyBuffer() {
+/**
+ * @param {{ plan?: Array<{ key: string, enabled: boolean }> }} [options]
+ */
+async function generateStudyBuffer(options = {}) {
 const pptx = new PptxGenJS();
 pptx.layout = 'LAYOUT_WIDE'; // 33.867 x 19.05 cm = 13.33" x 7.5"
+
+// Plan de montage filter: replace pptx.addSlide() with a wrapper that
+// consults BLOCK_SEQUENCE + the supplied plan. Disabled blocks return a
+// no-op slide whose addText/addShape/addTable calls are silently swallowed.
+const enabledKeys = options.plan
+  ? new Set(options.plan.filter((b) => b.enabled !== false).map((b) => b.key))
+  : new Set(BLOCK_SEQUENCE);
+
+let blockIdx = 0;
+const noopHandler = {
+  get(_target, prop) {
+    if (prop === 'then') return undefined;
+    return () => undefined;
+  },
+};
+const noopSlide = new Proxy({}, noopHandler);
+const originalAddSlide = pptx.addSlide.bind(pptx);
+pptx.addSlide = function patchedAddSlide() {
+  const key = BLOCK_SEQUENCE[blockIdx];
+  blockIdx += 1;
+  if (key && !enabledKeys.has(key)) {
+    return noopSlide;
+  }
+  return originalAddSlide();
+};
 
 // ─── PALETTE AGL ──────────────────────────────────────────────────────────────
 const NAVY   = '0D2243'; // fond bleu marine AGL

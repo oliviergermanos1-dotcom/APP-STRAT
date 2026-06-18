@@ -10,6 +10,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DatasetType } from "@/lib/parsers/schemas";
 import type { ValidationResult } from "@/lib/n1-validation/validate";
+import { DEFAULT_PLAN, type PlanBlock } from "@/lib/pptx/plan";
 
 const STUDIES_DIR = path.join(process.cwd(), "data", "studies");
 
@@ -45,6 +46,7 @@ export interface Study {
   updatedAt: string;
   datasets: StudyDataset[];
   n1Runs: StudyN1Run[];
+  plan: PlanBlock[];
 }
 
 async function ensureDir(): Promise<void> {
@@ -71,11 +73,23 @@ export async function getStudy(id: string): Promise<Study | null> {
   await ensureDir();
   try {
     const raw = await fs.readFile(studyPath(id), "utf8");
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw) as Study;
+    // Backfill plan for studies created before plan_montage support landed.
+    if (!parsed.plan || parsed.plan.length === 0) {
+      parsed.plan = DEFAULT_PLAN.map((b) => ({ ...b }));
+    }
+    return parsed;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw err;
   }
+}
+
+export async function savePlan(
+  studyId: string,
+  plan: PlanBlock[],
+): Promise<Study> {
+  return updateStudy(studyId, { plan });
 }
 
 export async function createStudy(
@@ -91,6 +105,7 @@ export async function createStudy(
     updatedAt: now,
     datasets: [],
     n1Runs: [],
+    plan: DEFAULT_PLAN.map((b) => ({ ...b })),
   };
   await fs.writeFile(studyPath(study.id), JSON.stringify(study, null, 2));
   return study;

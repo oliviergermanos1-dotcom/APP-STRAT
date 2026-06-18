@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { getStudy } from "@/lib/store/studies";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -6,14 +7,29 @@ export const maxDuration = 60;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { generateStudyBuffer } = require("@/lib/pptx/generator.js") as {
-  generateStudyBuffer: () => Promise<Buffer>;
+  generateStudyBuffer: (options?: {
+    plan?: Array<{ key: string; enabled: boolean }>;
+  }) => Promise<Buffer>;
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const buffer = await generateStudyBuffer();
+    const studyId = request.nextUrl.searchParams.get("studyId");
+    let plan: Array<{ key: string; enabled: boolean }> | undefined;
+    let titleSlug = "default";
+
+    if (studyId) {
+      const study = await getStudy(studyId);
+      if (!study) {
+        return NextResponse.json({ error: "Étude introuvable" }, { status: 404 });
+      }
+      plan = study.plan.map((b) => ({ key: b.key, enabled: b.enabled }));
+      titleSlug = study.title.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 60);
+    }
+
+    const buffer = await generateStudyBuffer(plan ? { plan } : undefined);
     const body = new Uint8Array(buffer);
-    const filename = `Comite_de_Direction_${new Date()
+    const filename = `Comite_de_Direction_${titleSlug}_${new Date()
       .toISOString()
       .slice(0, 10)}.pptx`;
 
