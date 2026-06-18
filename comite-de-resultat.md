@@ -1,1 +1,0 @@
-# Comité de Résultat

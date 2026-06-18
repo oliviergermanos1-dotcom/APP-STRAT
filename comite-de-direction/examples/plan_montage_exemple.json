@@ -1,0 +1,55 @@
+{
+  "study_id": "uuid-example",
+  "blocks": [
+    { "type": "cover", "enabled": true, "order": 1 },
+    { "type": "sommaire", "enabled": true, "order": 2 },
+
+    { "type": "separator", "metier": "TIM", "enabled": true, "order": 3 },
+    { "type": "native", "metier": "TIM", "slide_type": "vue_ensemble", "enabled": true, "order": 4 },
+    { "type": "native", "metier": "TIM", "slide_type": "concurrents", "enabled": true, "order": 5 },
+    { "type": "native", "metier": "TIM", "slide_type": "clientele", "enabled": true, "order": 6 },
+    { "type": "external", "pptx_id": "ext-uuid-1", "slide_index": 2, "title": "Analyse Power BI - Évolution TIM", "enabled": true, "order": 7 },
+    { "type": "native", "metier": "TIM", "slide_type": "nouveaux_entrants", "enabled": true, "order": 8 },
+    { "type": "preconisation", "metier": "TIM", "enabled": true, "order": 9 },
+
+    { "type": "separator", "metier": "TEM", "enabled": true, "order": 10 },
+    { "type": "native", "metier": "TEM", "slide_type": "vue_ensemble", "enabled": true, "order": 11 },
+    { "type": "native", "metier": "TEM", "slide_type": "segments_concurrents", "enabled": true, "order": 12 },
+    { "type": "native", "metier": "TEM", "slide_type": "clientele", "enabled": true, "order": 13 },
+    { "type": "native", "metier": "TEM", "slide_type": "nouveaux_entrants", "enabled": true, "order": 14 },
+    { "type": "preconisation", "metier": "TEM", "enabled": true, "order": 15 },
+
+    { "type": "separator", "metier": "HIMP", "enabled": true, "order": 16 },
+    { "type": "native", "metier": "HIMP", "slide_type": "vue_ensemble", "enabled": true, "order": 17 },
+    { "type": "native", "metier": "HIMP", "slide_type": "concurrents", "enabled": true, "order": 18 },
+    { "type": "native", "metier": "HIMP", "slide_type": "nouveaux_entrants", "enabled": true, "order": 19 },
+    { "type": "preconisation", "metier": "HIMP", "enabled": true, "order": 20 },
+
+    { "type": "separator", "metier": "HEXP", "enabled": true, "order": 21 },
+    { "type": "native", "metier": "HEXP", "slide_type": "vue_ensemble", "enabled": true, "order": 22 },
+    { "type": "native", "metier": "HEXP", "slide_type": "nouveaux_chargeurs", "enabled": true, "order": 23 },
+    { "type": "preconisation", "metier": "HEXP", "enabled": true, "order": 24 },
+
+    { "type": "separator", "metier": "AER", "enabled": true, "order": 25 },
+    { "type": "native", "metier": "AER", "slide_type": "vue_ensemble", "enabled": true, "order": 26 },
+    { "type": "native", "metier": "AER", "slide_type": "segments_concurrents", "enabled": true, "order": 27 },
+    { "type": "native", "metier": "AER", "slide_type": "clientele", "enabled": true, "order": 28 },
+    { "type": "external", "pptx_id": "ext-uuid-2", "slide_index": 0, "title": "Analyse Excel STATCOM Aérien", "enabled": true, "order": 29 },
+    { "type": "native", "metier": "AER", "slide_type": "nouveaux_entrants", "enabled": true, "order": 30 },
+    { "type": "preconisation", "metier": "AER", "enabled": true, "order": 31 },
+
+    { "type": "separator", "metier": "DSM", "enabled": true, "order": 32 },
+    { "type": "native", "metier": "DSM", "slide_type": "armateurs", "enabled": true, "order": 33 },
+    { "type": "native", "metier": "DSM", "slide_type": "tramps", "enabled": true, "order": 34 },
+
+    { "type": "native", "metier": "PETROLE", "slide_type": "focus", "enabled": true, "order": 35 },
+    { "type": "native", "metier": "MINIER", "slide_type": "focus", "enabled": true, "order": 36 },
+    { "type": "native", "metier": "AYMAN", "slide_type": "synthese", "enabled": true, "order": 37 },
+    { "type": "native", "metier": "AYMAN", "slide_type": "analyse_detaillee", "enabled": true, "order": 38 },
+
+    { "type": "separator", "metier": "ACTIONS", "enabled": true, "order": 39 },
+    { "type": "native", "metier": "SYNTHESE", "slide_type": "pdm_par_metier", "enabled": true, "order": 40 }
+  ],
+  "total_slides": 40,
+  "updated_at": "2026-06-18T09:00:00Z"
+}
