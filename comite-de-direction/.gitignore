@@ -41,3 +41,7 @@ __pycache__/
 
 # OS
 Thumbs.db
+
+# Local study persistence (will move to Supabase)
+/data/studies/*.json
+!/data/studies/.gitkeep
