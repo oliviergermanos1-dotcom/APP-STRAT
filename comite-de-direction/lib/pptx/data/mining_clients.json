@@ -1,0 +1,46 @@
+{
+  "source": "Liste fournie par Olivier — 18 juin 2026",
+  "description": "Master-list des clients miniers à suivre dans les stats Import + Hinterland. À croiser systématiquement avec exports STATCOM / IRIS / GSL pour qualifier la PDM AGL Mining.",
+  "ci": [
+    { "name": "AGBAOU GOLD OPERATIONS - AGO",      "metier_principal": "TIM/AER",    "flux": "Import matériels miniers" },
+    { "name": "BONIKRO",                           "metier_principal": "TIM",        "flux": "Import matériels miniers + consommables" },
+    { "name": "SOCIETE MINIERE DE LAFIGUE",        "metier_principal": "TIM",        "flux": "Import exploitation aurifère" },
+    { "name": "MINES D'ITY STE",                   "metier_principal": "TIM/AER",    "flux": "Import matériels + pièces détachées" },
+    { "name": "K1 MINING (MONTAGE GOLD)",          "metier_principal": "TIM/AER",    "flux": "Import projet Montage Gold" },
+    { "name": "BUREAU VERITAS CI",                 "metier_principal": "AER",        "flux": "Échantillons / laboratoires" },
+    { "name": "CORICA",                            "metier_principal": "TIM",        "flux": "Manganèse / projets exploration" },
+    { "name": "ROXGOLD SANGO",                     "metier_principal": "TIM",        "flux": "Or — exploration" },
+    { "name": "ENDEAVOUR AVIATION",                "metier_principal": "AER",        "flux": "Aéroportage personnel mines" },
+    { "name": "3G MINING (MONTAGE GOLD)",          "metier_principal": "TIM",        "flux": "Sous-traitance Montage Gold" },
+    { "name": "CMB - COMPAGNIE MINIERE DU BAFING", "metier_principal": "TIM",        "flux": "Import équipements" },
+    { "name": "EQUATORIAL ENGINEERING COTE D'IVOIRE", "metier_principal": "TIM",     "flux": "Engineering pour mines" },
+    { "name": "EXPLORATION AND MINING SUPPLIES",   "metier_principal": "TIM",        "flux": "Fournisseur consommables miniers" },
+    { "name": "EPIROC COTE D'IVOIRE",              "metier_principal": "TIM",        "flux": "Équipementier (forage / drilling)" },
+    { "name": "SOCIETE DES MINES DE LA LOBO",      "metier_principal": "TIM",        "flux": "Or" }
+  ],
+  "hinterland_bf": [
+    { "name": "AUMS BURKINA FASO SARL",            "flux": "Import matériels via corridor Abidjan-Ouaga" },
+    { "name": "SOMISA SA",                         "flux": "Société des Mines de Sanbrado" },
+    { "name": "HOUNDE GOLD OPERATION SA",          "flux": "Or — Endeavour" },
+    { "name": "OREZONE BOMBORE SA",                "flux": "Or — Bombore" },
+    { "name": "BYRNECUT BURKINA FASO SARL",        "flux": "Sous-traitance minière" },
+    { "name": "ESSAKANE BF",                       "flux": "Iamgold Essakane" },
+    { "name": "BURKINA MINING COMPANY SA",         "flux": "Or" },
+    { "name": "WAHGNION GOLD OPERATIONS",          "flux": "Or — Endeavour" },
+    { "name": "SEMAFO BURKINA FASO",               "flux": "Or — Mana / Boungou" },
+    { "name": "TOEGA SA",                          "flux": "Or — projet Toega" },
+    { "name": "UNDERGROUND MINING SERVICES BURKINA", "flux": "Sous-traitance souterraine" }
+  ],
+  "hinterland_mali": [
+    { "name": "BUREAU VERITAS MALI",               "flux": "Laboratoires / analyses" },
+    { "name": "SOMISY SA",                         "flux": "Or — Syama" },
+    { "name": "TOUBANI RESSOURCES",                "flux": "Or — projet Kobada" },
+    { "name": "SAMSUNG",                           "flux": "Matériels lourds via corridor" }
+  ],
+  "totals": {
+    "ci_clients": 15,
+    "bf_clients": 11,
+    "mali_clients": 4,
+    "total_master_list": 30
+  }
+}

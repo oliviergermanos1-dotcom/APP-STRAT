@@ -1338,42 +1338,78 @@ const fmtPdm = (v) => v.toFixed(2).replace('.', ',') + ' %';
   );
 }
 
-// ─── SLIDE 29 – FOCUS MINIER ─────────────────────────────────────────────────
+// ─── SLIDE 29 – FOCUS MINIER (CI) ────────────────────────────────────────────
+// Source : lib/pptx/data/mining_clients.json — Master-list fournie par Olivier.
+const miningData = require('./data/mining_clients.json');
+
 {
   const s = pptx.addSlide();
-  addHeader(s, 'FOCUS SECTORIEL – MINIER  |  Position AGL',
-    'Or, Manganèse, Nickel, Lithium  |  Import matériels + Export minerais  |  28 projets actifs  |  Jan–Mai 2026');
+  addHeader(s, 'FOCUS SECTORIEL – MINIER  |  Master-list Côte d\'Ivoire',
+    `Clients miniers à suivre dans les stats AGL  |  ${miningData.ci.length} comptes CI  |  Or · Manganèse · Nickel · Lithium`);
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.29');
 
-  s.addText('Opérateurs miniers – Flux Abidjan (B/L)', {
-    x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+  s.addText('Master-list Mining CI – à croiser systématiquement avec STATCOM / IRIS / GSL', {
+    x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addRankTable(s, 0.15, 1.5, 6.8,
-    ['Opérateur','Import TEU','Export','AGL'],
-    [
-      ['K1 MINING SA CI','1 840','~120 T','✓ Client #1'],
-      ['SMI (Syama)','480','~80 T','✓ Actif'],
-      ['ENDEAVOUR MINING','420','~65 T','Partiel'],
-      ['NEWCREST (Bonikro)','340','~55 T','Partiel'],
-      ['SAMA NICKEL (SRG)','280','—','✗ Non'],
-      ['IVOIRE MANGANÈSE','230','~180 T','✓ Actif'],
-      ['LITHIUM CÔTE D\'IVOIRE','160','—','✗ Non'],
-    ]
+
+  const half = Math.ceil(miningData.ci.length / 2);
+  const ciCol1 = miningData.ci.slice(0, half).map((c, i) => [
+    `#${i + 1}`, c.name, c.metier_principal, c.flux,
+  ]);
+  const ciCol2 = miningData.ci.slice(half).map((c, i) => [
+    `#${half + i + 1}`, c.name, c.metier_principal, c.flux,
+  ]);
+
+  addRankTable(s, 0.15, 1.55, 6.35,
+    ['#', 'Client CI', 'Métiers', 'Flux'],
+    ciCol1
   );
-  addInsightBox(s, 0.15, 5.4, 6.8, 0.85, '🏆',
-    ['POSITION AGL : AGL = prestataire logistique de référence du secteur minier ivoirien (~58% PDM pondéré). K1 Mining = 1 840 TEU répartis sur 3 métiers. Cible : SAMA Nickel + Lithium CI = +440 TEU. Stratégie : package minier intégré TIM + AÉRIEN + DSM + HINTERLAND.'],
-    'F0FDF4'
+  addRankTable(s, 6.65, 1.55, 6.35,
+    ['#', 'Client CI', 'Métiers', 'Flux'],
+    ciCol2
   );
 
-  s.addText('PDM AGL Matériels Miniers par métier', {
-    x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+  addInsightBox(s, 0.15, 5.55, 12.9, 0.95, '🏆',
+    [`POSITION AGL : ${miningData.ci.length} clients miniers CI à tracker — TIM dominant (matériels, consommables, drilling) + AER (Bureau Veritas, Endeavour Aviation). Cibles d'enrichissement : SAMA Nickel + Lithium CI absents de la master-list = relai prospection 2026. Stratégie : package minier intégré TIM + AÉRIEN + DSM + HINTERLAND avec contrat-cadre par groupe (Endeavour, Montage Gold).`]
+  );
+}
+
+// ─── SLIDE 29B – FOCUS MINIER (HINTERLAND BF + MALI) ─────────────────────────
+{
+  const s = pptx.addSlide();
+  addHeader(s, 'FOCUS SECTORIEL – MINIER  |  Hinterland Burkina Faso & Mali',
+    `Clients miniers hinterland à suivre  |  ${miningData.hinterland_bf.length} comptes BF + ${miningData.hinterland_mali.length} comptes MALI  |  Corridor Abidjan → Ouaga / Bamako`);
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.29b');
+
+  s.addText(`Hinterland Burkina Faso (${miningData.hinterland_bf.length} clients)`, {
+    x: 0.25, y: 1.2, w: 6.35, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  addSegmentBars(s, 7.1, 1.52, [
-    { label: 'TIM – Import Maritime', vol: '2 231 TEU', pdm: 74 },
-    { label: 'Aérien Import',          vol: '515 776 kg', pdm: 61 },
-    { label: 'Hinterland Import',       vol: '600 TEU',   pdm: 50 },
-    { label: 'DSM – Export Minerais',   vol: '~180 T',    pdm: 21 },
+  addRankTable(s, 0.15, 1.5, 6.35,
+    ['#', 'Client BF', 'Activité / Mine'],
+    miningData.hinterland_bf.map((c, i) => [`#${i + 1}`, c.name, c.flux])
+  );
+
+  s.addText(`Hinterland Mali (${miningData.hinterland_mali.length} clients)`, {
+    x: 6.65, y: 1.2, w: 6.35, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+  });
+  addRankTable(s, 6.65, 1.5, 6.35,
+    ['#', 'Client MALI', 'Activité / Mine'],
+    miningData.hinterland_mali.map((c, i) => [`#${i + 1}`, c.name, c.flux])
+  );
+
+  // KPI ventilation
+  s.addText('Ventilation Master-list Mining', {
+    x: 6.65, y: 4.5, w: 6.35, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+  });
+  addSegmentBars(s, 6.65, 4.8, [
+    { label: 'Côte d\'Ivoire',          vol: `${miningData.ci.length} clients`, pdm: Math.round((miningData.ci.length / miningData.totals.total_master_list) * 100) },
+    { label: 'Hinterland Burkina Faso', vol: `${miningData.hinterland_bf.length} clients`, pdm: Math.round((miningData.hinterland_bf.length / miningData.totals.total_master_list) * 100) },
+    { label: 'Hinterland Mali',         vol: `${miningData.hinterland_mali.length} clients`, pdm: Math.round((miningData.hinterland_mali.length / miningData.totals.total_master_list) * 100) },
   ]);
+
+  addInsightBox(s, 0.15, 5.55, 6.35, 0.95, '🎯',
+    [`STRATÉGIE HINTERLAND : ${miningData.hinterland_bf.length + miningData.hinterland_mali.length} clients à conquérir via corridor Abidjan-Ouaga/Bamako. Concentrations : Endeavour Mining (Houndé, Wahgnion, Mana via Semafo), Iamgold (Essakane), Orezone (Bombore). Leviers : trains hinterland AGL + transit douanier optimisé + co-loading matériels lourds (Samsung, Byrnecut, UMS).`]
+  );
 }
 
 // ─── SLIDE 30 – FOCUS AYMAN ──────────────────────────────────────────────────

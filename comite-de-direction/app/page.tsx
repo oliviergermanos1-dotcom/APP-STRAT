@@ -7,16 +7,22 @@ import {
   Sparkles,
 } from "lucide-react";
 import dsmData from "@/lib/pptx/data/dsm.json";
+import miningData from "@/lib/pptx/data/mining_clients.json";
 import { formatPdm, formatTon } from "@/lib/utils";
 
 const KPIS = [
   { label: "Métiers couverts", value: "6", sub: "TIM · TEM · HIMP · HEXP · AER · DSM" },
-  { label: "Slides générées", value: "34", sub: "33 standards + 1 DSM enrichie" },
+  { label: "Slides générées", value: "35", sub: "33 standards + DSM + Mining enrichis" },
   { label: "Marché DSM 2025", value: formatTon(dsmData.armateurs.market_total) + " T", sub: "Import hors PP" },
   {
     label: "PDM AGL consignataire",
     value: formatPdm(dsmData.consignataires.agl_pdm),
     sub: `#${dsmData.consignataires.agl_rank} — ${formatTon(dsmData.consignataires.agl_total)} T`,
+  },
+  {
+    label: "Master-list Mining",
+    value: String(miningData.totals.total_master_list),
+    sub: `${miningData.totals.ci_clients} CI · ${miningData.totals.bf_clients} BF · ${miningData.totals.mali_clients} Mali`,
   },
 ];
 
@@ -46,7 +52,7 @@ export default function Home() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         {KPIS.map((kpi) => (
           <div
             key={kpi.label}
