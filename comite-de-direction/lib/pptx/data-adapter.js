@@ -308,9 +308,42 @@ function buildNouveauxFullData(study, metier) {
   if (!nouveaux || !nouveauxMerch || !nouveauxClients) return null;
 
   const unit = unitOf(metier);
+
+  // Compute insight metrics
+  const totalNouveauxTransit = nouveaux.rows.length;
+  const totalNouvellesMerch = nouveauxMerch.rows.length;
+  const totalNouveauxClients = nouveauxClients.rows.length;
+  const topGr = (topGrowth && topGrowth.rows[0]) || null;
+  const topConquest = (nouveauxClients.rows || [])
+    .map((r) => ({ ...r, upside: Math.max(0, (Number(r.volume_n1_others) || 0) - (Number(r.volume) || 0)) }))
+    .sort((a, b) => b.upside - a.upside)[0] || null;
+  const topUntappedDest = (topDest && topDest.rows ? topDest.rows : [])
+    .filter((r) => (Number(r.pdm_agl) || 0) < 5)
+    .sort((a, b) => (Number(b.volume) || 0) - (Number(a.volume) || 0))[0] || null;
+
   return {
     source: nouveaux.filename,
     unit,
+    metrics: {
+      totalNouveauxTransit,
+      totalNouvellesMerch,
+      totalNouveauxClients,
+      topGrowthName: topGr ? topGr.segment : null,
+      topGrowthDelta: topGr ? topGr.delta_volume : 0,
+      topGrowthDeltaStr: topGr ? fmtInt(topGr.delta_volume) : '0',
+      topGrowthPct: topGr ? topGr.growth_pct : null,
+      topGrowthPdmAgl: topGr ? topGr.pdm_agl : null,
+      topConquestName: topConquest ? topConquest.client : null,
+      topConquestUpside: topConquest ? topConquest.upside : 0,
+      topConquestUpsideStr: topConquest ? fmtInt(topConquest.upside) : '0',
+      topConquestAglVolume: topConquest ? topConquest.volume : 0,
+      topConquestAglVolumeStr: topConquest ? fmtInt(topConquest.volume) : '0',
+      topConquestSegment: topConquest ? topConquest.segment : null,
+      topUntappedName: topUntappedDest ? topUntappedDest.client : null,
+      topUntappedVolume: topUntappedDest ? topUntappedDest.volume : 0,
+      topUntappedVolumeStr: topUntappedDest ? fmtInt(topUntappedDest.volume) : '0',
+      topUntappedPdm: topUntappedDest ? topUntappedDest.pdm_agl : 0,
+    },
     nouveauxTransitaires: nouveaux.rows.slice(0, 5).map((r) => [
       String(r.transitaire || ''),
       fmtInt(Number(r.volume) || 0),

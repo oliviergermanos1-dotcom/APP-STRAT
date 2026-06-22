@@ -128,9 +128,18 @@ function addKpiBar(slide, kpis, y = 1.2) {
 }
 
 // Tableau classement transitaires
-function addRankTable(slide, x, y, w, headers, rows, highlightRow = 0) {
+// firstColMode:
+//   'rank' (default) → narrow 0.45" first column for "#1/#2" labels
+//   'wide'           → equal distribution (when first column is a long label)
+function addRankTable(slide, x, y, w, headers, rows, highlightRow = 0, firstColMode) {
   const rowH = 0.28;
-  const colW = [0.45, ...headers.slice(1).map((_, i) => (w - 0.45) / (headers.length - 1))];
+  // Auto-detect: if header[0] starts with "Rang"/"#"/"N°"/"Num" → rank mode
+  const auto = /^(rang|#|n[°o]\b|num)/i.test(String(headers[0] || '').trim());
+  const mode = firstColMode || (auto ? 'rank' : 'wide');
+  const colW = mode === 'rank'
+    ? [0.45, ...headers.slice(1).map(() => (w - 0.45) / (headers.length - 1))]
+    : headers.map(() => w / headers.length);
+  const nameColIdx = mode === 'rank' ? 1 : 0;
 
   // Header tableau
   slide.addShape(pptx.ShapeType.rect, {
@@ -141,8 +150,10 @@ function addRankTable(slide, x, y, w, headers, rows, highlightRow = 0) {
   headers.forEach((h, i) => {
     slide.addText(h, {
       x: cx + 0.04, y: y + 0.04, w: colW[i] - 0.05, h: rowH - 0.06,
-      fontSize: 9, bold: true, color: WHITE, fontFace: 'Calibri',
-      align: i === 0 ? 'center' : (i === 1 ? 'left' : 'center')
+      fontSize: 8.5, bold: true, color: WHITE, fontFace: 'Calibri',
+      align: i === nameColIdx ? 'left' : 'center',
+      valign: 'middle',
+      wrap: false,
     });
     cx += colW[i];
   });
@@ -158,13 +169,16 @@ function addRankTable(slide, x, y, w, headers, rows, highlightRow = 0) {
     });
     let cx2 = x;
     row.forEach((cell, ci) => {
-      const isAGL = ri === 0 && ci === 1;
+      const isAGL = ri === 0 && ci === nameColIdx;
       slide.addText(String(cell), {
         x: cx2 + 0.04, y: ry + 0.04, w: colW[ci] - 0.05, h: rowH - 0.06,
-        fontSize: 9, bold: isHL && ci <= 1,
+        fontSize: 8.5,
+        bold: isHL && (ci === nameColIdx || ci === (mode === 'rank' ? 0 : nameColIdx)),
         color: isAGL ? GREEN : (isHL && ci === row.length - 1 ? GREEN : DGRAY),
         fontFace: 'Calibri',
-        align: ci === 0 ? 'center' : (ci === 1 ? 'left' : 'center')
+        align: ci === nameColIdx ? 'left' : 'center',
+        valign: 'middle',
+        wrap: false,
       });
       cx2 += colW[ci];
     });
@@ -226,34 +240,42 @@ function addInsightBox(slide, x, y, w, h, emoji, lines, bgColor = 'FFFBEC') {
 function addMensuelBars(slide, x, y, mois, valeurs, seuil = 7.5) {
   const rowH = 0.58;
   const maxBarW = 2.8;
-  const maxVal = Math.max(...valeurs);
+  // Sanitize input → numeric, rounded to 1 decimal, French formatted
+  const cleanVals = valeurs.map((v) => {
+    const n = Number(v) || 0;
+    return Math.round(n * 10) / 10;
+  });
+  const maxVal = Math.max(...cleanVals, 0.0001);
   mois.forEach((m, i) => {
     const ry = y + i * rowH;
-    const v = valeurs[i];
-    const bw = (v / maxVal) * maxBarW;
+    const v = cleanVals[i];
+    const bw = Math.max(0.02, (v / maxVal) * maxBarW);
     const bc = v >= seuil ? GREEN : ORANGE;
 
     slide.addShape(pptx.ShapeType.rect, {
       x, y: ry, w: 6.0, h: rowH - 0.06,
       fill: { color: 'F8FAFC' }, line: { color: 'E5E7EB', width: 0.3 }
     });
-    slide.addText(m, {
-      x: x + 0.12, y: ry + 0.14, w: 0.7, h: 0.3,
-      fontSize: 11, color: DGRAY, fontFace: 'Calibri'
+    slide.addText(String(m).slice(0, 8), {
+      x: x + 0.12, y: ry + 0.14, w: 0.85, h: 0.3,
+      fontSize: 11, color: DGRAY, fontFace: 'Calibri', wrap: false
     });
     // fond barre
     slide.addShape(pptx.ShapeType.rect, {
-      x: x + 0.9, y: ry + 0.14, w: maxBarW, h: 0.22,
+      x: x + 1.05, y: ry + 0.14, w: maxBarW, h: 0.22,
       fill: { color: 'D1D5DB' }, line: { type: 'none' }
     });
     // barre valeur
     slide.addShape(pptx.ShapeType.rect, {
-      x: x + 0.9, y: ry + 0.14, w: bw, h: 0.22,
+      x: x + 1.05, y: ry + 0.14, w: bw, h: 0.22,
       fill: { color: bc }, line: { type: 'none' }
     });
-    slide.addText(`${v}%`, {
-      x: x + 0.9 + maxBarW + 0.06, y: ry + 0.1, w: 0.55, h: 0.3,
-      fontSize: 12, bold: true, color: bc, fontFace: 'Calibri', align: 'right'
+    // label valeur — wider cell + comma decimal + non-wrap
+    const labelText = v.toFixed(1).replace('.', ',') + ' %';
+    slide.addText(labelText, {
+      x: x + 1.05 + maxBarW + 0.08, y: ry + 0.1, w: 0.95, h: 0.3,
+      fontSize: 11, bold: true, color: bc, fontFace: 'Calibri',
+      align: 'left', valign: 'middle', wrap: false
     });
   });
 }
@@ -627,7 +649,8 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
       live.nouveauxClients);
 
     // ─── Row 2 : 2 colonnes "tendances" ─────────────────────────────────────
-    const yRow2 = 4.0;
+    // Compact: top 3 growth + top 7 destinataires to leave room for insight.
+    const yRow2 = 3.65;
 
     // Col gauche — Top 3 marchandises plus forte hausse
     s.addText('Top 3 marchandises — plus forte hausse vs N-1 même période', {
@@ -637,18 +660,45 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
       ['Marchandise', 'TEU N', 'TEU N-1', 'Δ', 'Croissance', 'PDM AGL'],
       live.topGrowth.length > 0 ? live.topGrowth : [['—', '—', '—', '—', '—', '—']]);
 
-    // Col droite — Top 10 destinataires (tous transitaires) + PDM AGL
-    s.addText('Top 10 destinataires (tous transitaires) — part AGL', {
+    // Col droite — Top 5 destinataires (tous transitaires) + PDM AGL
+    s.addText('Top 5 destinataires (tous transitaires) — part AGL', {
       x: x3, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
     });
     addRankTable(s, x3, yRow2 + 0.27, colW,
       ['Destinataire', 'TEU marché', 'TEU AGL', 'PDM AGL'],
-      live.topDestinataires);
+      live.topDestinataires.slice(0, 5));
 
-    // Bandeau insight
-    addInsightBox(s, 0.15, 6.85, 12.9, 0.4, '💡',
-      [`Nouveaux entrants identifiés via croisement vs N-1 année complète (filtre faux-nouveaux). Top hausses calculées sur même période N vs N-1.`]
+    // Bandeau insight — enrichi avec actions data-driven
+    const M = live.metrics;
+    const insightLines = [];
+    // Ligne 1 : volumétrie nouveaux
+    insightLines.push(
+      `📊 ${M.totalNouveauxTransit} nouveaux transitaires · ${M.totalNouvellesMerch} nouvelles marchandises · ${M.totalNouveauxClients} nouveaux clients AGL (croisés vs toute l'année N-1)`
     );
+    // Ligne 2 : top hausse
+    if (M.topGrowthName && M.topGrowthDelta > 0) {
+      const pdmInfo = M.topGrowthPdmAgl != null
+        ? (M.topGrowthPdmAgl < 5
+            ? `PDM AGL ${M.topGrowthPdmAgl}% — fort potentiel à capter`
+            : `PDM AGL ${M.topGrowthPdmAgl}% — position à consolider`)
+        : '';
+      insightLines.push(
+        `📈 PLUS FORTE HAUSSE : ${M.topGrowthName} (+${M.topGrowthDeltaStr} ${live.unit}${M.topGrowthPct != null ? `, +${M.topGrowthPct}%` : ''}) · ${pdmInfo}`
+      );
+    }
+    // Ligne 3 : conquête prioritaire
+    if (M.topConquestName && M.topConquestUpside > 0) {
+      insightLines.push(
+        `🎯 CONQUÊTE #1 : ${M.topConquestName} — déjà ${M.topConquestAglVolumeStr} ${live.unit} chez AGL, reste ${M.topConquestUpsideStr} ${live.unit} à capter chez la concurrence`
+      );
+    }
+    // Ligne 4 : opportunité non exploitée
+    if (M.topUntappedName && M.topUntappedVolume > 0) {
+      insightLines.push(
+        `⚠ DESTINATAIRE NON CAPTÉ : ${M.topUntappedName} (${M.topUntappedVolumeStr} ${live.unit} marché, AGL ${M.topUntappedPdm}%) — cible commerciale prioritaire`
+      );
+    }
+    addInsightBox(s, 0.15, 5.70, 12.9, 1.40, '💡', insightLines);
   } else {
     // ─── FALLBACK : layout v1 inchangé (byte-identique référence) ──────────
     s.addText('Nouveaux transitaires TIM (rangs 11–15)', {
@@ -859,34 +909,115 @@ addSeparator('02', 'TRANSIT EXPORT MARITIME (TEM)', '137 283 TEU  |  PDM AGL : 2
   });
 }
 
-// ─── SLIDE 12 – TEM NOUVEAUX CHARGEURS ──────────────────────────────────────
-// TODO: cross-référencer study.n1Runs pour annoter les verdicts (en revue).
+// ─── SLIDE 12 – TEM NOUVEAUX CHARGEURS + TENDANCES ─────────────────────────
+// LIVE layout (5 sections, exactement comme slide 7 mais col 3 = Chargeurs).
+// FALLBACK : layout v1 inchangé.
 {
   const s = pptx.addSlide();
-  const live = dataAdapter.buildNouveauxData(study, 'TEM');
-  addHeader(s, 'TEM – NOUVEAUX CHARGEURS & NOUVELLES FILIÈRES',
-    'Chargeurs entrés en 2026  |  Nouvelles filières export AGL  |  Opportunité Cajou');
+  const live = dataAdapter.buildNouveauxFullData(study, 'TEM');
+  if (live) {
+    addHeader(s, 'TEM – NOUVEAUX CHARGEURS & TENDANCES',
+      `Vrais nouveaux entrants (croisés vs toute l'année N-1) · Top hausses & chargeurs · ${live.source}`);
+  } else {
+    addHeader(s, 'TEM – NOUVEAUX CHARGEURS & NOUVELLES FILIÈRES',
+      'Chargeurs entrés en 2026  |  Nouvelles filières export AGL  |  Opportunité Cajou');
+  }
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.11');
 
-  s.addText('Nouveaux chargeurs AGL – TEM 2026', {
-    x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  const temNouveauxRows = live && live.rows.length ? live.rows.map((r) => [r[1], r[2], r[4], r[0]]) : [
-    ['CI-ÉNERGIES','890','Caoutchouc','Q1 2026'],
-    ['SITA GROUP','760','Mangue / Fruits','Q1 2026'],
-    ['COOPERX CAJOU CI','640','Noix de Cajou','Q2 2026'],
-    ['SECO INDUSTRIE','520','Caoutchouc usiné','Q2 2026'],
-    ['OLAM PALM','410','Huile de Palme','Q1 2026'],
-  ];
-  addRankTable(s, 0.15, 1.5, 6.8,
-    ['Chargeur','TEU','Filière','Entrée'], temNouveauxRows);
-  s.addText('Nouvelles filières export – PDM AGL', {
-    x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addSegmentBars(s, 7.1, 1.52, [
-    { label: 'Huile de Palme', vol: 'Mkt: 1 420 TEU', pdm: 8 },
-    { label: 'Cola',           vol: 'Mkt: 980 TEU',   pdm: 12 },
-  ]);
+  if (live) {
+    // ─── Row 1 : 3 colonnes "nouveaux" ──────────────────────────────────────
+    const colW = 4.2, gap = 0.15, x0 = 0.15;
+    const x1 = x0;
+    const x2 = x0 + colW + gap;
+    const x3 = x0 + (colW + gap) * 2;
+    const yTitle = 1.18, yTable = 1.45;
+
+    s.addText('Nouveaux transitaires (absents de tout N-1)', {
+      x: x1, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yTable, colW,
+      ['Transitaire', 'TEU', 'PDM'],
+      live.nouveauxTransitaires);
+
+    s.addText('Nouvelles filières / marchandises (jamais vues en N-1)', {
+      x: x2, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x2, yTable, colW,
+      ['Marchandise', 'TEU marché', 'PDM AGL'],
+      live.nouveauxMarchandises);
+
+    s.addText('Nouveaux chargeurs AGL — opportunité de conquête', {
+      x: x3, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yTable, colW,
+      ['Chargeur', 'TEU AGL', 'TEU N-1 (autres)'],
+      live.nouveauxClients);
+
+    // ─── Row 2 : 2 colonnes "tendances" ─────────────────────────────────────
+    const yRow2 = 3.65;
+    s.addText('Top 3 marchandises — plus forte hausse vs N-1 même période', {
+      x: x1, y: yRow2, w: colW + gap + colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yRow2 + 0.27, colW + gap + colW,
+      ['Marchandise', 'TEU N', 'TEU N-1', 'Δ', 'Croissance', 'PDM AGL'],
+      live.topGrowth.length > 0 ? live.topGrowth : [['—', '—', '—', '—', '—', '—']]);
+
+    s.addText('Top 5 chargeurs (tous transitaires) — part AGL', {
+      x: x3, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yRow2 + 0.27, colW,
+      ['Chargeur', 'TEU marché', 'TEU AGL', 'PDM AGL'],
+      live.topDestinataires.slice(0, 5));
+
+    // Bandeau insight — enrichi avec actions data-driven
+    const M = live.metrics;
+    const insightLines = [];
+    insightLines.push(
+      `📊 ${M.totalNouveauxTransit} nouveaux transitaires · ${M.totalNouvellesMerch} nouvelles marchandises · ${M.totalNouveauxClients} nouveaux chargeurs AGL (croisés vs toute l'année N-1)`
+    );
+    if (M.topGrowthName && M.topGrowthDelta > 0) {
+      const pdmInfo = M.topGrowthPdmAgl != null
+        ? (M.topGrowthPdmAgl < 5
+            ? `PDM AGL ${M.topGrowthPdmAgl}% — fort potentiel à capter`
+            : `PDM AGL ${M.topGrowthPdmAgl}% — position à consolider`)
+        : '';
+      insightLines.push(
+        `📈 PLUS FORTE HAUSSE : ${M.topGrowthName} (+${M.topGrowthDeltaStr} ${live.unit}${M.topGrowthPct != null ? `, +${M.topGrowthPct}%` : ''}) · ${pdmInfo}`
+      );
+    }
+    if (M.topConquestName && M.topConquestUpside > 0) {
+      insightLines.push(
+        `🎯 CONQUÊTE #1 : ${M.topConquestName} — déjà ${M.topConquestAglVolumeStr} ${live.unit} chez AGL, reste ${M.topConquestUpsideStr} ${live.unit} à capter chez la concurrence`
+      );
+    }
+    if (M.topUntappedName && M.topUntappedVolume > 0) {
+      insightLines.push(
+        `⚠ CHARGEUR NON CAPTÉ : ${M.topUntappedName} (${M.topUntappedVolumeStr} ${live.unit} marché, AGL ${M.topUntappedPdm}%) — cible commerciale prioritaire`
+      );
+    }
+    addInsightBox(s, 0.15, 5.70, 12.9, 1.40, '💡', insightLines);
+  } else {
+    // ─── FALLBACK : layout v1 inchangé ──────────────────────────────────────
+    s.addText('Nouveaux chargeurs AGL – TEM 2026', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 6.8,
+      ['Chargeur','TEU','Filière','Entrée'],
+      [
+        ['CI-ÉNERGIES','890','Caoutchouc','Q1 2026'],
+        ['SITA GROUP','760','Mangue / Fruits','Q1 2026'],
+        ['COOPERX CAJOU CI','640','Noix de Cajou','Q2 2026'],
+        ['SECO INDUSTRIE','520','Caoutchouc usiné','Q2 2026'],
+        ['OLAM PALM','410','Huile de Palme','Q1 2026'],
+      ]);
+    s.addText('Nouvelles filières export – PDM AGL', {
+      x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addSegmentBars(s, 7.1, 1.52, [
+      { label: 'Huile de Palme', vol: 'Mkt: 1 420 TEU', pdm: 8 },
+      { label: 'Cola',           vol: 'Mkt: 980 TEU',   pdm: 12 },
+    ]);
+  }
 }
 
 // ─── SLIDE 13 – SÉPARATEUR HINTERLAND IMPORT ─────────────────────────────────
