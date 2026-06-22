@@ -33,7 +33,8 @@ function isAgl(name) {
 }
 
 function unitOf(metier) {
-  if (metier === 'AER') return 'kg';
+  // AER volumes are converted from kg to tonnes in the parser → display 'T'.
+  if (metier === 'AER') return 'T';
   if (metier === 'DSM') return 'T';
   return 'TEU';
 }

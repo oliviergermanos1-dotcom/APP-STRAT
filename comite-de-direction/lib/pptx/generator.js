@@ -1459,16 +1459,16 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
   const live = dataAdapter.buildOverviewData(study, 'AER');
   addHeader(s, 'AÉRIEN IMPORT – VUE D\'ENSEMBLE  |  Jan–Mai 2025 vs 2026',
     live
-      ? `Marché qualifié : ${live.kpis.marche} kg  |  AGL : ${live.kpis.agl} kg  |  PDM ${live.kpis.pdm} (Rang #${live.aglRank || '—'})`
+      ? `Marché qualifié : ${live.kpis.marche} T  |  AGL : ${live.kpis.agl} T  |  PDM ${live.kpis.pdm} (Rang #${live.aglRank || '—'})`
       : 'Marché qualifié : +1,5% vs 2025  |  AGL #1 ABSOLU – PDM 20,8%  |  Montée en puissance Jan→Mai');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.17');
 
   if (live) {
     addKpiBar(s, [
-      { label: 'Marché qualifié 2025', value: '5 521 T',  sub: 'Jan–Mai 2025 (réf.)' },
-      { label: 'Marché qualifié',      value: live.kpis.marche + ' kg', sub: 'période courante' },
-      { label: 'AGL période',          value: live.kpis.agl + ' kg', sub: `Rang #${live.aglRank || '—'}`, color: GREEN },
+      { label: 'Marché qualifié',      value: live.kpis.marche + ' T', sub: 'période courante' },
+      { label: 'Volume AGL',           value: live.kpis.agl + ' T', sub: `Rang #${live.aglRank || '—'}`, color: GREEN },
       { label: 'PDM AGL',              value: live.kpis.pdm, sub: 'période courante', color: GREEN, big: true },
+      { label: live.secondName ? `Écart vs #2 ${live.secondName.slice(0,12)}` : 'Écart vs #2', value: live.kpis.ecart + ' T', sub: 'd\'écart', color: live.ecart >= 0 ? GREEN : RED },
       { label: 'Cumul PDM TOP 4',      value: live.kpis.top4, sub: 'leaders cumul.', color: BLUE2 },
     ]);
   } else {
@@ -1483,14 +1483,14 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
 
   const chartData = live && live.monthlyMarket
     ? [
-        { name: 'Marché qualifié (kg)', labels: live.monthLabels, values: live.monthlyMarket },
-        { name: 'AGL (kg)',             labels: live.monthLabels, values: live.monthlyAgl },
+        { name: 'Marché qualifié (T)', labels: live.monthLabels, values: live.monthlyMarket },
+        { name: 'AGL (T)',             labels: live.monthLabels, values: live.monthlyAgl },
       ]
     : [
         { name: 'Marché 2025 (kg)', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [1180000,1020000,1100000,1150000,1071000] },
         { name: 'Marché 2026 (kg)', labels: ['Janv.','Févr.','Mars','Avr.','Mai'], values: [1220000,1050000,1130000,1050000,1153000] },
       ];
-  s.addText('Marché aérien import qualifié (kg) – 2025 vs 2026', {
+  s.addText(live ? 'Marché aérien import qualifié (T) – mensuel' : 'Marché aérien import qualifié (kg) – 2025 vs 2026', {
     x: 0.25, y: 2.28, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
   addBarChart(s, 0.15, 2.55, 6.8, 4.3, chartData, [NAVY, GOLD]);
@@ -1518,24 +1518,34 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
     'Évolution marchandises  |  Classement transitaires qualifiés  |  PDM AGL par filière');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.18');
 
-  s.addText('Top marchandises – évolution 2025 vs 2026 (kg)', {
-    x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 0.15, 1.5, 6.8,
-    ['Marchandise','2025','2026','Var.%'],
-    [
-      ['OEUFS','1 483 700','1 883 317','+26,9%'],
-      ['MATÉRIELS MINIERS','149 783','515 776','+244,3%'],
-      ['MACHINES','255 984','486 785','+90,2%'],
-      ['MÉDICAMENTS','280 991','337 882','+20,2%'],
-      ['BILLETS DE BANQUE','268 210','330 706','+23,3%'],
-      ['TÉLÉCOMS','113 602','182 071','+60,3%'],
-      ['MATÉRIELS ÉLECTRIQUE','64 622','158 887','+145,9%'],
-      ['PIÈCES DÉTACHÉES','1 181 203','942 926','–20,2%'],
-      ['PRODUITS CHIMIQUES','207 323','189 901','–8,4%'],
-      ['FRUITS & LÉGUMES','154 253','115 798','–24,9%'],
-    ]
-  );
+  const aerSegLive = dataAdapter.buildConcurrentsData(study, 'AER');
+  if (aerSegLive && aerSegLive.segmentBars) {
+    s.addText('Top marchandises aérien (T) – PDM AGL', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 6.8,
+      ['Marchandise', 'T marché', 'PDM AGL'],
+      aerSegLive.segmentBars.slice(0, 10).map((b) => [b.label, b.vol.replace(' T', ''), b.pdm + ' %']));
+  } else {
+    s.addText('Top marchandises – évolution 2025 vs 2026 (kg)', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 6.8,
+      ['Marchandise','2025','2026','Var.%'],
+      [
+        ['OEUFS','1 483 700','1 883 317','+26,9%'],
+        ['MATÉRIELS MINIERS','149 783','515 776','+244,3%'],
+        ['MACHINES','255 984','486 785','+90,2%'],
+        ['MÉDICAMENTS','280 991','337 882','+20,2%'],
+        ['BILLETS DE BANQUE','268 210','330 706','+23,3%'],
+        ['TÉLÉCOMS','113 602','182 071','+60,3%'],
+        ['MATÉRIELS ÉLECTRIQUE','64 622','158 887','+145,9%'],
+        ['PIÈCES DÉTACHÉES','1 181 203','942 926','–20,2%'],
+        ['PRODUITS CHIMIQUES','207 323','189 901','–8,4%'],
+        ['FRUITS & LÉGUMES','154 253','115 798','–24,9%'],
+      ]
+    );
+  }
 
   s.addText('Classement transitaires – Aérien Import 2026 (qualifié)', {
     x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
@@ -1556,7 +1566,7 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
   const aerAglHighlight = aerConcurrentsLive && aerConcurrentsLive.aglRowIdx >= 0 && aerConcurrentsLive.aglRowIdx < 10
     ? aerConcurrentsLive.aglRowIdx : 0;
   addRankTable(s, 7.0, 1.5, 6.2,
-    ['Rang','Transitaire','Poids kg','PDM'], aerConcurrentsRows, aerAglHighlight);
+    ['Rang','Transitaire', aerConcurrentsLive ? 'Poids T' : 'Poids kg','PDM'], aerConcurrentsRows, aerAglHighlight);
   addInsightBox(s, 0.15, 5.38, 12.9, 0.85, '🏆',
     [aerConcurrentsLive
       ? `AGL ${aerConcurrentsLive.aglRowIdx === 0 ? 'leader' : `#${aerConcurrentsLive.aglRowIdx + 1}`} aérien import. Données : ${aerConcurrentsLive.source}.`
@@ -1572,7 +1582,7 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
     'Top 10 destinataires  |  Mix produits  |  Risques & leviers de croissance');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.19');
 
-  s.addText('Top 10 clients AGL – Aérien Import (Destinataires, kg)', {
+  s.addText(live ? 'Top 10 clients AGL – Aérien Import (Destinataires, T)' : 'Top 10 clients AGL – Aérien Import (Destinataires, kg)', {
     x: 0.25, y: 1.2, w: 7.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
   const aerClienteleRows = live ? live.rows : [
@@ -1588,7 +1598,7 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
     ['FOXTROT INTERNATIONAL','18 721','Pétrole','1,6%'],
   ];
   addRankTable(s, 0.15, 1.5, 7.0,
-    ['Client (Destinataire)','Poids (kg)','Segment','% Vol. AGL'], aerClienteleRows);
+    ['Client (Destinataire)', live ? 'Poids (T)' : 'Poids (kg)','Segment','% Vol. AGL'], aerClienteleRows);
   addInsightBox(s, 0.15, 5.3, 7.0, 1.05, '⚠',
     live
       ? [`Top client : ${live.topClient} = ${live.topClientShare} du volume AGL aérien.`,
@@ -1618,50 +1628,121 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
   });
 }
 
-// ─── SLIDE 24 – AÉRIEN NOUVEAUX ENTRANTS ──────────────────────────────────────
-// TODO: cross-référencer study.n1Runs pour annoter les verdicts (en revue).
+// ─── SLIDE 24 – AÉRIEN NOUVEAUX ENTRANTS + TENDANCES ─────────────────────────
+// LIVE layout (5 sections, comme slide 7 ; volumes en tonnes).
+// FALLBACK : layout v1 inchangé.
 {
   const s = pptx.addSlide();
-  const live = dataAdapter.buildNouveauxData(study, 'AER');
-  addHeader(s, 'AÉRIEN IMPORT – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
-    'Transitaires entrants  |  Nouvelles marchandises en croissance  |  Récupération clients Transit-Coss');
+  const live = dataAdapter.buildNouveauxFullData(study, 'AER');
+  if (live) {
+    addHeader(s, 'AÉRIEN IMPORT – NOUVEAUX ENTRANTS & TENDANCES',
+      `Vrais nouveaux entrants (croisés vs toute l'année N-1) · Top hausses & destinataires · ${live.source}`);
+  } else {
+    addHeader(s, 'AÉRIEN IMPORT – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
+      'Transitaires entrants  |  Nouvelles marchandises en croissance  |  Récupération clients Transit-Coss');
+  }
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.24');
 
-  s.addText('Nouveaux transitaires – Aérien Import 2026', {
-    x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  const aerNouveauxRows = live && live.rows.length ? live.rows.map((r) => [r[1], r[2], r[4], r[0]]) : [
-    ['FRET INTER CI','94 200','Alimentaire','Q1 2026'],
-    ['SOTRA FRET','78 400','Pièces détachées','Q2 2026'],
-  ];
-  addRankTable(s, 0.15, 1.5, 6.8,
-    ['Transitaire','Poids kg','Spécialité','Entrée'], aerNouveauxRows);
-  s.addText('Marchandises en forte croissance 2025 → 2026', {
-    x: 0.25, y: 2.95, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 0.15, 3.25, 6.8,
-    ['Marchandise','2026 (kg)','Var. %','PDM AGL'],
-    [
-      ['ŒUFS','1 883 317','+26,9 %','1 %'],
-      ['MATÉRIELS MINIERS','515 776','+244,3 %','61 %'],
-      ['MACHINES','486 785','+90,2 %','—'],
-      ['TÉLÉCOMS','182 071','+60,3 %','33 %'],
-      ['MATÉR. ÉLECTRIQUES','158 887','+145,9 %','—'],
-    ]
-  );
+  if (live) {
+    const colW = 4.2, gap = 0.15, x0 = 0.15;
+    const x1 = x0, x2 = x0 + colW + gap, x3 = x0 + (colW + gap) * 2;
+    const yTitle = 1.18, yTable = 1.45;
 
-  s.addText('Opportunités prioritaires – PDM AGL actuelle', {
-    x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addSegmentBars(s, 7.1, 1.55, [
-    { label: 'ŒUFS (cible 8%)',       vol: '1 883 317 kg', pdm: 1 },
-    { label: 'TÉLÉCOMS (Orange+MTN)', vol: '182 071 kg',   pdm: 33 },
-    { label: 'MAT. MINIERS (K1)',      vol: '515 776 kg',   pdm: 61 },
-    { label: 'PIÈCES DÉTACHÉES',       vol: '942 926 kg',   pdm: 8 },
-  ]);
-  addInsightBox(s, 7.1, 4.2, 6.0, 1.05, '🎯',
-    ['LEVIERS : Œufs : +26,9% de marché, AGL à 1% → cible 8% = +130 T/an. Transit-Coss en chute de –60% (696K→274K kg) : accélérer la captation de ses clients. Contrats cadres Télécoms 2027 à sécuriser dès maintenant.']
-  );
+    s.addText('Nouveaux transitaires (absents de tout N-1)', {
+      x: x1, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yTable, colW,
+      ['Transitaire', 'T', 'PDM'], live.nouveauxTransitaires);
+
+    s.addText('Nouvelles marchandises (jamais vues en N-1)', {
+      x: x2, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x2, yTable, colW,
+      ['Marchandise', 'T marché', 'PDM AGL'], live.nouveauxMarchandises);
+
+    s.addText('Nouveaux destinataires AGL — opportunité de conquête', {
+      x: x3, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yTable, colW,
+      ['Destinataire', 'T AGL', 'T N-1 (autres)'], live.nouveauxClients);
+
+    const yRow2 = 3.65;
+    s.addText('Top 3 marchandises — plus forte hausse vs N-1 même période', {
+      x: x1, y: yRow2, w: colW + gap + colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yRow2 + 0.27, colW + gap + colW,
+      ['Marchandise', 'T N', 'T N-1', 'Δ', 'Croissance', 'PDM AGL'],
+      live.topGrowth.length > 0 ? live.topGrowth : [['—', '—', '—', '—', '—', '—']]);
+
+    s.addText('Top 5 destinataires (tous transitaires) — part AGL', {
+      x: x3, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yRow2 + 0.27, colW,
+      ['Destinataire', 'T marché', 'T AGL', 'PDM AGL'],
+      live.topDestinataires.slice(0, 5));
+
+    const M = live.metrics;
+    const insightLines = [];
+    insightLines.push(
+      `📊 ${M.totalNouveauxTransit} nouveaux transitaires · ${M.totalNouvellesMerch} nouvelles marchandises · ${M.totalNouveauxClients} nouveaux destinataires AGL (croisés vs toute l'année N-1)`
+    );
+    if (M.topGrowthName && M.topGrowthDelta > 0) {
+      const pdmInfo = M.topGrowthPdmAgl != null
+        ? (M.topGrowthPdmAgl < 5
+            ? `PDM AGL ${M.topGrowthPdmAgl}% — fort potentiel à capter`
+            : `PDM AGL ${M.topGrowthPdmAgl}% — position à consolider`)
+        : '';
+      insightLines.push(
+        `📈 PLUS FORTE HAUSSE : ${M.topGrowthName} (+${M.topGrowthDeltaStr} ${live.unit}${M.topGrowthPct != null ? `, +${M.topGrowthPct}%` : ''}) · ${pdmInfo}`
+      );
+    }
+    if (M.topConquestName && M.topConquestUpside > 0) {
+      insightLines.push(
+        `🎯 CONQUÊTE #1 : ${M.topConquestName} — déjà ${M.topConquestAglVolumeStr} ${live.unit} chez AGL, reste ${M.topConquestUpsideStr} ${live.unit} à capter chez la concurrence`
+      );
+    }
+    if (M.topUntappedName && M.topUntappedVolume > 0) {
+      insightLines.push(
+        `⚠ DESTINATAIRE NON CAPTÉ : ${M.topUntappedName} (${M.topUntappedVolumeStr} ${live.unit} marché, AGL ${M.topUntappedPdm}%) — cible commerciale prioritaire`
+      );
+    }
+    addInsightBox(s, 0.15, 5.70, 12.9, 1.40, '💡', insightLines);
+  } else {
+    s.addText('Nouveaux transitaires – Aérien Import 2026', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 6.8,
+      ['Transitaire','Poids kg','Spécialité','Entrée'],
+      [
+        ['FRET INTER CI','94 200','Alimentaire','Q1 2026'],
+        ['SOTRA FRET','78 400','Pièces détachées','Q2 2026'],
+      ]);
+    s.addText('Marchandises en forte croissance 2025 → 2026', {
+      x: 0.25, y: 2.95, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 3.25, 6.8,
+      ['Marchandise','2026 (kg)','Var. %','PDM AGL'],
+      [
+        ['ŒUFS','1 883 317','+26,9 %','1 %'],
+        ['MATÉRIELS MINIERS','515 776','+244,3 %','61 %'],
+        ['MACHINES','486 785','+90,2 %','—'],
+        ['TÉLÉCOMS','182 071','+60,3 %','33 %'],
+        ['MATÉR. ÉLECTRIQUES','158 887','+145,9 %','—'],
+      ]
+    );
+    s.addText('Opportunités prioritaires – PDM AGL actuelle', {
+      x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addSegmentBars(s, 7.1, 1.55, [
+      { label: 'ŒUFS (cible 8%)',       vol: '1 883 317 kg', pdm: 1 },
+      { label: 'TÉLÉCOMS (Orange+MTN)', vol: '182 071 kg',   pdm: 33 },
+      { label: 'MAT. MINIERS (K1)',      vol: '515 776 kg',   pdm: 61 },
+      { label: 'PIÈCES DÉTACHÉES',       vol: '942 926 kg',   pdm: 8 },
+    ]);
+    addInsightBox(s, 7.1, 4.2, 6.0, 1.05, '🎯',
+      ['LEVIERS : Œufs : +26,9% de marché, AGL à 1% → cible 8% = +130 T/an. Transit-Coss en chute de –60% (696K→274K kg) : accélérer la captation de ses clients. Contrats cadres Télécoms 2027 à sécuriser dès maintenant.']
+    );
+  }
 }
 
 // ─── SLIDE 25 – SÉPARATEUR DSM ────────────────────────────────────────────────

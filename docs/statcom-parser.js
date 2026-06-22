@@ -97,7 +97,9 @@ function detectSchema(headers, metier) {
       yearKey: 'Année escale',
       monthKey: 'Mois escale',
       monthIsNumeric: true,
-      unit: 'kg',
+      // Poids marchandise is in kg → convert to tonnes for readability.
+      unit: 'T',
+      volumeDivisor: 1000,
     };
   }
   return {
@@ -204,7 +206,7 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
       destinataire: String(r['Destinataire'] || '').trim(),
       chargeur: String(r['Chargeur'] || '').trim(),
       marchandise: String(r[sch.merchKey] || '').trim(),
-      volume: Number(r[sch.volumeKey]) || 0,
+      volume: (Number(r[sch.volumeKey]) || 0) / (sch.volumeDivisor || 1),
       mois: monthLabel(r[sch.monthKey], sch.monthIsNumeric),
       annee: r[sch.yearKey] != null ? Number(r[sch.yearKey]) : null,
       range: String(r['Range'] || '').trim(),
