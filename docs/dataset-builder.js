@@ -15,8 +15,9 @@
 //   - nouveaux        (rank 11-15 fallback OR true newcomers if N-1 supplied)
 //   - referentiel_n1  (full N-1 aggregate for downstream N-1 validation)
 
-const MONTHS_FR_B = window.STATCOM.MONTHS_FR;
-const isAglB = window.STATCOM.isAgl;
+const _ctx = (typeof self !== 'undefined') ? self : window;
+const MONTHS_FR_B = _ctx.STATCOM.MONTHS_FR;
+const isAglB = _ctx.STATCOM.isAgl;
 
 function monthIndex(monthName) {
   return MONTHS_FR_B.indexOf(monthName) + 1; // 1..12 or 0 if not found
@@ -262,4 +263,4 @@ function buildDatasets(args) {
   };
 }
 
-window.buildDatasets = buildDatasets;
+_ctx.buildDatasets = buildDatasets;

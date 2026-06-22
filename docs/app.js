@@ -31,9 +31,10 @@ const state = {
   statcomMeta: {},
 };
 
-// Raw kept rows (per metier+scope), in-memory only — too big for localStorage.
-// Lost on page refresh; user re-uploads.
-const rowsCache = {}; // rowsCache[`${metier}|${scope}`] = [...rows]
+// Set of keys (metier|scope) whose rows are currently live in the worker.
+// Worker holds the actual data; main thread only tracks which keys are warm.
+// Lost on page refresh (worker dies with the tab) — user re-uploads.
+const workerKeys = new Set();
 
 // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
 function saveState() {
@@ -60,43 +61,60 @@ function loadState() {
 }
 
 // ─── STATCOM UPLOAD ──────────────────────────────────────────────────────────
-// Pool of Web Workers (1 per active parse) to keep the UI thread free.
-// onProgress receives { phase: 'parsing' | 'encoding' } so the tile can
-// reflect the current step without re-rendering the whole grid.
-function parseInWorker(buffer, metier, filename, opts, onProgress) {
+// ─── Persistent worker + RPC ────────────────────────────────────────────────
+// One stateful worker owns the giant kept[] arrays. We only exchange small
+// payloads (metadata, derived datasets) across the thread boundary.
+let _worker = null;
+const _pending = new Map(); // id → { resolve, reject, onProgress }
+
+function getWorker() {
+  if (_worker) return _worker;
+  _worker = new Worker('./parser-worker.js?v=20260618d');
+  _worker.onmessage = (e) => {
+    const msg = e.data;
+    const p = _pending.get(msg.id);
+    if (!p) return;
+    if (msg.kind === 'progress') {
+      if (p.onProgress) p.onProgress(msg.phase);
+      return;
+    }
+    _pending.delete(msg.id);
+    if (msg.ok) p.resolve(msg);
+    else p.reject(new Error(msg.error || 'Worker error'));
+  };
+  _worker.onerror = (e) => {
+    console.error('Worker error', e);
+  };
+  return _worker;
+}
+
+function callWorker(message, transfer, onProgress) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker('./parser-worker.js?v=20260618c');
     const id = Math.random().toString(36).slice(2);
-    worker.onmessage = (e) => {
-      const msg = e.data;
-      if (msg.kind === 'progress') {
-        if (onProgress) onProgress(msg.phase);
-        return;
-      }
-      worker.terminate();
-      if (msg.ok) {
-        try {
-          // JSON.parse is implemented in C++ and is much faster than
-          // structured-clone for 50k+ row objects.
-          resolve(JSON.parse(msg.json));
-        } catch (err) {
-          reject(err);
-        }
-      } else {
-        reject(new Error(msg.error));
-      }
-    };
-    worker.onerror = (e) => {
-      worker.terminate();
-      reject(new Error(e.message || 'Worker error'));
-    };
-    // Transfer the ArrayBuffer (no copy) — much faster for big files.
-    worker.postMessage({ id, buffer, metier, filename, opts }, [buffer]);
+    _pending.set(id, { resolve, reject, onProgress });
+    getWorker().postMessage({ id, ...message }, transfer || []);
   });
 }
 
+function workerParse(key, buffer, metier, filename, opts, onProgress) {
+  return callWorker(
+    { kind: 'parse', key, buffer, metier, filename, opts },
+    [buffer],
+    onProgress,
+  );
+}
+
+function workerForget(key) {
+  return callWorker({ kind: 'forget', key });
+}
+
+function workerBuild(metierKeys, period) {
+  return callWorker({ kind: 'build', metierKeys, period });
+}
+
 async function handleStatcomUpload(metier, scope, file) {
-  const tile = document.querySelector(`[data-tile="${metier}|${scope}"]`);
+  const key = `${metier}|${scope}`;
+  const tile = document.querySelector(`[data-tile="${key}"]`);
   setTileBusy(tile, `Parsing ${file.name} en arrière-plan… (l'interface reste fluide)`);
 
   try {
@@ -107,25 +125,25 @@ async function handleStatcomUpload(metier, scope, file) {
       excludeSirSmbTransitaire:  document.getElementById('filter-sir-transit').checked,
       excludeSirSmbDestinataire: document.getElementById('filter-sir-dest').checked,
     };
-    const result = await parseInWorker(buffer, metier, file.name, filterOpts, (phase) => {
-      const t = document.querySelector(`[data-tile="${metier}|${scope}"]`);
+
+    const reply = await workerParse(key, buffer, metier, file.name, filterOpts, (phase) => {
+      const t = document.querySelector(`[data-tile="${key}"]`);
       if (!t) return;
-      const label = phase === 'parsing'
-        ? `Parsing ${file.name} en arrière-plan…`
-        : `Encodage des données (~5s)…`;
-      setTileBusy(t, label);
+      setTileBusy(t, `Parsing ${file.name}… (${phase})`);
     });
 
-    rowsCache[`${metier}|${scope}`] = result.kept;
-    state.statcomMeta[`${metier}|${scope}`] = {
+    // Mark this key as "live in worker"
+    workerKeys.add(key);
+
+    state.statcomMeta[key] = {
       filename: file.name,
       uploadedAt: new Date().toISOString(),
-      rowCount: result.rowCount,
-      keptCount: result.keptCount,
-      dropped: result.dropped,
-      market: result.market,
-      schema: result.schema,
-      unit: result.unit,
+      rowCount: reply.metadata.rowCount,
+      keptCount: reply.metadata.keptCount,
+      dropped: reply.metadata.dropped,
+      market: reply.metadata.market,
+      schema: reply.metadata.schema,
+      unit: reply.metadata.unit,
       filters: filterOpts,
     };
     saveState();
@@ -138,18 +156,23 @@ async function handleStatcomUpload(metier, scope, file) {
   }
 }
 
-function removeStatcom(metier, scope) {
-  delete state.statcomMeta[`${metier}|${scope}`];
-  delete rowsCache[`${metier}|${scope}`];
+async function removeStatcom(metier, scope) {
+  const key = `${metier}|${scope}`;
+  delete state.statcomMeta[key];
+  workerKeys.delete(key);
+  try { await workerForget(key); } catch (_) {}
   saveState();
   renderDatasets();
   renderStatus();
 }
 
-function resetAll() {
+async function resetAll() {
   if (!confirm('Effacer toutes les données uploadées ?')) return;
+  for (const key of [...workerKeys]) {
+    try { await workerForget(key); } catch (_) {}
+  }
+  workerKeys.clear();
   state.statcomMeta = {};
-  for (const k of Object.keys(rowsCache)) delete rowsCache[k];
   localStorage.removeItem(STORAGE_KEY);
   renderDatasets();
   renderStatus();
@@ -170,7 +193,7 @@ function setTileBusy(tile, message) {
 function renderStatus() {
   const el = document.getElementById('status');
   const loaded = Object.keys(state.statcomMeta).length;
-  const inMemory = Object.keys(rowsCache).length;
+  const inMemory = workerKeys.size;
   if (loaded === 0) {
     el.innerHTML = '<span class="text-gray-500">Aucun fichier STATCOM chargé — la génération produira le PPTX de référence Jan-Mai 2026.</span>';
   } else if (inMemory < loaded) {
@@ -193,8 +216,8 @@ function renderDatasets() {
     header.className = 'flex items-center justify-between mb-3';
     const hasN  = state.statcomMeta[`${m.code}|n`];
     const hasN1 = state.statcomMeta[`${m.code}|n1`];
-    const memN  = rowsCache[`${m.code}|n`];
-    const memN1 = rowsCache[`${m.code}|n1`];
+    const memN  = workerKeys.has(`${m.code}|n`);
+    const memN1 = workerKeys.has(`${m.code}|n1`);
     header.innerHTML = `
       <div>
         <span class="text-sm font-bold text-navy">${m.code}</span>
@@ -213,7 +236,7 @@ function renderDatasets() {
 
     for (const scope of ['n', 'n1']) {
       const meta = state.statcomMeta[`${m.code}|${scope}`];
-      const hasMem = Boolean(rowsCache[`${m.code}|${scope}`]);
+      const hasMem = workerKeys.has(`${m.code}|${scope}`);
       const slot = document.createElement('div');
       slot.className = 'border border-gray-200 rounded p-3';
       slot.innerHTML = `
@@ -310,29 +333,23 @@ async function generatePptx() {
 
     const period = parsePeriod();
 
-    // Build derived datasets per metier that has rows in memory
-    const allDatasets = [];
+    // Build derived datasets IN the worker (rows never cross the boundary).
+    const metierKeys = {};
     for (const m of METIERS) {
-      const keptN = rowsCache[`${m.code}|n`];
-      const keptN1 = rowsCache[`${m.code}|n1`];
-      if (!keptN || keptN.length === 0) continue;
-      const built = window.buildDatasets({
-        keptN,
-        keptN1: keptN1 || null,
-        period,
-        metier: m.code,
-        filename: state.statcomMeta[`${m.code}|n`]?.filename || '',
-      });
-      // Stamp each dataset with metier so the adapter picks them up
-      for (const ds of built.datasets) {
-        allDatasets.push({
-          metier: m.code,
-          datasetType: ds.datasetType,
-          filename: ds.filename,
-          rowCount: ds.rowCount,
-          rows: ds.rows,
-        });
-      }
+      const keyN = `${m.code}|n`;
+      if (!workerKeys.has(keyN)) continue;
+      metierKeys[m.code] = {
+        n: keyN,
+        n1: workerKeys.has(`${m.code}|n1`) ? `${m.code}|n1` : null,
+      };
+    }
+
+    let allDatasets = [];
+    if (Object.keys(metierKeys).length > 0) {
+      btn.textContent = 'Agrégation des données…';
+      const buildResult = await workerBuild(metierKeys, period);
+      allDatasets = buildResult.datasets;
+      btn.textContent = 'Composition du PPTX…';
     }
 
     const study = {
