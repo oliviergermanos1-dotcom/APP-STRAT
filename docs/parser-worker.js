@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260618j');
-importScripts('./dataset-builder.js?v=20260618j');
+importScripts('./statcom-parser.js?v=20260618k');
+importScripts('./dataset-builder.js?v=20260618k');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
@@ -94,6 +94,26 @@ self.onmessage = (event) => {
           });
         }
       }
+      // DSM derived from the import maritime base (TIM rows), by weight.
+      if (msg.dsm && msg.dsm.nKey) {
+        const cN = cache.get(msg.dsm.nKey);
+        const cN1 = msg.dsm.n1Key ? cache.get(msg.dsm.n1Key) : null;
+        if (cN) {
+          const dsm = self.buildDsmDatasets(
+            cN.kept, cN1 ? cN1.kept : null, period, cN.filename,
+          );
+          reports.DSM = { market: dsm.market, aglVolume: dsm.aglTonnage, aglPdm: dsm.aglPdm };
+          for (const ds of dsm.datasets) {
+            allDatasets.push({
+              metier: 'DSM',
+              datasetType: ds.datasetType,
+              rows: ds.rows,
+              meta: ds.meta || null,
+            });
+          }
+        }
+      }
+
       reply(id, { ok: true, kind: 'build', datasets: allDatasets, reports });
       return;
     }

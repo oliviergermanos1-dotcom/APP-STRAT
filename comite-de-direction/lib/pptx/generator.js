@@ -1770,8 +1770,67 @@ const dsmData = require('./data/dsm.json');
 const fmtTon = (v) => Math.round(v).toLocaleString('fr-FR').replace(/,/g, ' ');
 const fmtPdm = (v) => v.toFixed(2).replace('.', ',') + ' %';
 
-// ─── SLIDE 26 – DSM ARMATEURS AU B/L ─────────────────────────────────────────
-{
+// ─── SLIDE 26 – DSM ACTEURS MARITIMES (dashboard) ────────────────────────────
+const dsmLive = dataAdapter.buildDsmFullData(study);
+if (dsmLive) {
+  const s = pptx.addSlide();
+  addHeader(s, 'DSM – ACTEURS MARITIMES  |  Import maritime au poids (T)',
+    'Armateurs B/L · Manutentionnaires · Consignataires · Ports · Range — PDM AGL (consignataire)');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.26');
+
+  const colW = 4.2, gap = 0.15, x0 = 0.15;
+  const x1 = x0, x2 = x0 + colW + gap, x3 = x0 + (colW + gap) * 2;
+  const yTitle = 1.15, yTable = 1.42;
+
+  s.addText('Armateurs au B/L (top 7) — PDM AGL', {
+    x: x1, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  addRankTable(s, x1, yTable, colW, ['#', 'Armateur', 'T', 'PDM AGL'], dsmLive.armateurs.slice(0, 7));
+
+  s.addText('Manutentionnaires (top 7) — PDM AGL', {
+    x: x2, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  addRankTable(s, x2, yTable, colW, ['#', 'Manutentionnaire', 'T', 'PDM AGL'], dsmLive.manutentionnaires.slice(0, 7));
+
+  s.addText('Consignataires (top 7) — part marché', {
+    x: x3, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  const aglConsIdx = dsmLive.consignataires.findIndex((r) => /agl|africa global/i.test(r[1]));
+  addRankTable(s, x3, yTable, colW, ['#', 'Consignataire', 'T', 'PDM'], dsmLive.consignataires.slice(0, 7),
+    aglConsIdx >= 0 && aglConsIdx < 7 ? aglConsIdx : 0);
+
+  const yRow2 = 3.95;
+  s.addText('Ports de déchargement', {
+    x: x1, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  addRankTable(s, x1, yRow2 + 0.27, colW, ['Port', 'T', 'PDM'], dsmLive.ports.slice(0, 4));
+
+  s.addText('Range / origines — PDM AGL', {
+    x: x2, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  addRankTable(s, x2, yRow2 + 0.27, colW, ['Range', 'T', 'PDM AGL'], dsmLive.ranges.slice(0, 4));
+
+  // Détail du #1 manutentionnaire — par marchandise
+  const md = dsmLive.manutDetail;
+  s.addText(md ? `Détail #1 manut. (${(md.manutentionnaire || '').slice(0, 22)}) — marchandise` : 'Détail manutentionnaire', {
+    x: x3, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  const mdMerch = md && md.par_marchandise ? md.par_marchandise.slice(0, 4).map((r) => [r.name, fmtTon(r.tonnage)]) : [['—', '—']];
+  addRankTable(s, x3, yRow2 + 0.27, colW, ['Marchandise', 'T'], mdMerch);
+
+  // Insight : détail navire + destinataire du #1 manutentionnaire
+  const insLines = [];
+  if (md) {
+    const navs = (md.par_navire || []).slice(0, 3).map((r) => `${r.name} (${fmtTon(r.tonnage)} T)`).join(' · ');
+    const dests = (md.par_destinataire || []).slice(0, 3).map((r) => `${r.name} (${fmtTon(r.tonnage)} T)`).join(' · ');
+    insLines.push(`🚢 #1 MANUTENTIONNAIRE ${md.manutentionnaire} — Top navires : ${navs}`);
+    insLines.push(`📦 Top destinataires : ${dests}`);
+  }
+  addInsightBox(s, 0.15, 5.70, 12.9, 1.20, '💡', insLines.length ? insLines : ['Données DSM dérivées de la base import maritime (poids).']);
+}
+
+// ─── SLIDE 26 (FALLBACK) – DSM ARMATEURS AU B/L ──────────────────────────────
+if (!dsmLive) {
   const s = pptx.addSlide();
   addHeader(s, 'DSM – ARMATEURS AU B/L  |  Tonnage Import 2025',
     `Classement annuel tonnage tous conditionnements  |  Marché : ${fmtTon(dsmData.armateurs.market_total)} T  |  Hors PP`);
@@ -1821,8 +1880,39 @@ const fmtPdm = (v) => v.toFixed(2).replace('.', ',') + ' %';
   );
 }
 
-// ─── SLIDE 27 – DSM MANUTENTIONNAIRES ────────────────────────────────────────
-{
+// ─── SLIDE 27 – DSM FOCUS VÉHICULES (live) ───────────────────────────────────
+if (dsmLive) {
+  const s = pptx.addSlide();
+  addHeader(s, 'DSM – FOCUS VÉHICULES  |  Neufs & Occasion par armateur',
+    `Tonnage tous conditionnements confondus  |  Neufs : ${dsmLive.vehNeuf.total} T  |  Occasion : ${dsmLive.vehOcc.total} T`);
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.27');
+
+  s.addText(`Véhicules NEUFS par armateur (total ${dsmLive.vehNeuf.total} T)`, {
+    x: 0.25, y: 1.2, w: 6.4, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+  });
+  addRankTable(s, 0.15, 1.5, 6.5,
+    ['#', 'Armateur', 'T', 'Part', 'PDM AGL'],
+    dsmLive.vehNeuf.rows.length ? dsmLive.vehNeuf.rows.slice(0, 8) : [['—', 'Aucune donnée', '—', '—', '—']]);
+
+  s.addText(`Véhicules D'OCCASION par armateur (total ${dsmLive.vehOcc.total} T)`, {
+    x: 6.85, y: 1.2, w: 6.4, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+  });
+  addRankTable(s, 6.75, 1.5, 6.5,
+    ['#', 'Armateur', 'T', 'Part', 'PDM AGL'],
+    dsmLive.vehOcc.rows.length ? dsmLive.vehOcc.rows.slice(0, 8) : [['—', 'Aucune donnée', '—', '—', '—']]);
+
+  const topNeuf = dsmLive.vehNeuf.rows[0];
+  const topOcc = dsmLive.vehOcc.rows[0];
+  addInsightBox(s, 0.15, 5.6, 12.9, 1.0, '🚗',
+    [
+      `VÉHICULES NEUFS : ${dsmLive.vehNeuf.total} T — armateur dominant ${topNeuf ? topNeuf[1] + ' (' + topNeuf[3] + ')' : 'n/a'}. ` +
+      `OCCASION : ${dsmLive.vehOcc.total} T — ${topOcc ? topOcc[1] + ' (' + topOcc[3] + ')' : 'n/a'}.`,
+      'Filière RoRo : cible AGL = capter la consignation des armateurs rouliers (Grimaldi, Hoegh) sur ces deux segments.',
+    ]);
+}
+
+// ─── SLIDE 27 (FALLBACK) – DSM MANUTENTIONNAIRES ─────────────────────────────
+if (!dsmLive) {
   const s = pptx.addSlide();
   addHeader(s, 'DSM – MANUTENTIONNAIRES  |  Position AGL CI',
     `Classement annuel tonnage manutention  |  AGL CI : #${dsmData.manutentionnaires.agl_rank} avec ${fmtTon(dsmData.manutentionnaires.agl_total)} T (${fmtPdm(dsmData.manutentionnaires.agl_pdm)} PDM)`);
@@ -1877,8 +1967,54 @@ const fmtPdm = (v) => v.toFixed(2).replace('.', ',') + ' %';
   );
 }
 
-// ─── SLIDE 27B – DSM CONSIGNATAIRES & POL ────────────────────────────────────
-{
+// ─── SLIDE 28 – DSM NOUVEAUX (live, en tonnage) ──────────────────────────────
+if (dsmLive) {
+  const s = pptx.addSlide();
+  addHeader(s, 'DSM – NOUVEAUX ENTRANTS & TENDANCES  |  Au poids (T)',
+    'Nouveaux armateurs · Nouvelles marchandises · Top hausses — croisés vs toute l\'année N-1');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.28');
+
+  const colW = 4.2, gap = 0.15, x0 = 0.15;
+  const x1 = x0, x2 = x0 + colW + gap, x3 = x0 + (colW + gap) * 2;
+  const yTitle = 1.18, yTable = 1.45;
+
+  s.addText('Nouveaux armateurs (absents de tout N-1)', {
+    x: x1, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  addRankTable(s, x1, yTable, colW, ['Armateur', 'T', 'PDM'],
+    dsmLive.nouveauxArmateurs.length ? dsmLive.nouveauxArmateurs : [['—', '—', '—']]);
+
+  s.addText('Nouvelles marchandises (jamais vues en N-1)', {
+    x: x2, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  addRankTable(s, x2, yTable, colW, ['Marchandise', 'T', 'PDM AGL'],
+    dsmLive.nouvellesMarch.length ? dsmLive.nouvellesMarch : [['—', '—', '—']]);
+
+  s.addText('Top consignataires — part marché', {
+    x: x3, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  const aglCi = dsmLive.consignataires.findIndex((r) => /agl|africa global/i.test(r[1]));
+  addRankTable(s, x3, yTable, colW, ['#', 'Consignataire', 'T', 'PDM'], dsmLive.consignataires.slice(0, 7),
+    aglCi >= 0 && aglCi < 7 ? aglCi : 0);
+
+  const yRow2 = 3.95;
+  s.addText('Top 3 marchandises — plus forte hausse vs N-1 même période (T)', {
+    x: x1, y: yRow2, w: colW + gap + colW + gap + colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+  });
+  addRankTable(s, x1, yRow2 + 0.27, colW + gap + colW + gap + colW,
+    ['Marchandise', 'T N', 'T N-1', 'Δ', 'Croissance', 'PDM AGL'],
+    dsmLive.topGrowth.length ? dsmLive.topGrowth : [['—', '—', '—', '—', '—', '—']]);
+
+  addInsightBox(s, 0.15, 5.70, 12.9, 1.20, '💡', [
+    `📊 ${dsmLive.nouveauxArmateurs.length} nouveaux armateurs · ${dsmLive.nouvellesMarch.length} nouvelles marchandises (croisés vs toute l'année N-1, au poids).`,
+    dsmLive.topGrowth[0]
+      ? `📈 Plus forte hausse : ${dsmLive.topGrowth[0][0]} (${dsmLive.topGrowth[0][3]} T, ${dsmLive.topGrowth[0][4]}) — PDM AGL ${dsmLive.topGrowth[0][5]}`
+      : '',
+  ].filter(Boolean));
+}
+
+// ─── SLIDE 27B (FALLBACK) – DSM CONSIGNATAIRES & POL ─────────────────────────
+if (!dsmLive) {
   const s = pptx.addSlide();
   addHeader(s, 'DSM – CONSIGNATAIRES & PORTS DE CHARGEMENT',
     `AGL CI #${dsmData.consignataires.agl_rank} consignataire (${fmtPdm(dsmData.consignataires.agl_pdm)} PDM, ${fmtTon(dsmData.consignataires.agl_total)} T)  |  Top 10 POL Import 2025`);

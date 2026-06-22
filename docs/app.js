@@ -69,7 +69,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260618j');
+  _worker = new Worker('./parser-worker.js?v=20260618k');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -108,8 +108,8 @@ function workerForget(key) {
   return callWorker({ kind: 'forget', key });
 }
 
-function workerBuild(metierKeys, period) {
-  return callWorker({ kind: 'build', metierKeys, period });
+function workerBuild(metierKeys, period, dsm) {
+  return callWorker({ kind: 'build', metierKeys, period, dsm: dsm || null });
 }
 
 async function handleStatcomUpload(metier, scope, file) {
@@ -208,7 +208,8 @@ function renderDatasets() {
   const container = document.getElementById('datasets');
   container.innerHTML = '';
 
-  for (const m of METIERS) {
+  // DSM is derived from the TIM import maritime base (by weight) — no upload.
+  for (const m of METIERS.filter((x) => x.code !== 'DSM')) {
     const card = document.createElement('section');
     card.className = 'border border-gray-200 rounded-lg p-4 bg-white';
 
@@ -305,6 +306,12 @@ function renderDatasets() {
       removeStatcom(metier, scope);
     });
   });
+
+  // Note: DSM auto-derived from TIM
+  const note = document.createElement('div');
+  note.className = 'text-[11px] text-gray-500 italic border border-dashed border-gray-300 rounded p-2 bg-gray-50';
+  note.innerHTML = 'ℹ️ <strong>DSM (Direction Maritime)</strong> est dérivée automatiquement de la base import maritime (TIM), agrégée au <strong>poids (tonnes)</strong> par armateur / manutentionnaire / consignataire / range. Aucun upload séparé requis.';
+  container.appendChild(note);
 }
 
 // ─── PERIOD DERIVATION ───────────────────────────────────────────────────────
@@ -347,10 +354,15 @@ async function generatePptx() {
       };
     }
 
+    // DSM (Direction Maritime) is derived from the import maritime base (TIM).
+    const dsm = workerKeys.has('TIM|n')
+      ? { nKey: 'TIM|n', n1Key: workerKeys.has('TIM|n1') ? 'TIM|n1' : null }
+      : null;
+
     let allDatasets = [];
-    if (Object.keys(metierKeys).length > 0) {
+    if (Object.keys(metierKeys).length > 0 || dsm) {
       btn.textContent = 'Agrégation des données…';
-      const buildResult = await workerBuild(metierKeys, period);
+      const buildResult = await workerBuild(metierKeys, period, dsm);
       allDatasets = buildResult.datasets;
       btn.textContent = 'Composition du PPTX…';
     }

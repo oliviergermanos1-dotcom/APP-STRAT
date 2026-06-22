@@ -277,3 +277,177 @@ function buildDatasets(args) {
 }
 
 _ctx.buildDatasets = buildDatasets;
+
+// ─── DSM (Direction Maritime) ──────────────────────────────────────────────
+// Built from the import maritime base (TIM rows), aggregated by WEIGHT
+// (poids in tonnes) instead of TEU. AGL's maritime role is consignataire,
+// so PDM AGL on any dimension = share of tonnage where consignataire = AGL.
+function isAglConsignataire(name) {
+  const n = String(name || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().trim();
+  return /^agl\b|africa global/.test(n);
+}
+
+function aggPoids(rows, keyFn) {
+  const m = new Map();
+  for (const r of rows) {
+    const k = keyFn(r);
+    if (!k) continue;
+    m.set(k, (m.get(k) || 0) + (Number(r.poids) || 0));
+  }
+  return m;
+}
+
+/**
+ * @param {Array} keptN  TIM import maritime rows (current period source)
+ * @param {Array} keptN1 TIM N-1 rows (full year)
+ * @param {object} period
+ * @param {string} filename
+ */
+function buildDsmDatasets(keptN, keptN1, period, filename) {
+  const periodRows = period ? keptN.filter((r) => inPeriod(r, period)) : keptN;
+  const fullN1Rows = keptN1 || [];
+  const market = periodRows.reduce((s, r) => s + (Number(r.poids) || 0), 0);
+  const aglRows = periodRows.filter((r) => isAglConsignataire(r.consignataire));
+
+  const round = (v) => Math.round(v * 100) / 100;
+  const pdmOf = (sub, tot) => (tot > 0 ? Math.round((sub / tot) * 1000) / 10 : 0);
+
+  // Ranking helper with AGL PDM (AGL = consignataire on that subset)
+  function rankWithAglPdm(keyFn, topN) {
+    const total = aggPoids(periodRows, keyFn);
+    const aglByKey = aggPoids(aglRows, keyFn);
+    return [...total.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topN)
+      .map(([name, vol], i) => ({
+        rang: i + 1,
+        name,
+        tonnage: round(vol),
+        pdm_marche: pdmOf(vol, market),
+        pdm_agl: pdmOf(aglByKey.get(name) || 0, vol),
+      }));
+  }
+
+  // Armateurs au B/L (top 10) + AGL PDM
+  const armateurs = rankWithAglPdm((r) => r.armateur, 10);
+  // Manutentionnaires (top 10) + AGL PDM
+  const manutentionnaires = rankWithAglPdm((r) => r.manutentionnaire, 10);
+  // Consignataires (top 10) — AGL appears directly here
+  const consignataires = (() => {
+    const total = aggPoids(periodRows, (r) => r.consignataire);
+    return [...total.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([name, vol], i) => ({
+        rang: i + 1, name, tonnage: round(vol), pdm_marche: pdmOf(vol, market),
+      }));
+  })();
+  // Ports de déchargement
+  const ports = (() => {
+    const total = aggPoids(periodRows, (r) => r.port_dechargement);
+    return [...total.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([name, vol]) => ({ name, tonnage: round(vol), pdm_marche: pdmOf(vol, market) }));
+  })();
+  // Range (origines) + AGL PDM
+  const ranges = rankWithAglPdm((r) => r.range, 8);
+
+  // Top manutentionnaire detail: for the #1 manutentionnaire, break down by
+  // navire / marchandise / destinataire (top 5 each).
+  const topManut = manutentionnaires[0] ? manutentionnaires[0].name : null;
+  const manutRows = topManut
+    ? periodRows.filter((r) => r.manutentionnaire === topManut)
+    : [];
+  function topBreakdown(rows, keyFn, n) {
+    const m = aggPoids(rows, keyFn);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n)
+      .map(([name, vol]) => ({ name, tonnage: round(vol) }));
+  }
+  const manutDetail = {
+    manutentionnaire: topManut,
+    par_navire: topBreakdown(manutRows, (r) => r.navire, 5),
+    par_marchandise: topBreakdown(manutRows, (r) => r.marchandise, 5),
+    par_destinataire: topBreakdown(manutRows, (r) => r.destinataire, 5),
+  };
+
+  // ─── Slide 27: focus véhicules neufs + occasion par armateur ───────────
+  const isVehiculeNeuf = (m) => /vehicule.*neuf|véhicule.*neuf/i.test(m || '');
+  const isVehiculeOcc = (m) => /occasion/i.test(m || '');
+  function vehicleByArmateur(predicate) {
+    const rows = periodRows.filter((r) => predicate(r.marchandise));
+    const tot = rows.reduce((s, r) => s + (Number(r.poids) || 0), 0);
+    const byArm = aggPoids(rows, (r) => r.armateur);
+    const aglByArm = aggPoids(rows.filter((r) => isAglConsignataire(r.consignataire)), (r) => r.armateur);
+    return {
+      total: round(tot),
+      rows: [...byArm.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+        .map(([name, vol], i) => ({
+          rang: i + 1, name, tonnage: round(vol),
+          pdm_marche: pdmOf(vol, tot),
+          pdm_agl: pdmOf(aglByArm.get(name) || 0, vol),
+        })),
+    };
+  }
+  const vehNeuf = vehicleByArmateur(isVehiculeNeuf);
+  const vehOcc = vehicleByArmateur(isVehiculeOcc);
+
+  // ─── Slide 28: nouveaux (armateurs / marchandises / consignataires) ────
+  // Cross-check vs full N-1, by tonnage.
+  const armateurN1 = new Set(fullN1Rows.map((r) => r.armateur).filter(Boolean));
+  const merchN1 = new Set(fullN1Rows.map((r) => r.marchandise).filter(Boolean));
+  const aglConsignN1 = new Set(
+    fullN1Rows.filter((r) => isAglConsignataire(r.consignataire))
+      .map((r) => r.consignataire).filter(Boolean),
+  );
+
+  const armVolN = aggPoids(periodRows, (r) => r.armateur);
+  const nouveauxArmateurs = [...armVolN.entries()]
+    .filter(([name]) => name && !armateurN1.has(name))
+    .sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([name, vol]) => ({ name, tonnage: round(vol), pdm_marche: pdmOf(vol, market) }));
+
+  const merchVolN = aggPoids(periodRows, (r) => r.marchandise);
+  const aglMerchN = aggPoids(aglRows, (r) => r.marchandise);
+  const nouvellesMarch = [...merchVolN.entries()]
+    .filter(([name]) => name && !merchN1.has(name))
+    .sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([name, vol]) => ({
+      name, tonnage: round(vol), pdm_agl: pdmOf(aglMerchN.get(name) || 0, vol),
+    }));
+
+  // Top 3 marchandises plus forte hausse (tonnage), N period vs N-1 same period
+  const periodN1Rows = keptN1 && period ? keptN1.filter((r) => inPeriod(r, shiftPeriodToN1(period))) : [];
+  const merchVolN1Period = aggPoids(periodN1Rows, (r) => r.marchandise);
+  const growth = [];
+  for (const [seg, volN] of merchVolN.entries()) {
+    const volN1 = merchVolN1Period.get(seg) || 0;
+    const delta = volN - volN1;
+    if (delta <= 0) continue;
+    growth.push({
+      name: seg, tonnage: round(volN), tonnage_n1: round(volN1),
+      delta: round(delta), growth_pct: volN1 > 0 ? Math.round((delta / volN1) * 1000) / 10 : null,
+      pdm_agl: pdmOf(aglMerchN.get(seg) || 0, volN),
+    });
+  }
+  growth.sort((a, b) => b.delta - a.delta);
+
+  return {
+    filename,
+    market: round(market),
+    aglTonnage: round(aglRows.reduce((s, r) => s + (Number(r.poids) || 0), 0)),
+    aglPdm: pdmOf(aglRows.reduce((s, r) => s + (Number(r.poids) || 0), 0), market),
+    datasets: [
+      { datasetType: 'dsm_armateurs',        rows: armateurs },
+      { datasetType: 'dsm_manutentionnaires', rows: manutentionnaires },
+      { datasetType: 'dsm_consignataires',   rows: consignataires },
+      { datasetType: 'dsm_ports',            rows: ports },
+      { datasetType: 'dsm_ranges',           rows: ranges },
+      { datasetType: 'dsm_manut_detail',     rows: [manutDetail] },
+      { datasetType: 'dsm_vehicules_neufs',  rows: vehNeuf.rows, meta: { total: vehNeuf.total } },
+      { datasetType: 'dsm_vehicules_occasion', rows: vehOcc.rows, meta: { total: vehOcc.total } },
+      { datasetType: 'dsm_nouveaux_armateurs', rows: nouveauxArmateurs },
+      { datasetType: 'dsm_nouvelles_marchandises', rows: nouvellesMarch },
+      { datasetType: 'dsm_top_growth',       rows: growth.slice(0, 3) },
+    ],
+  };
+}
+
+_ctx.buildDsmDatasets = buildDsmDatasets;

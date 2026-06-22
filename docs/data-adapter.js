@@ -396,6 +396,48 @@ function buildNouveauxFullData(study, metier) {
   };
 }
 
+/**
+ * DSM (Direction Maritime) reader: collects all dsm_* datasets produced by
+ * buildDsmDatasets. Returns null if the core dsm_armateurs dataset is absent
+ * → generator falls back to the hardcoded DSM slides.
+ */
+function buildDsmFullData(study) {
+  const find = (t) => findDataset(study, 'DSM', t);
+  const armateurs = find('dsm_armateurs');
+  if (!armateurs || !armateurs.rows.length) return null;
+
+  const T = (v) => fmtInt(Number(v) || 0);
+  const pct = (v) => (v != null ? String(v).replace('.', ',') + ' %' : '—');
+
+  const get = (t) => (find(t) ? find(t).rows : []);
+  const detail = (find('dsm_manut_detail') && find('dsm_manut_detail').rows[0]) || null;
+  const vehNeuf = find('dsm_vehicules_neufs');
+  const vehOcc = find('dsm_vehicules_occasion');
+
+  return {
+    armateurs: get('dsm_armateurs').map((r) => [`#${r.rang}`, r.name, T(r.tonnage), pct(r.pdm_agl)]),
+    manutentionnaires: get('dsm_manutentionnaires').map((r) => [`#${r.rang}`, r.name, T(r.tonnage), pct(r.pdm_agl)]),
+    consignataires: get('dsm_consignataires').map((r) => [`#${r.rang}`, r.name, T(r.tonnage), pct(r.pdm_marche)]),
+    ports: get('dsm_ports').map((r) => [r.name, T(r.tonnage), pct(r.pdm_marche)]),
+    ranges: get('dsm_ranges').map((r) => [r.name, T(r.tonnage), pct(r.pdm_agl)]),
+    manutDetail: detail,
+    vehNeuf: {
+      total: vehNeuf && vehNeuf.meta ? T(vehNeuf.meta.total) : '0',
+      rows: get('dsm_vehicules_neufs').map((r) => [`#${r.rang}`, r.name, T(r.tonnage), pct(r.pdm_marche), pct(r.pdm_agl)]),
+    },
+    vehOcc: {
+      total: vehOcc && vehOcc.meta ? T(vehOcc.meta.total) : '0',
+      rows: get('dsm_vehicules_occasion').map((r) => [`#${r.rang}`, r.name, T(r.tonnage), pct(r.pdm_marche), pct(r.pdm_agl)]),
+    },
+    nouveauxArmateurs: get('dsm_nouveaux_armateurs').map((r) => [r.name, T(r.tonnage), pct(r.pdm_marche)]),
+    nouvellesMarch: get('dsm_nouvelles_marchandises').map((r) => [r.name, T(r.tonnage), pct(r.pdm_agl)]),
+    topGrowth: get('dsm_top_growth').map((r) => [
+      r.name, T(r.tonnage), T(r.tonnage_n1), '+' + T(r.delta),
+      (r.growth_pct != null ? r.growth_pct + ' %' : 'NEW'), pct(r.pdm_agl),
+    ]),
+  };
+}
+
 window.dataAdapter = {
   buildOverviewData,
   buildConcurrentsData,
@@ -403,6 +445,7 @@ window.dataAdapter = {
   buildNouveauxData,
   buildNouveauxFullData,
   buildRepartitionPaysData,
+  buildDsmFullData,
   // Legacy aliases for TIM-specific call sites (slide 4/5)
   buildTimOverviewData: (study) => buildOverviewData(study, 'TIM'),
   buildTimConcurrentsData: (study) => buildConcurrentsData(study, 'TIM'),

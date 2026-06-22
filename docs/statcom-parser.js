@@ -201,7 +201,7 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
     }
 
     // Normalize fields for downstream consumption
-    kept.push({
+    const row = {
       transitaire: String(r['Transitaire'] || '').trim(),
       destinataire: String(r['Destinataire'] || '').trim(),
       chargeur: String(r['Chargeur'] || '').trim(),
@@ -212,7 +212,18 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
       range: String(r['Range'] || '').trim(),
       pays_chargement: String(r['Pays de prise en charge'] || '').trim(),
       pays_livraison: String(r['Pays de livraison'] || '').trim(),
-    });
+    };
+    // DSM fields (maritime only) — Direction Maritime analysis works on the
+    // import maritime base aggregated by weight (POIDS_MARCHANDISE, tonnes).
+    if (sch.schema === 'maritime') {
+      row.poids = Number(r['POIDS_MARCHANDISE']) || 0;
+      row.armateur = String(r['Armateur BL'] || '').trim();
+      row.manutentionnaire = String(r['Manutentionaire'] || '').trim();
+      row.consignataire = String(r['Consignataire'] || '').trim();
+      row.port_dechargement = String(r['Port de déchargement'] || '').trim();
+      row.navire = String(r['Navire'] || '').trim();
+    }
+    kept.push(row);
   }
 
   const market = kept.reduce((s, r) => s + r.volume, 0);
