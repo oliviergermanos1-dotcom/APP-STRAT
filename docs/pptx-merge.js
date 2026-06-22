@@ -277,7 +277,9 @@
     const JSZip = window.JSZip;
     if (!JSZip) throw new Error('JSZip non chargé');
     const valid = (inserts || []).filter((it) => it && it.buffer);
-    if (!valid.length) return baseBlob;
+    // Note: we no longer early-return when there are no imports — every deck
+    // still needs the [Content_Types].xml sanitisation pass below (pptxgenjs
+    // 3.12 emits phantom slideMaster Overrides that crash PowerPoint).
 
     const baseZip = await JSZip.loadAsync(baseBlob);
 
@@ -387,6 +389,20 @@
     }
     const newLst = '<p:sldIdLst>' + existing.join('') + '</p:sldIdLst>';
     presentation = presentation.replace(/<p:sldIdLst[^>]*>[\s\S]*?<\/p:sldIdLst>/, newLst);
+
+    // ── Strip phantom [Content_Types] Overrides ──────────────────────────────
+    // pptxgenjs 3.12 emits one <Override PartName="/ppt/slideMasters/slideMaster
+    // N.xml"/> per slide while only ever writing slideMaster1.xml. PowerPoint
+    // refuses to open a package whose Content_Types declares a part that is not
+    // present ("PowerPoint ne peut pas lire …"), whereas JSZip / LibreOffice /
+    // python-pptx silently ignore it. Drop every Override whose PartName has no
+    // matching entry in the package.
+    const presentParts = new Set();
+    baseZip.forEach((p) => { presentParts.add('/' + p.replace(/\/+$/, '')); });
+    contentTypes = contentTypes.replace(/<Override\b[^>]*?\/>/g, (tag) => {
+      const pn = (tag.match(/\bPartName="([^"]*)"/) || [])[1];
+      return (pn && !presentParts.has(pn)) ? '' : tag;
+    });
 
     // Write back the mutated core parts.
     baseZip.file('[Content_Types].xml', contentTypes);

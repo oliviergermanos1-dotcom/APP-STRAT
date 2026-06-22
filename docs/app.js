@@ -707,21 +707,23 @@ async function generatePptx() {
 
     let blob = await window.generateStudyBuffer({ study });
 
-    // Verbatim import: splice the uploaded PowerPoints right after their
-    // section separators (09 CX = penultimate slide, 10 = last slide).
-    if ((imports.cx || imports.analyse) && window.PPTXMerge) {
-      btn.textContent = 'Intégration des PowerPoints…';
+    // Always run the finalisation pass through PPTXMerge — it (a) splices the
+    // imported PowerPoints if any, and (b) strips the phantom slideMaster
+    // Overrides that pptxgenjs 3.12 writes into [Content_Types].xml (otherwise
+    // PowerPoint refuses to open the file). Runs even with no imports.
+    if (window.PPTXMerge) {
       const baseCount = window.BLOCK_SEQUENCE.length; // every block emits 1 slide
       const inserts = [];
       // Apply highest position first so earlier indices stay valid.
       if (imports.analyse) inserts.push({ after: baseCount, buffer: imports.analyse.buffer });
       if (imports.cx) inserts.push({ after: baseCount - 1, buffer: imports.cx.buffer });
+      if (inserts.length) btn.textContent = 'Intégration des PowerPoints…';
+      else btn.textContent = 'Finalisation du fichier…';
       try {
         blob = await window.PPTXMerge.mergeExternalSlides(blob, inserts);
       } catch (e) {
-        console.error('Merge PPTX échoué', e);
-        alert('Les PowerPoints importés n\'ont pas pu être fusionnés (' + e.message +
-          '). La présentation est générée sans eux.');
+        console.error('Finalisation PPTX échouée', e);
+        alert('La finalisation du PPTX a échoué (' + e.message + ').');
       }
     }
 
@@ -765,7 +767,7 @@ async function boot() {
 
   // Authored préconisations (rédigées par l'analyste à partir des documents).
   try {
-    const pr = await fetch('./data/preconisations.json?v=20260622f');
+    const pr = await fetch('./data/preconisations.json?v=20260622g');
     if (pr.ok) prediction.preconisations = await pr.json();
   } catch (e) { /* fallback used */ }
   const pStat = document.getElementById('preco-status');
