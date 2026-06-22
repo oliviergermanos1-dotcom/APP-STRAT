@@ -39,6 +39,25 @@ function unitOf(metier) {
 }
 
 /**
+ * Répartition par pays de chargement (utilisé pour HEXP slide 18).
+ * Returns null if the repartition_pays dataset is absent.
+ */
+function buildRepartitionPaysData(study, metier) {
+  const ds = findDataset(study, metier, 'repartition_pays');
+  if (!ds || !ds.rows.length) return null;
+  const unit = unitOf(metier);
+  return {
+    source: ds.filename,
+    unit,
+    bars: ds.rows.map((r) => ({
+      label: String(r.pays || ''),
+      vol: fmtInt(Number(r.volume_marche) || 0) + ' ' + unit,
+      pdm: Math.round(Number(r.pdm) || 0),
+    })),
+  };
+}
+
+/**
  * Generic overview: top-line KPI bar + monthly chart + monthly PDM bars.
  * Depends on `concurrents` (mandatory for market sizing) and `mensuel`
  * (optional for the time-series). Returns null if concurrents is missing.
@@ -382,6 +401,7 @@ window.dataAdapter = {
   buildClienteleData,
   buildNouveauxData,
   buildNouveauxFullData,
+  buildRepartitionPaysData,
   // Legacy aliases for TIM-specific call sites (slide 4/5)
   buildTimOverviewData: (study) => buildOverviewData(study, 'TIM'),
   buildTimConcurrentsData: (study) => buildConcurrentsData(study, 'TIM'),

@@ -1239,62 +1239,141 @@ addSeparator('04', 'HINTERLAND EXPORT MARITIME', '4 294 TEU  |  PDM AGL : 66,1% 
   const pdmValues = live && live.monthlyPdm ? live.monthlyPdm : [50.7, 72.9, 71.9, 68.1, 56.7];
   addMensuelBars(s, 7.1, 2.62, pdmLabels, pdmValues, live ? live.aglPdm : 60.0);
 
-  s.addText('Concurrents : FM General Services 12,1% (518 TEU)  |  Movis Transit 5,8% (251 TEU)  |  CEVA Logistics 5,1% (220 TEU)', {
-    x: 0.15, y: 6.5, w: 13, h: 0.25, fontSize: 9, color: MGRAY, fontFace: 'Calibri', italic: true
-  });
-  s.addText('Chargeurs AGL : SOFITEX 1 492 TEU  |  CMDT Bamako 1 010 TEU  |  SAGROCOM BF 249 TEU', {
-    x: 0.15, y: 6.75, w: 13, h: 0.25, fontSize: 9, color: MGRAY, fontFace: 'Calibri', italic: true
-  });
+  // Répartition export hinterland par pays de chargement (origines Mali/BF)
+  const repPays = live ? dataAdapter.buildRepartitionPaysData(study, 'HEXP') : null;
+  if (repPays && repPays.bars.length) {
+    s.addText('Répartition export hinterland par pays de chargement', {
+      x: 7.1, y: 5.55, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addSegmentBars(s, 7.1, 5.85, repPays.bars.slice(0, 4));
+  } else {
+    s.addText('Concurrents : FM General Services 12,1% (518 TEU)  |  Movis Transit 5,8% (251 TEU)  |  CEVA Logistics 5,1% (220 TEU)', {
+      x: 0.15, y: 6.5, w: 13, h: 0.25, fontSize: 9, color: MGRAY, fontFace: 'Calibri', italic: true
+    });
+    s.addText('Chargeurs AGL : SOFITEX 1 492 TEU  |  CMDT Bamako 1 010 TEU  |  SAGROCOM BF 249 TEU', {
+      x: 0.15, y: 6.75, w: 13, h: 0.25, fontSize: 9, color: MGRAY, fontFace: 'Calibri', italic: true
+    });
+  }
 }
 
-// ─── SLIDE 19 – HINTERLAND EXPORT NOUVEAUX CHARGEURS ─────────────────────────
-// TODO: cross-référencer study.n1Runs pour annoter les verdicts (en revue).
+// ─── SLIDE 19 – HINTERLAND EXPORT NOUVEAUX CHARGEURS + TENDANCES ─────────────
+// LIVE layout (5 sections, comme slide 7/12 mais col 3 = Chargeurs hinterland).
+// FALLBACK : layout v1 inchangé.
 {
   const s = pptx.addSlide();
-  const live = dataAdapter.buildNouveauxData(study, 'HEXP');
-  addHeader(s, 'HINTERLAND EXPORT – NOUVEAUX CHARGEURS',
-    'Chargeurs entrés en 2026  |  Sécurisation du portefeuille coton  |  Nouvelle filière huile de palme');
+  const live = dataAdapter.buildNouveauxFullData(study, 'HEXP');
+  if (live) {
+    addHeader(s, 'HINTERLAND EXPORT – NOUVEAUX CHARGEURS & TENDANCES',
+      `Vrais nouveaux entrants (croisés vs toute l'année N-1) · Top hausses & chargeurs · ${live.source}`);
+  } else {
+    addHeader(s, 'HINTERLAND EXPORT – NOUVEAUX CHARGEURS',
+      'Chargeurs entrés en 2026  |  Sécurisation du portefeuille coton  |  Nouvelle filière huile de palme');
+  }
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.19');
 
-  s.addText('Nouveaux chargeurs AGL – Hinterland Export 2026', {
-    x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  const hexpNouveauxRows = live && live.rows.length ? live.rows.map((r) => [r[1], r[2], r[4], r[0]]) : [
-    ['IVOIRE COTON EXPORT','280','Coton','Q1 2026'],
-    ['COTON BURKINA SUD','195','Coton','Q2 2026'],
-    ['SODECOTON ML (Mali)','160','Coton','Q2 2026'],
-    ['OIL PALM CI EXPORT','140','Huile de Palme','Q1 2026'],
-  ];
-  addRankTable(s, 0.15, 1.5, 6.8,
-    ['Chargeur','TEU','Filière','Entrée'], hexpNouveauxRows);
-  s.addText('Portefeuille existant à sécuriser', {
-    x: 0.25, y: 3.35, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 0.15, 3.65, 6.8,
-    ['Chargeur','TEU','% Portefeuille'],
-    [
-      ['SOFITEX','1 492','52,5 %'],
-      ['CMDT Bamako','1 010','35,6 %'],
-      ['SAGROCOM BF','249','8,8 %'],
-    ]
-  );
+  if (live) {
+    const colW = 4.2, gap = 0.15, x0 = 0.15;
+    const x1 = x0, x2 = x0 + colW + gap, x3 = x0 + (colW + gap) * 2;
+    const yTitle = 1.18, yTable = 1.45;
 
-  s.addText('Contexte concurrentiel – PDM concurrents', {
-    x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addSegmentBars(s, 7.1, 1.52, [
-    { label: 'FM GENERAL SERVICES', vol: '518 TEU', pdm: 12 },
-    { label: 'MOVIS TRANSIT CI',    vol: '251 TEU', pdm: 6 },
-    { label: 'CEVA LOGISTICS CI',   vol: '220 TEU', pdm: 5 },
-  ]);
+    s.addText('Nouveaux transitaires (absents de tout N-1)', {
+      x: x1, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yTable, colW,
+      ['Transitaire', 'TEU', 'PDM'], live.nouveauxTransitaires);
 
-  addInsightBox(s, 7.1, 3.5, 6.0, 0.85, '⚠',
-    ['MENACE CEVA : CEVA Logistics (CMA CGM, bureau Abidjan avril 2026) capte déjà 5,1% du marché. Risque direct sur les flux coton Bamako–Ouagadougou.'],
-    'FEF2F2'
-  );
-  addInsightBox(s, 7.1, 4.5, 6.0, 0.85, '🎯',
-    ['ACTION : Sécuriser SOFITEX (52,5% du portefeuille) et CMDT par contrats pluriannuels avant la campagne coton 2026–2027. Développer la filière huile de palme (140 TEU dès Q1).']
-  );
+    s.addText('Nouvelles marchandises (jamais vues en N-1)', {
+      x: x2, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x2, yTable, colW,
+      ['Marchandise', 'TEU marché', 'PDM AGL'], live.nouveauxMarchandises);
+
+    s.addText('Nouveaux chargeurs AGL — opportunité de conquête', {
+      x: x3, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yTable, colW,
+      ['Chargeur', 'TEU AGL', 'TEU N-1 (autres)'], live.nouveauxClients);
+
+    const yRow2 = 3.65;
+    s.addText('Top 3 marchandises — plus forte hausse vs N-1 même période', {
+      x: x1, y: yRow2, w: colW + gap + colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yRow2 + 0.27, colW + gap + colW,
+      ['Marchandise', 'TEU N', 'TEU N-1', 'Δ', 'Croissance', 'PDM AGL'],
+      live.topGrowth.length > 0 ? live.topGrowth : [['—', '—', '—', '—', '—', '—']]);
+
+    s.addText('Top 5 chargeurs (tous transitaires) — part AGL', {
+      x: x3, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yRow2 + 0.27, colW,
+      ['Chargeur', 'TEU marché', 'TEU AGL', 'PDM AGL'],
+      live.topDestinataires.slice(0, 5));
+
+    const M = live.metrics;
+    const insightLines = [];
+    insightLines.push(
+      `📊 ${M.totalNouveauxTransit} nouveaux transitaires · ${M.totalNouvellesMerch} nouvelles marchandises · ${M.totalNouveauxClients} nouveaux chargeurs AGL (croisés vs toute l'année N-1)`
+    );
+    if (M.topGrowthName && M.topGrowthDelta > 0) {
+      const pdmInfo = M.topGrowthPdmAgl != null
+        ? (M.topGrowthPdmAgl < 5
+            ? `PDM AGL ${M.topGrowthPdmAgl}% — fort potentiel à capter`
+            : `PDM AGL ${M.topGrowthPdmAgl}% — position à consolider`)
+        : '';
+      insightLines.push(
+        `📈 PLUS FORTE HAUSSE : ${M.topGrowthName} (+${M.topGrowthDeltaStr} ${live.unit}${M.topGrowthPct != null ? `, +${M.topGrowthPct}%` : ''}) · ${pdmInfo}`
+      );
+    }
+    if (M.topConquestName && M.topConquestUpside > 0) {
+      insightLines.push(
+        `🎯 CONQUÊTE #1 : ${M.topConquestName} — déjà ${M.topConquestAglVolumeStr} ${live.unit} chez AGL, reste ${M.topConquestUpsideStr} ${live.unit} à capter chez la concurrence`
+      );
+    }
+    if (M.topUntappedName && M.topUntappedVolume > 0) {
+      insightLines.push(
+        `⚠ CHARGEUR NON CAPTÉ : ${M.topUntappedName} (${M.topUntappedVolumeStr} ${live.unit} marché, AGL ${M.topUntappedPdm}%) — cible commerciale prioritaire`
+      );
+    }
+    addInsightBox(s, 0.15, 5.70, 12.9, 1.40, '💡', insightLines);
+  } else {
+    s.addText('Nouveaux chargeurs AGL – Hinterland Export 2026', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 6.8,
+      ['Chargeur','TEU','Filière','Entrée'],
+      [
+        ['IVOIRE COTON EXPORT','280','Coton','Q1 2026'],
+        ['COTON BURKINA SUD','195','Coton','Q2 2026'],
+        ['SODECOTON ML (Mali)','160','Coton','Q2 2026'],
+        ['OIL PALM CI EXPORT','140','Huile de Palme','Q1 2026'],
+      ]);
+    s.addText('Portefeuille existant à sécuriser', {
+      x: 0.25, y: 3.35, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 3.65, 6.8,
+      ['Chargeur','TEU','% Portefeuille'],
+      [
+        ['SOFITEX','1 492','52,5 %'],
+        ['CMDT Bamako','1 010','35,6 %'],
+        ['SAGROCOM BF','249','8,8 %'],
+      ]
+    );
+    s.addText('Contexte concurrentiel – PDM concurrents', {
+      x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addSegmentBars(s, 7.1, 1.52, [
+      { label: 'FM GENERAL SERVICES', vol: '518 TEU', pdm: 12 },
+      { label: 'MOVIS TRANSIT CI',    vol: '251 TEU', pdm: 6 },
+      { label: 'CEVA LOGISTICS CI',   vol: '220 TEU', pdm: 5 },
+    ]);
+    addInsightBox(s, 7.1, 3.5, 6.0, 0.85, '⚠',
+      ['MENACE CEVA : CEVA Logistics (CMA CGM, bureau Abidjan avril 2026) capte déjà 5,1% du marché. Risque direct sur les flux coton Bamako–Ouagadougou.'],
+      'FEF2F2'
+    );
+    addInsightBox(s, 7.1, 4.5, 6.0, 0.85, '🎯',
+      ['ACTION : Sécuriser SOFITEX (52,5% du portefeuille) et CMDT par contrats pluriannuels avant la campagne coton 2026–2027. Développer la filière huile de palme (140 TEU dès Q1).']
+    );
+  }
 }
 
 // ─── SLIDE 20 – SÉPARATEUR AÉRIEN ────────────────────────────────────────────

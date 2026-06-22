@@ -234,6 +234,18 @@ function buildDatasets(args) {
       pdm_agl: vol > 0 ? Math.round(((aglByDest.get(name) || 0) / vol) * 100) : 0,
     }));
 
+  // ─── Répartition par pays de chargement (HEXP : origines Mali/BF) ───────
+  const byPaysChargement = aggregateBy(periodRows, (r) => r.pays_chargement);
+  const repartitionPays = [...byPaysChargement.entries()]
+    .filter(([name]) => name && name.trim().length > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, vol]) => ({
+      pays: name,
+      volume_marche: Math.round(vol * 100) / 100,
+      pdm: market > 0 ? fmtPdmNum((vol / market) * 100) : 0,
+    }));
+
   // ─── Referentiel N-1 (full year aggregate by Transitaire) ──────────────
   const transitN1Vol = aggregateBy(fullN1Rows, (r) => r.transitaire);
   const referentiel = [...transitN1Vol.entries()].map(([name, vol]) => ({
@@ -258,6 +270,7 @@ function buildDatasets(args) {
       { datasetType: 'nouveaux_clients',      filename, rowCount: newcomerClients.length, rows: newcomerClients },
       { datasetType: 'top_growth',     filename, rowCount: topGrowth.length, rows: topGrowth },
       { datasetType: 'top_destinataires_pdm', filename, rowCount: topDestPdm.length, rows: topDestPdm },
+      { datasetType: 'repartition_pays', filename, rowCount: repartitionPays.length, rows: repartitionPays },
       { datasetType: 'referentiel_n1', filename, rowCount: referentiel.length, rows: referentiel },
     ],
   };

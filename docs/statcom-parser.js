@@ -151,11 +151,14 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
   const kept = [];
 
   // Métier-specific geographic scope:
-  //   TIM  (import maritime) → keep only "Pays de livraison" = Côte d'Ivoire
-  //                            (exclut le transbordement vers Mali/BF = hinterland)
-  //   TEM  (export maritime) → keep only "Pays de prise en charge" = Côte d'Ivoire
-  const geoMode = metier === 'TIM' ? 'livraison'
-                : metier === 'TEM' ? 'chargement'
+  //   TIM  (import maritime)  → keep only "Pays de livraison" = Côte d'Ivoire
+  //                             (exclut transbordement vers Mali/BF = hinterland)
+  //   TEM  (export maritime)  → keep only "Pays de prise en charge" = Côte d'Ivoire
+  //   HEXP (hinterland export)→ keep only "Pays de prise en charge" ≠ Côte d'Ivoire
+  //                             (flux export depuis Mali/BF via Abidjan)
+  const geoMode = metier === 'TIM'  ? 'livraison'
+                : metier === 'TEM'  ? 'chargement'
+                : metier === 'HEXP' ? 'chargement_hors_ci'
                 : null;
 
   for (const r of rows) {
