@@ -2047,200 +2047,201 @@ if (!dsmLive) {
   );
 }
 
-// ─── SLIDE 28 – FOCUS PÉTROLE ────────────────────────────────────────────────
-{
-  const s = pptx.addSlide();
-  addHeader(s, 'FOCUS SECTORIEL – PÉTROLE  |  Position AGL',
-    'Flux hydrocarbures import / export  |  Opérateurs au B/L  |  ~2,4 M T  |  Jan–Mai 2026');
-  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.28');
+// ─── SLIDE 29 – SÉPARATEUR 07 DIVERS FOCUS ───────────────────────────────────
+addSeparator('07', 'DIVERS FOCUS', 'Focus Minier  |  Focus concurrent AYMAN  |  Jan–Mai 2026');
 
-  s.addText('Opérateurs pétroliers actifs – Abidjan (B/L)', {
-    x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 0.15, 1.5, 6.8,
-    ['Opérateur','Volume T','Flux','PDM'],
-    [
-      ['SIR CI (Raffinerie)','~480 000','Import brut','20,0 %'],
-      ['TOTAL ENERGIES CI','~320 000','Import raffinés','13,3 %'],
-      ['VIVO ENERGY (Shell)','~280 000','Import raffinés','11,7 %'],
-      ['PETRO IVOIRE','~190 000','Import + Distrib.','7,9 %'],
-      ['FOXTROT INTERNATIONAL','~160 000','Export offshore','6,7 %'],
-      ['ORYX CI','~140 000','Import raffinés','5,8 %'],
-      ['BOLLORÉ ENERGY','~120 000','Import divers','5,0 %'],
-    ]
-  );
-
-  s.addText('Position AGL dans le secteur pétrolier', {
-    x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  const petro = [
-    { op: 'SIR CI – transit & manut.',  vol: '~480 000 T', status: '✓ ACTIF',    color: GREEN },
-    { op: 'FOXTROT – export offshore',  vol: '~160 000 T', status: '✓ ACTIF',    color: GREEN },
-    { op: 'TOTAL CI – consign. tankers',vol: '~320 000 T', status: 'PARTIEL',     color: ORANGE },
-    { op: 'VIVO ENERGY',                vol: '~280 000 T', status: 'PARTIEL',     color: ORANGE },
-    { op: 'PETRO IVOIRE',               vol: '~190 000 T', status: '✗ NON CAPTÉ', color: RED },
-    { op: 'ORYX CI',                    vol: '~140 000 T', status: '✗ NON CAPTÉ', color: RED },
-  ];
-  petro.forEach((p, i) => {
-    const ry = 1.52 + i * 0.58;
-    s.addShape(pptx.ShapeType.rect, { x:7.1, y:ry, w:6.0, h:0.5, fill:{color:'F8F9FA'}, line:{color:'E5E7EB',width:0.3} });
-    s.addText(p.op, { x:7.2, y:ry+0.06, w:2.8, h:0.38, fontSize:9, color:DGRAY, fontFace:'Calibri' });
-    s.addText(p.vol, { x:10.05, y:ry+0.06, w:1.3, h:0.38, fontSize:9, color:MGRAY, align:'center', fontFace:'Calibri' });
-    s.addText(p.status, { x:11.4, y:ry+0.06, w:1.65, h:0.38, fontSize:9, bold:true, color:p.color, align:'right', fontFace:'Calibri' });
-  });
-  addInsightBox(s, 0.15, 5.4, 12.9, 0.85, '🎯',
-    ['CIBLE PÉTROLE : PDM AGL secteur ~4,2%. Présence établie sur SIR CI et Foxtrot. Potentiel non capté : ~330 000 T chez Petro Ivoire + Oryx = +4 pts de PDM secteur. Plan d\'approche commercial S2 2026 recommandé (offre intégrée DSM + transit).']
-  );
-}
-
-// ─── SLIDE 29 – FOCUS MINIER (CI) ────────────────────────────────────────────
-// Source : lib/pptx/data/mining_clients.json — Master-list fournie par Olivier.
+// Master-list mining (fallback only)
 const miningData = require('./data/mining_clients.json');
 
+// ─── SLIDE 30 – FOCUS MINIER : VUE D'ENSEMBLE ────────────────────────────────
 {
   const s = pptx.addSlide();
-  addHeader(s, 'FOCUS SECTORIEL – MINIER  |  Master-list Côte d\'Ivoire',
-    `Clients miniers à suivre dans les stats AGL  |  ${miningData.ci.length} comptes CI  |  Or · Manganèse · Nickel · Lithium`);
-  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.29');
-
-  s.addText('Master-list Mining CI – à croiser systématiquement avec STATCOM / IRIS / GSL', {
-    x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-
-  const half = Math.ceil(miningData.ci.length / 2);
-  const ciCol1 = miningData.ci.slice(0, half).map((c, i) => [
-    `#${i + 1}`, c.name, c.metier_principal, c.flux,
-  ]);
-  const ciCol2 = miningData.ci.slice(half).map((c, i) => [
-    `#${half + i + 1}`, c.name, c.metier_principal, c.flux,
-  ]);
-
-  addRankTable(s, 0.15, 1.55, 6.35,
-    ['#', 'Client CI', 'Métiers', 'Flux'],
-    ciCol1
-  );
-  addRankTable(s, 6.65, 1.55, 6.35,
-    ['#', 'Client CI', 'Métiers', 'Flux'],
-    ciCol2
-  );
-
-  addInsightBox(s, 0.15, 5.55, 12.9, 0.95, '🏆',
-    [`POSITION AGL : ${miningData.ci.length} clients miniers CI à tracker — TIM dominant (matériels, consommables, drilling) + AER (Bureau Veritas, Endeavour Aviation). Cibles d'enrichissement : SAMA Nickel + Lithium CI absents de la master-list = relai prospection 2026. Stratégie : package minier intégré TIM + AÉRIEN + DSM + HINTERLAND avec contrat-cadre par groupe (Endeavour, Montage Gold).`]
-  );
-}
-
-// ─── SLIDE 29B – FOCUS MINIER (HINTERLAND BF + MALI) ─────────────────────────
-{
-  const s = pptx.addSlide();
-  addHeader(s, 'FOCUS SECTORIEL – MINIER  |  Hinterland Burkina Faso & Mali',
-    `Clients miniers hinterland à suivre  |  ${miningData.hinterland_bf.length} comptes BF + ${miningData.hinterland_mali.length} comptes MALI  |  Corridor Abidjan → Ouaga / Bamako`);
-  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.29b');
-
-  s.addText(`Hinterland Burkina Faso (${miningData.hinterland_bf.length} clients)`, {
-    x: 0.25, y: 1.2, w: 6.35, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 0.15, 1.5, 6.35,
-    ['#', 'Client BF', 'Activité / Mine'],
-    miningData.hinterland_bf.map((c, i) => [`#${i + 1}`, c.name, c.flux])
-  );
-
-  s.addText(`Hinterland Mali (${miningData.hinterland_mali.length} clients)`, {
-    x: 6.65, y: 1.2, w: 6.35, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 6.65, 1.5, 6.35,
-    ['#', 'Client MALI', 'Activité / Mine'],
-    miningData.hinterland_mali.map((c, i) => [`#${i + 1}`, c.name, c.flux])
-  );
-
-  // KPI ventilation
-  s.addText('Ventilation Master-list Mining', {
-    x: 6.65, y: 4.5, w: 6.35, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addSegmentBars(s, 6.65, 4.8, [
-    { label: 'Côte d\'Ivoire',          vol: `${miningData.ci.length} clients`, pdm: Math.round((miningData.ci.length / miningData.totals.total_master_list) * 100) },
-    { label: 'Hinterland Burkina Faso', vol: `${miningData.hinterland_bf.length} clients`, pdm: Math.round((miningData.hinterland_bf.length / miningData.totals.total_master_list) * 100) },
-    { label: 'Hinterland Mali',         vol: `${miningData.hinterland_mali.length} clients`, pdm: Math.round((miningData.hinterland_mali.length / miningData.totals.total_master_list) * 100) },
-  ]);
-
-  addInsightBox(s, 0.15, 5.55, 6.35, 0.95, '🎯',
-    [`STRATÉGIE HINTERLAND : ${miningData.hinterland_bf.length + miningData.hinterland_mali.length} clients à conquérir via corridor Abidjan-Ouaga/Bamako. Concentrations : Endeavour Mining (Houndé, Wahgnion, Mana via Semafo), Iamgold (Essakane), Orezone (Bombore). Leviers : trains hinterland AGL + transit douanier optimisé + co-loading matériels lourds (Samsung, Byrnecut, UMS).`]
-  );
-}
-
-// ─── SLIDE 30 – FOCUS AYMAN ──────────────────────────────────────────────────
-{
-  const s = pptx.addSlide();
-  addHeader(s, 'FOCUS TRANSITAIRE – GROUPE AYMAN  |  Synthèse multi-métiers',
-    'Analyse toutes activités (incl. DJAM DKS TRANSIT & HANNYYAH ET SAID)  |  Concurrence directe AGL  |  Jan–Mai 2026');
+  const live = dataAdapter.buildOverviewData(study, 'MINING');
+  addHeader(s, 'FOCUS MINIER – VUE D\'ENSEMBLE  |  Clients miniers traités par AGL',
+    live
+      ? `Marché minier (import maritime) : ${live.kpis.marche} TEU  |  AGL : ${live.kpis.agl} TEU  |  PDM ${live.kpis.pdm}`
+      : `Clients miniers à suivre  |  ${miningData.ci.length} comptes CI  |  Or · Manganèse · Nickel · Lithium`);
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.30');
 
-  s.addText('Activité AYMAN par métier vs position AGL – Jan–Mai 2026', {
-    x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 0.15, 1.5, 12.9,
-    ['Métier','Rang Ayman','Volume Ayman','PDM Ayman','Rang AGL','PDM AGL','Écart AGL'],
-    [
-      ['TIM – Import Maritime','#5','10 862 TEU (DJAM DKS)','5,6 %','#1','7,8 %','+2,2 pts'],
-      ['TEM – Export Maritime','Non classé','~800 TEU','~0,6 %','#1','26,2 %','+25,6 pts'],
-      ['Hinterland Import','~#12','~400 TEU','~1,4 %','#3','11,3 %','+9,9 pts'],
-      ['Hinterland Export','Non présent','—','—','#1','66,1 %','—'],
-      ['Aérien Import','#7','273 092 kg (HANNYYAH)','4,9 %','#1','20,8 %','+15,9 pts'],
-      ['DSM – Tramps','~#8','~3 900 T','4,2 %','#3','~11 %','+6,8 pts'],
-    ]
-  );
-  addInsightBox(s, 0.15, 4.85, 12.9, 1.05, '⚠',
-    ['SURVEILLANCE : AYMAN est le concurrent à plus forte croissance (+18% en 2026). Présent dans le TOP 5 sur TIM (#5 via DJAM DKS) et Aérien (#7 via HANNYYAH ET SAID). AGL domine sur tous les métiers, mais l\'écart TIM n\'est que de +2,2 pts.']
-  );
+  if (live) {
+    addKpiBar(s, [
+      { label: 'Marché minier (TIM)', value: live.kpis.marche, sub: 'TEU période' },
+      { label: 'Volume AGL',          value: live.kpis.agl,    sub: 'TEU', color: GREEN },
+      { label: 'PDM AGL minier',      value: live.kpis.pdm,    sub: `Rang #${live.aglRank || '—'}`, color: GREEN, big: true },
+      { label: live.secondName ? `vs ${live.secondName.slice(0,12)}` : 'Écart vs #2', value: live.kpis.ecart, sub: 'TEU', color: live.ecart >= 0 ? GREEN : RED },
+      { label: 'Cumul PDM TOP 4',     value: live.kpis.top4,   sub: 'leaders', color: BLUE2 },
+    ]);
+    const chartData = live.monthlyMarket
+      ? [
+          { name: 'Marché minier', labels: live.monthLabels, values: live.monthlyMarket },
+          { name: 'AGL',           labels: live.monthLabels, values: live.monthlyAgl },
+        ]
+      : [];
+    s.addText('Évolution mensuelle import minier & AGL (TEU)', {
+      x: 0.25, y: 2.28, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    if (chartData.length) addBarChart(s, 0.15, 2.55, 6.8, 4.0, chartData, [NAVY, GREEN]);
+    s.addText('PDM AGL par mois – Minier', {
+      x: 7.1, y: 2.28, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    const pdmLabels = live.monthLabels ? live.monthLabels.map((l) => dataAdapter.MONTHS_FR_FULL.find((m) => m.startsWith(l)) || l) : [];
+    addMensuelBars(s, 7.1, 2.62, pdmLabels, live.monthlyPdm || [], live.aglPdm);
+    addInsightBox(s, 7.1, 5.7, 6.0, 0.85, '🏆',
+      [`Périmètre minier = clients miniers (liste Olivier) sur l'import maritime. AGL #${live.aglRank || '—'} avec ${live.kpis.pdm} de PDM.`], 'F0FDF4');
+  } else {
+    s.addText('Master-list Mining CI – à croiser avec STATCOM (fallback)', {
+      x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    const half = Math.ceil(miningData.ci.length / 2);
+    addRankTable(s, 0.15, 1.55, 6.35, ['#', 'Client CI', 'Métiers', 'Flux'],
+      miningData.ci.slice(0, half).map((c, i) => [`#${i + 1}`, c.name, c.metier_principal, c.flux]));
+    addRankTable(s, 6.65, 1.55, 6.35, ['#', 'Client CI', 'Métiers', 'Flux'],
+      miningData.ci.slice(half).map((c, i) => [`#${half + i + 1}`, c.name, c.metier_principal, c.flux]));
+    addInsightBox(s, 0.15, 5.55, 12.9, 0.95, '🏆',
+      [`POSITION AGL : ${miningData.ci.length} clients miniers CI à tracker. Uploader TIM (N + N-1) pour l'analyse live au volume.`]);
+  }
 }
 
-// ─── SLIDE 31 – AYMAN ANALYSE DÉTAILLÉE ──────────────────────────────────────
+// ─── SLIDE 31 – FOCUS MINIER : CONCURRENTS & SEGMENTS ────────────────────────
 {
   const s = pptx.addSlide();
-  addHeader(s, 'FOCUS AYMAN – ANALYSE DÉTAILLÉE  |  Forces & Réponse AGL',
-    'Profil concurrentiel  |  Face-à-face par segment  |  Recommandations');
+  const live = dataAdapter.buildConcurrentsData(study, 'MINING');
+  addHeader(s, 'FOCUS MINIER – CONCURRENTS & MARCHANDISES',
+    live ? `Transitaires sur le minier  |  PDM AGL par marchandise  |  ${live.source}`
+         : 'Transitaires actifs sur le secteur minier  |  Marchandises minières');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.31');
 
-  s.addText('Profil du Groupe AYMAN', {
-    x: 0.25, y: 1.2, w: 5.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  const profilRows = [
-    ['Création','~2015 — croissance organique rapide'],
-    ['Cœur de métier','TIM (fret maritime import) + fret aérien'],
-    ['Réseau','Abidjan + filiales Mali, Sénégal'],
-    ['Clientèle clé','PME-PMI importatrices, tech & télécoms'],
-    ['Avantages','Réactivité, tarifs agressifs, digitalisation'],
-    ['Croissance','+18 % volumes 2026 vs 2025'],
-  ];
-  const rH = 0.38;
-  profilRows.forEach((row, i) => {
-    const ry = 1.52 + i * rH;
-    s.addShape(pptx.ShapeType.rect, { x:0.15, y:ry, w:5.5, h:rH, fill:{color:i%2===0?WHITE:'F8F9FA'}, line:{color:'E5E7EB',width:0.3} });
-    s.addText(row[0], { x:0.2, y:ry+0.06, w:1.4, h:rH-0.1, fontSize:9, bold:true, color:NAVY, fontFace:'Calibri' });
-    s.addText(row[1], { x:1.65, y:ry+0.06, w:3.8, h:rH-0.1, fontSize:9, color:DGRAY, fontFace:'Calibri' });
-  });
+  if (live) {
+    s.addText('Classement transitaires sur clients miniers', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    const aglHl = live.aglRowIdx >= 0 && live.aglRowIdx < 10 ? live.aglRowIdx : 0;
+    addRankTable(s, 0.15, 1.5, 6.8, ['Rang', 'Transitaire', 'TEU', 'PDM'], live.rows, aglHl);
+    s.addText('PDM AGL par marchandise minière', {
+      x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    if (live.segmentBars) addSegmentBars(s, 7.1, 1.52, live.segmentBars);
+    addInsightBox(s, 0.15, 5.5, 6.8, 0.9, '🎯',
+      [`AGL ${live.aglRowIdx === 0 ? 'leader' : '#' + (live.aglRowIdx + 1)} sur le transit des clients miniers. Cible : verrouiller les comptes Endeavour / Montage Gold par contrat-cadre intégré.`]);
+  } else {
+    s.addText('Hinterland minier BF + Mali (fallback)', {
+      x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 6.35, ['#', 'Client BF', 'Activité / Mine'],
+      miningData.hinterland_bf.map((c, i) => [`#${i + 1}`, c.name, c.flux]));
+    addRankTable(s, 6.65, 1.5, 6.35, ['#', 'Client MALI', 'Activité / Mine'],
+      miningData.hinterland_mali.map((c, i) => [`#${i + 1}`, c.name, c.flux]));
+    addInsightBox(s, 0.15, 5.55, 12.9, 0.9, '🎯',
+      [`${miningData.hinterland_bf.length + miningData.hinterland_mali.length} clients miniers hinterland à conquérir (Endeavour, Iamgold, Orezone).`]);
+  }
+}
 
-  s.addText('Face-à-face par segment : Ayman vs AGL', {
-    x: 5.85, y: 1.2, w: 7.3, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  const faceRows = [
-    { seg:'TIM – MACHINES / ÉLECTRO', ayVal:18, aglVal:11, winner:'AYMAN' },
-    { seg:'AÉRIEN – PIÈCES DÉTACHÉES', ayVal:12, aglVal:8, winner:'AYMAN' },
-    { seg:'AÉRIEN – TECH / TÉLÉCOMS', ayVal:15, aglVal:33, winner:'AGL' },
-    { seg:'TIM – MAT. CONSTRUCTION',  ayVal:10, aglVal:18, winner:'AGL' },
-    { seg:'TRAMPS – BRBK',            ayVal:8,  aglVal:18, winner:'AGL' },
-  ];
-  faceRows.forEach((row, i) => {
-    const ry = 1.52 + i * 0.72;
-    s.addShape(pptx.ShapeType.rect, { x:5.85, y:ry, w:7.3, h:0.65, fill:{color:'F8F9FA'}, line:{color:'E5E7EB',width:0.3} });
-    s.addText(row.seg, { x:5.95, y:ry+0.04, w:4.5, h:0.3, fontSize:9, bold:true, color:DGRAY, fontFace:'Calibri' });
-    s.addText(`Ay ~${row.ayVal}%  vs  AGL ${row.aglVal}%`, { x:5.95, y:ry+0.32, w:4.5, h:0.28, fontSize:9, color:MGRAY, fontFace:'Calibri' });
-    const wc = row.winner === 'AGL' ? GREEN : ORANGE;
-    s.addText(row.winner, { x:10.5, y:ry+0.12, w:2.55, h:0.38, fontSize:14, bold:true, color:wc, align:'right', valign:'middle', fontFace:'Calibri' });
-  });
+// ─── SLIDE 32 – FOCUS MINIER : CLIENTÈLE & NOUVEAUX ──────────────────────────
+{
+  const s = pptx.addSlide();
+  const liveC = dataAdapter.buildClienteleData(study, 'MINING');
+  const liveN = dataAdapter.buildNouveauxFullData(study, 'MINING');
+  addHeader(s, 'FOCUS MINIER – CLIENTÈLE AGL & NOUVEAUX',
+    'Top clients miniers AGL  |  Nouveaux comptes  |  Conquête');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.32');
 
-  addInsightBox(s, 0.15, 5.35, 12.9, 1.05, '🎯',
-    ['RÉPONSE AGL : 1) Tarification ciblée Machines / Électronique (TIM). 2) Service premium Pièces Détachées avec engagement délais (Aérien). 3) Verrouillage des clients communs (SITAB, importateurs télécoms) par contrats cadres. 4) Surveillance trimestrielle des volumes DJAM DKS et HANNYYAH.']
-  );
+  if (liveC) {
+    s.addText('Top 10 clients miniers AGL (destinataires)', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 7.0, ['Client minier', 'TEU', 'Segment', '% Vol. AGL'], liveC.rows);
+    s.addText('Mix marchandises minières AGL', {
+      x: 7.3, y: 1.2, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    if (liveC.mixLabels && liveC.mixLabels.length) {
+      s.addChart(pptx.ChartType.pie, [{ name: 'Mix', labels: liveC.mixLabels, values: liveC.mixValues }], {
+        x: 7.3, y: 1.5, w: 5.8, h: 3.6, showLegend: true, legendPos: 'r', legendFontSize: 8,
+        chartColors: [NAVY, GOLD, BLUE2, GREEN, ORANGE, TEAL, RED, '9CA3AF', 'D1D5DB'],
+        showPercent: true, dataLabelFontSize: 9, dataLabelColor: WHITE,
+      });
+    }
+    const lines = [];
+    if (liveC.topClient) lines.push(`Top client minier : ${liveC.topClient} (${liveC.topClientShare} du volume minier AGL).`);
+    if (liveN && liveN.metrics) lines.push(`${liveN.metrics.totalNouveauxClients} nouveaux clients miniers AGL captés vs N-1.`);
+    addInsightBox(s, 0.15, 5.35, 12.9, 0.95, '🏆', lines.length ? lines : ['Analyse clientèle minière live.']);
+  } else {
+    s.addText('Ventilation Master-list Mining (fallback)', {
+      x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addSegmentBars(s, 0.15, 1.6, [
+      { label: 'Côte d\'Ivoire',          vol: `${miningData.ci.length} clients`, pdm: Math.round((miningData.ci.length / miningData.totals.total_master_list) * 100) },
+      { label: 'Hinterland Burkina Faso', vol: `${miningData.hinterland_bf.length} clients`, pdm: Math.round((miningData.hinterland_bf.length / miningData.totals.total_master_list) * 100) },
+      { label: 'Hinterland Mali',         vol: `${miningData.hinterland_mali.length} clients`, pdm: Math.round((miningData.hinterland_mali.length / miningData.totals.total_master_list) * 100) },
+    ]);
+    addInsightBox(s, 0.15, 5.55, 12.9, 0.9, '🏆',
+      ['Uploader TIM (N + N-1) pour l\'analyse minière live (volumes, clients, nouveaux).']);
+  }
+}
+
+// ─── SLIDE 33 – FOCUS AYMAN : SYNTHÈSE MULTI-MÉTIERS ─────────────────────────
+{
+  const s = pptx.addSlide();
+  const live = dataAdapter.buildAymanFocusData(study);
+  addHeader(s, 'FOCUS CONCURRENT – GROUPE AYMAN  |  Synthèse multi-métiers',
+    'DJAM DKS (maritime) & HANNYYAH ET SAID (aérien)  |  Position vs AGL par métier');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.33');
+
+  if (live && live.parMetier.length) {
+    s.addText('Activité AYMAN par métier vs position AGL', {
+      x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 12.9,
+      ['Métier', 'Rang Ayman', 'Volume Ayman', 'PDM Ayman', 'PDM AGL', 'Écart AGL'],
+      live.parMetier);
+    addInsightBox(s, 0.15, 4.6, 12.9, 1.2, '⚠', [
+      `SURVEILLANCE : AYMAN (DJAM DKS + HANNYYAH) — TIM ${live.timTotalN} TEU sur la période${live.timGrowthPct != null ? ` (${live.timGrowthPct >= 0 ? '+' : ''}${live.timGrowthPct}% vs N-1)` : ''}.`,
+      'AGL domine sur les métiers mais l\'écart se resserre sur le maritime import : verrouiller les clients communs par contrats-cadres.',
+    ]);
+  } else {
+    s.addText('Activité AYMAN par métier vs position AGL (référence)', {
+      x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 12.9,
+      ['Métier','Rang Ayman','Volume Ayman','PDM Ayman','PDM AGL','Écart AGL'],
+      [
+        ['TIM – Import Maritime','#5','10 862 TEU','5,6 %','7,8 %','+2,2 pts'],
+        ['Aérien Import','#7','273 092 kg','4,9 %','20,8 %','+15,9 pts'],
+      ]);
+    addInsightBox(s, 0.15, 4.6, 12.9, 1.0, '⚠',
+      ['Uploader les fichiers STATCOM (TIM, AER, HIMP) pour l\'analyse AYMAN live.']);
+  }
+}
+
+// ─── SLIDE 34 – FOCUS AYMAN : CLIENTS & MARCHANDISES ─────────────────────────
+{
+  const s = pptx.addSlide();
+  const live = dataAdapter.buildAymanFocusData(study);
+  addHeader(s, 'FOCUS AYMAN – CLIENTS & MARCHANDISES  |  Maritime import',
+    'Clients servis par AYMAN  |  Marchandises  |  Évolution');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.34');
+
+  if (live && (live.clients.length || live.marchandises.length)) {
+    s.addText('Top clients AYMAN (destinataires, TIM)', {
+      x: 0.25, y: 1.2, w: 6.4, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 6.4, ['Client', 'TEU', '% AYMAN'],
+      live.clients.length ? live.clients : [['—', '—', '—']]);
+    s.addText('Top marchandises AYMAN (TIM)', {
+      x: 6.85, y: 1.2, w: 6.4, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 6.75, 1.5, 6.4, ['Marchandise', 'TEU', '% AYMAN'],
+      live.marchandises.length ? live.marchandises : [['—', '—', '—']]);
+    addInsightBox(s, 0.15, 5.5, 12.9, 1.0, '🎯', [
+      `AYMAN maritime import : ${live.timTotalN} TEU${live.timGrowthPct != null ? ` (${live.timGrowthPct >= 0 ? '+' : ''}${live.timGrowthPct}% vs N-1)` : ''}.`,
+      'RÉPONSE AGL : verrouiller les clients communs (contrats-cadres), service premium sur les marchandises où AYMAN progresse, surveillance trimestrielle.',
+    ]);
+  } else {
+    s.addText('Profil concurrentiel AYMAN (référence)', {
+      x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addInsightBox(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
+      ['AYMAN = concurrent forwarder (DJAM DKS maritime + HANNYYAH ET SAID aérien). Uploader les STATCOM pour l\'analyse détaillée de ses clients et marchandises.']);
+  }
 }
 
 // ─── SLIDE 32 – SÉPARATEUR ACTIONS STRATÉGIQUES ───────────────────────────────

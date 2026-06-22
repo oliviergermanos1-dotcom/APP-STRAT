@@ -69,7 +69,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260618k');
+  _worker = new Worker('./parser-worker.js?v=20260618l');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -108,8 +108,12 @@ function workerForget(key) {
   return callWorker({ kind: 'forget', key });
 }
 
-function workerBuild(metierKeys, period, dsm) {
-  return callWorker({ kind: 'build', metierKeys, period, dsm: dsm || null });
+function workerBuild(metierKeys, period, extras) {
+  const e = extras || {};
+  return callWorker({
+    kind: 'build', metierKeys, period,
+    dsm: e.dsm || null, mining: e.mining || null, ayman: e.ayman || null,
+  });
 }
 
 async function handleStatcomUpload(metier, scope, file) {
@@ -354,15 +358,27 @@ async function generatePptx() {
       };
     }
 
-    // DSM (Direction Maritime) is derived from the import maritime base (TIM).
-    const dsm = workerKeys.has('TIM|n')
+    // DSM (Direction Maritime) + MINING focus are derived from the import
+    // maritime base (TIM).
+    const timRef = workerKeys.has('TIM|n')
       ? { nKey: 'TIM|n', n1Key: workerKeys.has('TIM|n1') ? 'TIM|n1' : null }
       : null;
+    const dsm = timRef;
+    const mining = timRef;
+
+    // AYMAN focus — across every uploaded métier (current period source).
+    const ayman = METIERS
+      .filter((m) => m.code !== 'DSM' && workerKeys.has(`${m.code}|n`))
+      .map((m) => ({
+        metier: m.code,
+        nKey: `${m.code}|n`,
+        n1Key: workerKeys.has(`${m.code}|n1`) ? `${m.code}|n1` : null,
+      }));
 
     let allDatasets = [];
     if (Object.keys(metierKeys).length > 0 || dsm) {
       btn.textContent = 'Agrégation des données…';
-      const buildResult = await workerBuild(metierKeys, period, dsm);
+      const buildResult = await workerBuild(metierKeys, period, { dsm, mining, ayman });
       allDatasets = buildResult.datasets;
       btn.textContent = 'Composition du PPTX…';
     }

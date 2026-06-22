@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260618k');
-importScripts('./dataset-builder.js?v=20260618k');
+importScripts('./statcom-parser.js?v=20260618l');
+importScripts('./dataset-builder.js?v=20260618l');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
@@ -111,6 +111,37 @@ self.onmessage = (event) => {
               meta: ds.meta || null,
             });
           }
+        }
+      }
+
+      // MINING focus — TIM rows restricted to mining destinataires, then a
+      // standard TIM-like analysis (metier label 'MINING').
+      if (msg.mining && msg.mining.nKey) {
+        const cN = cache.get(msg.mining.nKey);
+        const cN1 = msg.mining.n1Key ? cache.get(msg.mining.n1Key) : null;
+        if (cN) {
+          const keptN = cN.kept.filter((r) => self.isMiningDestinataire(r.destinataire));
+          const keptN1 = cN1 ? cN1.kept.filter((r) => self.isMiningDestinataire(r.destinataire)) : null;
+          const built = self.buildDatasets({ keptN, keptN1, period, metier: 'MINING', filename: cN.filename });
+          reports.MINING = { market: built.market, aglVolume: built.aglVolume, aglPdm: built.aglPdm };
+          for (const ds of built.datasets) {
+            allDatasets.push({ metier: 'MINING', datasetType: ds.datasetType, rows: ds.rows });
+          }
+        }
+      }
+
+      // AYMAN focus — competitor forwarder across all uploaded metiers.
+      if (msg.ayman && msg.ayman.length) {
+        const sources = [];
+        for (const a of msg.ayman) {
+          const cN = cache.get(a.nKey);
+          if (!cN) continue;
+          const cN1 = a.n1Key ? cache.get(a.n1Key) : null;
+          sources.push({ metier: a.metier, unit: cN.unit, keptN: cN.kept, keptN1: cN1 ? cN1.kept : null });
+        }
+        if (sources.length) {
+          const ay = self.buildAymanDatasets(sources, period);
+          allDatasets.push({ metier: 'AYMAN', datasetType: 'ayman_focus', rows: [ay] });
         }
       }
 

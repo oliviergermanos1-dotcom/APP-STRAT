@@ -438,6 +438,29 @@ function buildDsmFullData(study) {
   };
 }
 
+/** AYMAN focus reader. Returns null if no ayman_focus dataset. */
+function buildAymanFocusData(study) {
+  const ds = findDataset(study, 'AYMAN', 'ayman_focus');
+  if (!ds || !ds.rows.length) return null;
+  const a = ds.rows[0];
+  return {
+    parMetier: (a.parMetier || []).map((m) => [
+      m.metier,
+      m.ayman_rang ? `#${m.ayman_rang}` : 'NC',
+      fmtInt(m.ayman_vol) + ' ' + m.unit,
+      (m.ayman_pdm != null ? m.ayman_pdm + ' %' : '—'),
+      (m.agl_pdm != null ? m.agl_pdm + ' %' : '—'),
+      (m.ecart_pts != null ? (m.ecart_pts >= 0 ? '+' : '') + m.ecart_pts + ' pts' : '—'),
+    ]),
+    clients: (a.clients || []).map((c) => [c.name, fmtInt(c.vol), c.pct + ' %']),
+    marchandises: (a.marchandises || []).map((m) => [m.name, fmtInt(m.vol), m.pct + ' %']),
+    evolution: a.evolution || [],
+    timTotalN: fmtInt(a.timTotalN),
+    timTotalN1: fmtInt(a.timTotalN1),
+    timGrowthPct: a.timGrowthPct,
+  };
+}
+
 window.dataAdapter = {
   buildOverviewData,
   buildConcurrentsData,
@@ -446,6 +469,7 @@ window.dataAdapter = {
   buildNouveauxFullData,
   buildRepartitionPaysData,
   buildDsmFullData,
+  buildAymanFocusData,
   // Legacy aliases for TIM-specific call sites (slide 4/5)
   buildTimOverviewData: (study) => buildOverviewData(study, 'TIM'),
   buildTimConcurrentsData: (study) => buildConcurrentsData(study, 'TIM'),

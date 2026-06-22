@@ -451,3 +451,112 @@ function buildDsmDatasets(keptN, keptN1, period, filename) {
 }
 
 _ctx.buildDsmDatasets = buildDsmDatasets;
+
+// ─── MINING FOCUS ──────────────────────────────────────────────────────────
+// Mining clients are matched on the Destinataire column via the appellations
+// provided by Olivier (mining docx). A TIM row is "mining" when its
+// normalised destinataire contains one of these appellations.
+function normMatch(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+const MINING_APPELLATIONS = [
+  'agbaou gold operation', 'bonikro gold mine', 'ste des mines de lafigue',
+  'ste des mines d ity', 'k1 mining', 'bureau veritas cote d ivoire',
+  'corica mining service', 'roxgold sango', '3g mining', 'cmb abidjan',
+  'equatorial engineering cote d ivoire',
+  'mines et exploitation en afrique de l ouest', 'minex wa',
+  'epiroc cote d ivoire', 'societe miniere de la lobo',
+  'societe miniere de lafigue',
+].map(normMatch);
+
+function isMiningDestinataire(name) {
+  const n = normMatch(name);
+  if (!n) return false;
+  return MINING_APPELLATIONS.some((a) => n.includes(a) || a.includes(n));
+}
+_ctx.isMiningDestinataire = isMiningDestinataire;
+
+// ─── AYMAN FOCUS ───────────────────────────────────────────────────────────
+// AYMAN = competitor forwarder group (DJAM DKS on maritime, HANNYYAH ET SAID
+// on air). Matched on the Transitaire column.
+const AYMAN_KEYS = ['djam dks', 'hannyyah', 'ayman', 'ayiman'].map(normMatch);
+function isAyman(name) {
+  const n = normMatch(name);
+  return AYMAN_KEYS.some((k) => n.includes(k));
+}
+_ctx.isAyman = isAyman;
+
+/**
+ * AYMAN multi-métier focus.
+ * @param {Array<{metier, unit, keptN, keptN1}>} sources
+ * @param {object} period
+ */
+function buildAymanDatasets(sources, period) {
+  const round = (v) => Math.round(v * 100) / 100;
+  const pdmOf = (a, b) => (b > 0 ? Math.round((a / b) * 1000) / 10 : 0);
+
+  // Per-métier summary: AYMAN volume, rank, AGL volume, gap.
+  const parMetier = [];
+  let aymanTimRows = [];
+  let aymanTimN1Rows = [];
+
+  for (const src of sources) {
+    const pRows = period ? src.keptN.filter((r) => inPeriod(r, period)) : src.keptN;
+    const market = pRows.reduce((s, r) => s + (r.volume || 0), 0);
+    // rank AYMAN among transitaires
+    const byTransit = aggregateBy(pRows, (r) => r.transitaire);
+    const ranked = [...byTransit.entries()].sort((a, b) => b[1] - a[1]);
+    let aymanVol = 0;
+    let aymanRank = null;
+    ranked.forEach(([name, vol], i) => {
+      if (isAyman(name)) { aymanVol += vol; if (aymanRank === null) aymanRank = i + 1; }
+    });
+    const aglVol = pRows.filter((r) => isAglB(r.transitaire)).reduce((s, r) => s + (r.volume || 0), 0);
+    parMetier.push({
+      metier: src.metier,
+      unit: src.unit,
+      ayman_vol: round(aymanVol),
+      ayman_pdm: pdmOf(aymanVol, market),
+      ayman_rang: aymanRank,
+      agl_pdm: pdmOf(aglVol, market),
+      ecart_pts: Math.round((pdmOf(aglVol, market) - pdmOf(aymanVol, market)) * 10) / 10,
+    });
+    if (src.metier === 'TIM') {
+      aymanTimRows = pRows.filter((r) => isAyman(r.transitaire));
+      aymanTimN1Rows = (src.keptN1 || []).filter((r) => isAyman(r.transitaire));
+    }
+  }
+
+  // AYMAN clients (TIM destinataires it serves)
+  const byClient = aggregateBy(aymanTimRows, (r) => r.destinataire);
+  const aymanTimTotal = aymanTimRows.reduce((s, r) => s + (r.volume || 0), 0);
+  const clients = [...byClient.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, aymanTimTotal) }));
+
+  // AYMAN marchandises (TIM)
+  const byMerch = aggregateBy(aymanTimRows, (r) => r.marchandise);
+  const marchandises = [...byMerch.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, aymanTimTotal) }));
+
+  // Evolution mensuelle AYMAN (TIM)
+  const byMonth = aggregateBy(aymanTimRows, (r) => r.mois);
+  const evolution = MONTHS_FR_B.filter((m) => byMonth.has(m))
+    .map((m) => ({ mois: m, vol: round(byMonth.get(m)) }));
+
+  // Evolution N vs N-1 (TIM total)
+  const totN = aymanTimTotal;
+  const periodN1 = period ? aymanTimN1Rows.filter((r) => inPeriod(r, shiftPeriodToN1(period))) : aymanTimN1Rows;
+  const totN1 = periodN1.reduce((s, r) => s + (r.volume || 0), 0);
+
+  return {
+    parMetier,
+    clients,
+    marchandises,
+    evolution,
+    timTotalN: round(totN),
+    timTotalN1: round(totN1),
+    timGrowthPct: totN1 > 0 ? Math.round(((totN - totN1) / totN1) * 1000) / 10 : null,
+  };
+}
+_ctx.buildAymanDatasets = buildAymanDatasets;
