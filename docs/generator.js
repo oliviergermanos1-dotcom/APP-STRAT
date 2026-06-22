@@ -2425,6 +2425,15 @@ addSeparator('06', 'ACTIONS STRATÉGIQUES PRIORITAIRES', 'Synthèse transversale
   );
 }
 
+// ─── SÉPARATEUR 09 – EXPÉRIENCE CLIENT (CX) ──────────────────────────────────
+// Les slides du PowerPoint « CX » déposé par l'utilisateur sont recopiées à
+// l'identique juste après ce séparateur (cf. pptx-merge.js côté navigateur).
+addSeparator('09', 'EXPÉRIENCE CLIENT (CX)', 'Parcours, satisfaction & écoute client  |  slides importées');
+
+// ─── SÉPARATEUR 10 – ANALYSE ACTIVITÉ CLIENT ─────────────────────────────────
+// Idem : les slides du PowerPoint « Analyse activité client » sont insérées ici.
+addSeparator('10', 'ANALYSE ACTIVITÉ CLIENT', 'Performance & volumétrie par compte  |  slides importées');
+
 // ─── RETURN BUFFER ───────────────────────────────────────────────────────────
   return pptx.write({ outputType: 'blob' });
 }

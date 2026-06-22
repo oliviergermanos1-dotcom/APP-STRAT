@@ -36,11 +36,28 @@ const state = {
 // Lost on page refresh (worker dies with the tab) — user re-uploads.
 const workerKeys = new Set();
 
-// Prediction inputs (PDF newsletters + AO Excel + free-text preconisations).
+// Prediction inputs (PDF newsletters + AO Excel + authored preconisations).
 const prediction = {
-  pdfTexts: [],   // [{ name, text }]
-  ao: null,       // parsed AO summary
-  signals: null,  // extracted sector/country signals
+  pdfTexts: [],         // [{ name, text }]
+  ao: null,             // parsed AO summary
+  signals: null,        // extracted sector/country signals
+  preconisations: null, // authored content loaded from data/preconisations.json
+};
+
+// Imported PowerPoints copied verbatim into the deck (sections 09 CX / 10).
+const imports = {
+  cx: null,       // { name, buffer }
+  analyse: null,  // { name, buffer }
+};
+
+// Fallback préconisations (used if data/preconisations.json fails to load).
+const FALLBACK_PRECONISATIONS = {
+  horizon: '12 mois',
+  secteurs: 'Mines & Or, BTP & Ciment, Agro & Cacao, Automobile/RoRo.',
+  marchandises: 'Engins miniers, clinker/ciment, véhicules RoRo, intrants agricoles, reefer.',
+  clients: 'Sociétés minières à conquérir, négociants engins, donneurs d\'ordre BTP, chargeurs cacao.',
+  recommandations: 'Verrouiller le minier, offensive Hinterland Import, cross-sell aérien, offre RoRo dédiée.',
+  synthese: 'AGL CI consolide 3 positions #1 ; relais de croissance minier & BTP, conquête sur Hinterland Import et export cacao.',
 };
 
 // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
@@ -380,15 +397,33 @@ function renderPrediction() {
 }
 
 function collectPreconisations() {
-  const v = (id) => (document.getElementById(id) ? document.getElementById(id).value.trim() : '');
-  return {
-    horizon: v('preco-horizon'),
-    secteurs: v('preco-secteurs'),
-    marchandises: v('preco-marchandises'),
-    clients: v('preco-clients'),
-    recommandations: v('preco-recommandations'),
-    synthese: v('preco-synthese'),
+  // Authored by the analyst (loaded from data/preconisations.json), not typed.
+  return prediction.preconisations || FALLBACK_PRECONISATIONS;
+}
+
+// ─── IMPORTED POWERPOINTS (verbatim — sections 09 CX / 10) ───────────────────
+async function handleImportUpload(slot, file) {
+  try {
+    const buffer = await file.arrayBuffer();
+    imports[slot] = { name: file.name, buffer };
+  } catch (e) {
+    alert('Erreur lecture PowerPoint : ' + e.message);
+  }
+  renderImports();
+}
+
+function renderImports() {
+  const draw = (slot, elId) => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.innerHTML = imports[slot]
+      ? `<span class="text-aglgreen">✓ ${imports[slot].name}</span> <button class="text-aglred hover:underline ml-1" data-imp-rm="${slot}">retirer</button>`
+      : '';
   };
+  draw('cx', 'cx-list');
+  draw('analyse', 'analyse-list');
+  document.querySelectorAll('button[data-imp-rm]').forEach((b) =>
+    b.addEventListener('click', () => { imports[b.dataset.impRm] = null; renderImports(); }));
 }
 
 // ─── PERIOD DERIVATION ───────────────────────────────────────────────────────
@@ -470,7 +505,26 @@ async function generatePptx() {
       },
     };
 
-    const blob = await window.generateStudyBuffer({ study });
+    let blob = await window.generateStudyBuffer({ study });
+
+    // Verbatim import: splice the uploaded PowerPoints right after their
+    // section separators (09 CX = penultimate slide, 10 = last slide).
+    if ((imports.cx || imports.analyse) && window.PPTXMerge) {
+      btn.textContent = 'Intégration des PowerPoints…';
+      const baseCount = window.BLOCK_SEQUENCE.length; // every block emits 1 slide
+      const inserts = [];
+      // Apply highest position first so earlier indices stay valid.
+      if (imports.analyse) inserts.push({ after: baseCount, buffer: imports.analyse.buffer });
+      if (imports.cx) inserts.push({ after: baseCount - 1, buffer: imports.cx.buffer });
+      try {
+        blob = await window.PPTXMerge.mergeExternalSlides(blob, inserts);
+      } catch (e) {
+        console.error('Merge PPTX échoué', e);
+        alert('Les PowerPoints importés n\'ont pas pu être fusionnés (' + e.message +
+          '). La présentation est générée sans eux.');
+      }
+    }
+
     const filename = `Comite_de_Direction_${state.study.title.replace(/[^a-zA-Z0-9_-]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pptx`;
 
     const url = URL.createObjectURL(blob);
@@ -507,11 +561,29 @@ async function boot() {
   document.getElementById('generate-btn').addEventListener('click', generatePptx);
   document.getElementById('reset-btn').addEventListener('click', resetAll);
 
+  // Authored préconisations (rédigées par l'analyste à partir des documents).
+  try {
+    const pr = await fetch('./data/preconisations.json?v=20260622a');
+    if (pr.ok) prediction.preconisations = await pr.json();
+  } catch (e) { /* fallback used */ }
+  const pStat = document.getElementById('preco-status');
+  if (pStat) {
+    pStat.textContent = prediction.preconisations
+      ? `✓ Préconisations chargées (maj ${prediction.preconisations._updated || '—'}).`
+      : 'Préconisations par défaut (data/preconisations.json non chargé).';
+  }
+
   // Prediction inputs
   const pdfInput = document.getElementById('pdf-input');
   if (pdfInput) pdfInput.addEventListener('change', (e) => { if (e.target.files.length) handlePdfUpload(e.target.files); e.target.value = ''; });
   const aoInput = document.getElementById('ao-input');
   if (aoInput) aoInput.addEventListener('change', (e) => { if (e.target.files[0]) handleAoUpload(e.target.files[0]); e.target.value = ''; });
+
+  // Imported PowerPoints (verbatim)
+  const cxInput = document.getElementById('cx-input');
+  if (cxInput) cxInput.addEventListener('change', (e) => { if (e.target.files[0]) handleImportUpload('cx', e.target.files[0]); e.target.value = ''; });
+  const analyseInput = document.getElementById('analyse-input');
+  if (analyseInput) analyseInput.addEventListener('change', (e) => { if (e.target.files[0]) handleImportUpload('analyse', e.target.files[0]); e.target.value = ''; });
 
   renderDatasets();
   renderStatus();

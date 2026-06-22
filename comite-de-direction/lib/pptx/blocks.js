@@ -43,6 +43,8 @@ const BLOCK_SEQUENCE = [
   "prediction_preconisations",
   "sep_actions",
   "synthese_finale",
+  "sep_cx",
+  "sep_analyse_client",
 ];
 
 module.exports = { BLOCK_SEQUENCE };
