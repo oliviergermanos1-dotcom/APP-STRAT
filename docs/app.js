@@ -765,7 +765,7 @@ async function boot() {
 
   // Authored préconisations (rédigées par l'analyste à partir des documents).
   try {
-    const pr = await fetch('./data/preconisations.json?v=20260622b');
+    const pr = await fetch('./data/preconisations.json?v=20260622c');
     if (pr.ok) prediction.preconisations = await pr.json();
   } catch (e) { /* fallback used */ }
   const pStat = document.getElementById('preco-status');

@@ -1746,6 +1746,22 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
   }
 }
 
+// Reusable brand separator (big code watermark + gold underline + title +
+// subtitle). Same look as the DSM separator; used for Mining / AYMAN too.
+function addBrandSeparator(code, title, subtitle) {
+  const s = pptx.addSlide();
+  s.addShape(pptx.ShapeType.rect, { x:0,y:0,w:13.33,h:7.5, fill:{color:NAVY}, line:{type:'none'} });
+  s.addShape(pptx.ShapeType.rect, { x:1.2,y:3.85,w:8.2,h:0.065, fill:{color:GOLD}, line:{type:'none'} });
+  s.addText(code, { x:0.4,y:2.2,w:12.5,h:1.0, fontSize:72, bold:true, color:'1A2E4A', align:'center', fontFace:'Calibri' });
+  s.addText(title, { x:0.4,y:2.9,w:12.5,h:1.0, fontSize:28, bold:true, color:WHITE, align:'center', fontFace:'Calibri' });
+  s.addText(subtitle, { x:0.4,y:4.05,w:12.5,h:0.5, fontSize:14, italic:true, color:GOLD, align:'center', fontFace:'Calibri' });
+  s.addText('Africa Global Logistics – Étude de Marché Jan–Mai 2026', {
+    x:2,y:7.1,w:9,h:0.28, fontSize:9, color:MGRAY, align:'center', fontFace:'Calibri'
+  });
+  s.addText('AGL', { x:12.5,y:7.08,w:0.7,h:0.32, fontSize:10, bold:true, color:GOLD, align:'right', fontFace:'Calibri' });
+  return s;
+}
+
 // ─── SLIDE 25 – SÉPARATEUR DSM ────────────────────────────────────────────────
 {
   const s = pptx.addSlide();
@@ -2054,6 +2070,10 @@ addSeparator('07', 'DIVERS FOCUS', 'Focus Minier  |  Focus concurrent AYMAN  |  
 // Master-list mining (fallback only)
 const miningData = window.__MINING_DATA__;
 
+// ─── SÉPARATEUR FOCUS MINING (avant l'analyse minière) ───────────────────────
+addBrandSeparator('MINING', 'FOCUS MINING',
+  'Clients miniers traités par AGL  |  Or · Manganèse · Nickel · Lithium  |  Jan–Mai 2026');
+
 // ─── SLIDE 30 – FOCUS MINIER : VUE D'ENSEMBLE ────────────────────────────────
 {
   const s = pptx.addSlide();
@@ -2176,6 +2196,62 @@ const miningData = window.__MINING_DATA__;
     ]);
     addInsightBox(s, 0.15, 5.55, 12.9, 0.9, '🏆',
       ['Uploader TIM (N + N-1) pour l\'analyse minière live (volumes, clients, nouveaux).']);
+  }
+}
+
+// ─── SÉPARATEUR FOCUS AYMAN (avant l'analyse concurrent AYMAN) ───────────────
+addBrandSeparator('AYMAN', 'FOCUS AYMAN',
+  'Concurrent forwarder  |  DJAM DKS (maritime) · HANNYYAH ET SAID (aérien)  |  Jan–Mai 2026');
+
+// ─── AYMAN – VUE D'ENSEMBLE (style TIM : KPI + évolution mensuelle) ──────────
+{
+  const s = pptx.addSlide();
+  const live = dataAdapter.buildAymanFocusData(study);
+  addHeader(s, 'FOCUS AYMAN – VUE D\'ENSEMBLE  |  Maritime import',
+    live ? `TIM ${live.timTotalN} TEU sur la période · ${live.timTotalN1} TEU même période N-1${
+      live.timGrowthPct != null ? ` (${live.timGrowthPct >= 0 ? '+' : ''}${live.timGrowthPct}%)` : ''}`
+        : 'Volume AYMAN  |  Croissance N vs N-1  |  Dynamique mensuelle');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.ayman-1');
+
+  if (live && live.parMetier.length) {
+    const tim = live.parMetier.find((m) => Array.isArray(m) && /TIM/i.test(m[0]));
+    const aer = live.parMetier.find((m) => Array.isArray(m) && /AER|aérien/i.test(m[0]));
+    addKpiBar(s, [
+      { label: 'AYMAN TIM (période)', value: live.timTotalN, sub: 'TEU' },
+      { label: 'Évolution vs N-1',    value: (live.timGrowthPct == null ? '—' :
+        (live.timGrowthPct >= 0 ? '+' : '') + live.timGrowthPct + ' %'),
+        color: live.timGrowthPct >= 0 ? RED : GREEN, big: true,
+        sub: live.timGrowthPct >= 0 ? 'AYMAN gagne du terrain' : 'AYMAN recule' },
+      { label: 'Rang AYMAN – TIM',    value: tim ? tim[1] : 'NC', sub: 'transitaires' },
+      { label: 'PDM AYMAN – TIM',     value: tim ? tim[3] : '—',  sub: 'du marché qualifié' },
+      { label: 'PDM AGL – TIM',       value: tim ? tim[4] : '—',  sub: 'référence interne', color: GREEN },
+    ]);
+
+    s.addText('Évolution mensuelle AYMAN (TIM, TEU)', {
+      x: 0.25, y: 2.28, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    const labels = (live.evolution || []).map((e) => e.mois);
+    const values = (live.evolution || []).map((e) => Math.round(e.vol));
+    if (labels.length) {
+      addBarChart(s, 0.15, 2.55, 12.9, 3.0,
+        [{ name: 'AYMAN TEU', labels, values }], [ORANGE]);
+    } else {
+      addInsightBox(s, 0.15, 2.62, 12.9, 0.8, 'ℹ',
+        ['Pas d\'activité AYMAN détectée sur la période. Vérifier le filtre Non Apuré et la présence de DJAM DKS dans la colonne Transitaire.']);
+    }
+
+    addInsightBox(s, 0.15, 5.7, 12.9, 1.2, '⚠', [
+      `📈 DYNAMIQUE : AYMAN ${live.timGrowthPct >= 0 ? 'progresse de' : 'recule de'} ${
+        live.timGrowthPct != null ? Math.abs(live.timGrowthPct) + '%' : '—'} vs même période N-1 (${live.timTotalN1} TEU → ${live.timTotalN} TEU).`,
+      aer ? `✈ AÉRIEN : AYMAN ${aer[1]} (${aer[3]}) vs AGL ${aer[4]} → écart ${aer[5]}.` : '',
+      '🎯 LECTURE : AYMAN reste à surveiller métier par métier — voir les 2 slides suivantes pour les clients et marchandises.',
+    ]);
+  } else {
+    s.addText('Activité AYMAN – aucune donnée live', {
+      x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addInsightBox(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
+      ['Uploader les fichiers STATCOM (TIM + AER) pour activer l\'analyse AYMAN live.']);
   }
 }
 
@@ -2375,55 +2451,9 @@ function collectGrowthSuggestions() {
     ].filter(Boolean));
 }
 
-// ─── SLIDE 32 – SÉPARATEUR ACTIONS STRATÉGIQUES ───────────────────────────────
-addSeparator('06', 'ACTIONS STRATÉGIQUES PRIORITAIRES', 'Synthèse transversale  |  6 axes  |  Horizon 12 mois');
-
-// ─── SLIDE 33 – SYNTHÈSE FINALE ──────────────────────────────────────────────
-{
-  const s = pptx.addSlide();
-  addHeader(s, 'SYNTHÈSE – PARTS DE MARCHÉ AGL PAR MÉTIER', '');
-  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.21');
-
-  const rows = [
-    { label:'HINTERLAND EXPORT', sub:'4 294 TEU  |  AGL : 2 840 TEU', pdm:66.1, rang:'#1 ABSOLU', status:'LEADER',        statusColor:GREEN,  barColor:GREEN },
-    { label:'TRANSIT EXPORT MAR.',sub:'137 283 TEU  |  AGL : 35 972 TEU', pdm:26.2, rang:'#1 – ×4,7 le 2ème', status:'DOMINANT',       statusColor:GREEN,  barColor:GREEN },
-    { label:'AÉRIEN IMPORT',      sub:'5 603 T  |  AGL : 1 166 T',    pdm:20.8, rang:'#1 ABSOLU', status:'EN HAUSSE',       statusColor:GREEN,  barColor:GREEN },
-    { label:'HINTERLAND IMPORT',  sub:'28 457 TEU  |  AGL : 3 214 TEU',pdm:11.3, rang:'#3',       status:'À RENFORCER',    statusColor:ORANGE, barColor:ORANGE },
-    { label:'TRANSIT IMPORT MAR.',sub:'193 989 TEU  |  AGL : 15 133 TEU',pdm:7.8, rang:'#1 FRAGILE', status:'SOUS PRESSION', statusColor:ORANGE, barColor:ORANGE },
-  ];
-
-  const rowH = 1.1, startY = 1.15, maxBarW = 7.5;
-  const maxPdm = 66.1;
-
-  rows.forEach((r, i) => {
-    const y = startY + i * rowH;
-    // Fond carte
-    s.addShape(pptx.ShapeType.rect, { x:0.15, y, w:12.9, h:rowH-0.08, fill:{color:'F0F4F8'}, line:{color:'E2E8F0',width:0.5} });
-    // Label + sous-texte
-    s.addText(r.label, { x:0.3, y:y+0.12, w:3.0, h:0.38, fontSize:13, bold:true, color:NAVY, fontFace:'Calibri' });
-    s.addText(r.sub,   { x:0.3, y:y+0.52, w:3.0, h:0.28, fontSize:9,  color:MGRAY, fontFace:'Calibri' });
-    // Barre fond
-    const barX = 3.4;
-    s.addShape(pptx.ShapeType.rect, { x:barX, y:y+0.28, w:maxBarW, h:0.38, fill:{color:'D1D5DB'}, line:{type:'none'} });
-    // Barre valeur
-    const bw = (r.pdm / maxPdm) * maxBarW;
-    s.addShape(pptx.ShapeType.rect, { x:barX, y:y+0.28, w:bw, h:0.38, fill:{color:r.barColor}, line:{type:'none'} });
-    // Valeur PDM
-    s.addText(`${r.pdm} %`, { x:barX+bw+0.1, y:y+0.2, w:1.2, h:0.52, fontSize:20, bold:true, color:r.barColor, valign:'middle', fontFace:'Calibri' });
-    // Badge statut
-    s.addShape(pptx.ShapeType.rect, { x:11.1, y:y+0.08, w:1.85, h:0.32, fill:{color:r.statusColor}, line:{type:'none'} });
-    s.addText(r.status, { x:11.1, y:y+0.08, w:1.85, h:0.32, fontSize:9, bold:true, color:WHITE, align:'center', valign:'middle', fontFace:'Calibri' });
-    // Rang
-    s.addText(r.rang, { x:11.1, y:y+0.48, w:1.85, h:0.28, fontSize:9, color:r.statusColor, bold:true, align:'center', fontFace:'Calibri' });
-  });
-
-  // Bande finale résumé
-  s.addShape(pptx.ShapeType.rect, { x:0.15, y:6.72, w:12.9, h:0.32, fill:{color:NAVY}, line:{type:'none'} });
-  s.addText(
-    '3 métiers sur 5 en position #1  |  TIM leader fragile (+558 TEU)  |  Hint.Imp. seul segment à conquérir (#3)  |  Aérien : montée en puissance historique',
-    { x:0.25, y:6.72, w:12.7, h:0.32, fontSize:9, color:WHITE, align:'center', valign:'middle', fontFace:'Calibri' }
-  );
-}
+// (slides "Actions stratégiques" + "Synthèse finale" supprimées sur demande
+// d'Olivier — le focus s'arrête à la prédiction marché, puis enchaîne sur
+// les sections importées 09 CX et 10 Analyse activité client.)
 
 // ─── SÉPARATEUR 09 – EXPÉRIENCE CLIENT (CX) ──────────────────────────────────
 // Les slides du PowerPoint « CX » déposé par l'utilisateur sont recopiées à
