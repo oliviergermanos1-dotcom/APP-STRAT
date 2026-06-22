@@ -61,14 +61,30 @@ function loadState() {
 
 // ─── STATCOM UPLOAD ──────────────────────────────────────────────────────────
 // Pool of Web Workers (1 per active parse) to keep the UI thread free.
-function parseInWorker(buffer, metier, filename, opts) {
+// onProgress receives { phase: 'parsing' | 'encoding' } so the tile can
+// reflect the current step without re-rendering the whole grid.
+function parseInWorker(buffer, metier, filename, opts, onProgress) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker('./parser-worker.js');
+    const worker = new Worker('./parser-worker.js?v=20260618c');
     const id = Math.random().toString(36).slice(2);
     worker.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.kind === 'progress') {
+        if (onProgress) onProgress(msg.phase);
+        return;
+      }
       worker.terminate();
-      if (e.data.ok) resolve(e.data.result);
-      else reject(new Error(e.data.error));
+      if (msg.ok) {
+        try {
+          // JSON.parse is implemented in C++ and is much faster than
+          // structured-clone for 50k+ row objects.
+          resolve(JSON.parse(msg.json));
+        } catch (err) {
+          reject(err);
+        }
+      } else {
+        reject(new Error(msg.error));
+      }
     };
     worker.onerror = (e) => {
       worker.terminate();
@@ -91,7 +107,14 @@ async function handleStatcomUpload(metier, scope, file) {
       excludeSirSmbTransitaire:  document.getElementById('filter-sir-transit').checked,
       excludeSirSmbDestinataire: document.getElementById('filter-sir-dest').checked,
     };
-    const result = await parseInWorker(buffer, metier, file.name, filterOpts);
+    const result = await parseInWorker(buffer, metier, file.name, filterOpts, (phase) => {
+      const t = document.querySelector(`[data-tile="${metier}|${scope}"]`);
+      if (!t) return;
+      const label = phase === 'parsing'
+        ? `Parsing ${file.name} en arrière-plan…`
+        : `Encodage des données (~5s)…`;
+      setTileBusy(t, label);
+    });
 
     rowsCache[`${metier}|${scope}`] = result.kept;
     state.statcomMeta[`${metier}|${scope}`] = {

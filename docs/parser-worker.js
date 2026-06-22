@@ -11,8 +11,15 @@ importScripts('./statcom-parser.js');
 self.onmessage = (event) => {
   const { id, buffer, metier, filename, opts } = event.data || {};
   try {
+    self.postMessage({ id, kind: 'progress', phase: 'parsing' });
     const result = self.parseStatcomBuffer(buffer, metier, filename, opts || {});
-    self.postMessage({ id, ok: true, result });
+
+    // Serialise to a JSON string so the main thread receives a single
+    // immutable blob (native JSON.parse is much faster than structured-
+    // cloning 50k+ nested objects).
+    self.postMessage({ id, kind: 'progress', phase: 'encoding' });
+    const json = JSON.stringify(result);
+    self.postMessage({ id, ok: true, json });
   } catch (err) {
     self.postMessage({
       id,
