@@ -189,7 +189,7 @@ function addSegmentBars(slide, x, y, segments) {
   // Couleurs cycliques pour les barres
   const BAR_COLORS = [GREEN, GREEN, BLUE2, ORANGE, ORANGE, ORANGE, TEAL, TEAL, RED, RED, RED];
   const maxPdm = Math.max(...segments.map(s => s.pdm));
-  const maxBarW = 3.0;
+  const maxBarW = 2.55; // keeps label (bar end + 0.05 + 0.5) within the sheet
   const rowH = 0.42;
 
   segments.forEach((seg, i) => {
@@ -216,7 +216,7 @@ function addSegmentBars(slide, x, y, segments) {
       fill: { color: barColor }, line: { type: 'none' }
     });
     slide.addText(`${seg.pdm}%`, {
-      x: x + 2.8 + maxBarW + 0.05, y: ry, w: 0.4, h: 0.28,
+      x: x + 2.8 + maxBarW + 0.05, y: ry, w: 0.5, h: 0.28,
       fontSize: 9, bold: true, color: barColor, fontFace: 'Calibri'
     });
   });
@@ -397,7 +397,7 @@ function addSeparator(num, title, subtitle) {
   });
   // Trait doré sous le titre
   s.addShape(pptx.ShapeType.rect, {
-    x: 1.2, y: 3.85, w: 8.2, h: 0.065,
+    x: 2.565, y: 3.85, w: 8.2, h: 0.065,
     fill: { color: GOLD }, line: { type: 'none' }
   });
   s.addText(title, {
@@ -1750,7 +1750,7 @@ addSeparator('05', 'AÉRIEN IMPORT', '5 603 T qualifiées  |  PDM AGL : 20,8%  |
 function addBrandSeparator(code, title, subtitle) {
   const s = pptx.addSlide();
   s.addShape(pptx.ShapeType.rect, { x:0,y:0,w:13.33,h:7.5, fill:{color:NAVY}, line:{type:'none'} });
-  s.addShape(pptx.ShapeType.rect, { x:1.2,y:3.85,w:8.2,h:0.065, fill:{color:GOLD}, line:{type:'none'} });
+  s.addShape(pptx.ShapeType.rect, { x:2.565,y:3.85,w:8.2,h:0.065, fill:{color:GOLD}, line:{type:'none'} });
   s.addText(code, { x:0.4,y:2.2,w:12.5,h:1.0, fontSize:72, bold:true, color:'1A2E4A', align:'center', fontFace:'Calibri' });
   s.addText(title, { x:0.4,y:2.9,w:12.5,h:1.0, fontSize:28, bold:true, color:WHITE, align:'center', fontFace:'Calibri' });
   s.addText(subtitle, { x:0.4,y:4.05,w:12.5,h:0.5, fontSize:14, italic:true, color:GOLD, align:'center', fontFace:'Calibri' });
@@ -1765,7 +1765,7 @@ function addBrandSeparator(code, title, subtitle) {
 {
   const s = pptx.addSlide();
   s.addShape(pptx.ShapeType.rect, { x:0,y:0,w:13.33,h:7.5, fill:{color:NAVY}, line:{type:'none'} });
-  s.addShape(pptx.ShapeType.rect, { x:1.2,y:3.85,w:8.2,h:0.065, fill:{color:GOLD}, line:{type:'none'} });
+  s.addShape(pptx.ShapeType.rect, { x:2.565,y:3.85,w:8.2,h:0.065, fill:{color:GOLD}, line:{type:'none'} });
   s.addText('DSM', { x:0.4,y:2.2,w:12.5,h:1.0, fontSize:72, bold:true, color:'1A2E4A', align:'center', fontFace:'Calibri' });
   s.addText('DIRECTION DES SOLUTIONS MARITIMES', {
     x:0.4,y:2.9,w:12.5,h:1.0, fontSize:28, bold:true, color:WHITE, align:'center', fontFace:'Calibri'
@@ -1785,6 +1785,53 @@ const dsmData = require('./data/dsm.json');
 
 const fmtTon = (v) => Math.round(v).toLocaleString('fr-FR').replace(/,/g, ' ');
 const fmtPdm = (v) => v.toFixed(2).replace('.', ',') + ' %';
+
+// ─── SLIDE DSM – VUE D'ENSEMBLE (même schéma que les autres métiers) ─────────
+// KPI marché/AGL/PDM/rang + évolution mensuelle (marché vs AGL, tonnage) +
+// PDM AGL mensuel, période-aware (N vs N-1 même période), dérivé de la base TIM.
+{
+  const s = pptx.addSlide();
+  const ov = dataAdapter.buildDsmOverviewData(study);
+  addHeader(s, 'DSM – VUE D\'ENSEMBLE  |  Import maritime au poids (T)',
+    ov ? `Marché : ${ov.kpis.marche} T  |  AGL (consignataire) : ${ov.kpis.agl} T  |  PDM ${ov.kpis.pdm}${
+      ov.aglGrowthPct != null ? `  |  AGL ${ov.aglGrowthPct >= 0 ? '+' : ''}${ov.aglGrowthPct}% vs N-1` : ''}`
+      : 'Tonnage import maritime  |  PDM AGL consignataire  |  Dynamique mensuelle');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.dsm-1');
+
+  if (ov) {
+    addKpiBar(s, [
+      { label: 'Marché import (T)',  value: ov.kpis.marche, sub: 'tonnage période' },
+      { label: 'AGL consignataire',  value: ov.kpis.agl,    sub: 'T', color: GREEN },
+      { label: 'PDM AGL',            value: ov.kpis.pdm,    sub: `Rang ${ov.kpis.rang}`, color: GREEN, big: true },
+      { label: 'Évolution AGL vs N-1', value: ov.kpis.growth,
+        sub: `${ov.aglTonnageN1} T en N-1`, color: (ov.aglGrowthPct != null && ov.aglGrowthPct >= 0) ? GREEN : RED },
+      { label: ov.secondName ? `vs ${String(ov.secondName).slice(0, 12)}` : 'Marché vs N-1',
+        value: (ov.marketGrowthPct != null ? (ov.marketGrowthPct >= 0 ? '+' : '') + ov.marketGrowthPct + ' %' : '—'),
+        sub: 'marché total', color: BLUE2 },
+    ]);
+
+    s.addText('Évolution mensuelle import & AGL (tonnes)', {
+      x: 0.25, y: 2.28, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    if (ov.monthLabels.length) {
+      addBarChart(s, 0.15, 2.55, 6.8, 3.9, [
+        { name: 'Marché', labels: ov.monthLabels, values: ov.monthlyMarket },
+        { name: 'AGL',    labels: ov.monthLabels, values: ov.monthlyAgl },
+      ], [NAVY, GREEN]);
+    }
+    s.addText('PDM AGL par mois (%)', {
+      x: 7.1, y: 2.28, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addMensuelBars(s, 7.1, 2.62, ov.monthLabels, ov.monthlyPdm, ov.aglPdm || 0);
+
+    addInsightBox(s, 7.1, 5.7, 6.0, 0.85, '🚢',
+      [`AGL consignataire ${ov.kpis.rang} avec ${ov.kpis.pdm} du tonnage import maritime${
+        ov.aglGrowthPct != null ? ` — ${ov.aglGrowthPct >= 0 ? 'hausse' : 'baisse'} de ${Math.abs(ov.aglGrowthPct)}% vs N-1 même période` : ''}.`], 'F0FDF4');
+  } else {
+    addInsightBox(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
+      ['Uploader la base TIM (import maritime, N + N-1) pour activer la vue d\'ensemble DSM live (tonnage, PDM AGL consignataire, évolution mensuelle).']);
+  }
+}
 
 // ─── SLIDE 26 – DSM ACTEURS MARITIMES (dashboard) ────────────────────────────
 const dsmLive = dataAdapter.buildDsmFullData(study);
@@ -2161,29 +2208,36 @@ addBrandSeparator('MINING', 'FOCUS MINING',
   const s = pptx.addSlide();
   const liveC = dataAdapter.buildClienteleData(study, 'MINING');
   const liveN = dataAdapter.buildNouveauxFullData(study, 'MINING');
-  addHeader(s, 'FOCUS MINIER – CLIENTÈLE AGL & NOUVEAUX',
-    'Top clients miniers AGL  |  Nouveaux comptes  |  Conquête');
+  const liveConc = dataAdapter.buildConcurrentsData(study, 'MINING');
+  addHeader(s, 'FOCUS MINIER – CLIENTÈLE & PDM AGL',
+    'Top clients miniers (marché) — PDM AGL  |  Top marchandises — PDM AGL  |  Focus AGL');
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.32');
 
-  if (liveC) {
-    s.addText('Top 10 clients miniers AGL (destinataires)', {
+  if (liveC || liveN) {
+    // Col gauche — Top 10 clients miniers (tous transitaires) avec PDM AGL
+    s.addText('Top 10 clients miniers (marché) — part AGL', {
       x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
     });
-    addRankTable(s, 0.15, 1.5, 7.0, ['Client minier', 'TEU', 'Segment', '% Vol. AGL'], liveC.rows);
-    s.addText('Mix marchandises minières AGL', {
-      x: 7.3, y: 1.2, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    const destRows = (liveN && liveN.topDestinataires && liveN.topDestinataires.length)
+      ? liveN.topDestinataires
+      : (liveC ? liveC.rows : [['—', '—', '—', '—']]);
+    addRankTable(s, 0.15, 1.5, 6.6, ['Client minier', 'TEU marché', 'TEU AGL', 'PDM AGL'], destRows);
+
+    // Col droite — Top marchandises minières avec PDM AGL
+    s.addText('Top marchandises minières — PDM AGL', {
+      x: 7.0, y: 1.2, w: 6.2, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
     });
-    if (liveC.mixLabels && liveC.mixLabels.length) {
-      s.addChart(pptx.ChartType.pie, [{ name: 'Mix', labels: liveC.mixLabels, values: liveC.mixValues }], {
-        x: 7.3, y: 1.5, w: 5.8, h: 3.6, showLegend: true, legendPos: 'r', legendFontSize: 8,
-        chartColors: [NAVY, GOLD, BLUE2, GREEN, ORANGE, TEAL, RED, '9CA3AF', 'D1D5DB'],
-        showPercent: true, dataLabelFontSize: 9, dataLabelColor: WHITE,
-      });
+    if (liveConc && liveConc.segmentBars && liveConc.segmentBars.length) {
+      addSegmentBars(s, 7.0, 1.55, liveConc.segmentBars.slice(0, 9));
+    } else {
+      addInsightBox(s, 7.0, 1.55, 6.2, 0.8, 'ℹ', ['Marchandises minières indisponibles.']);
     }
+
+    // Insight — Focus AGL (top client AGL + nouveaux comptes)
     const lines = [];
-    if (liveC.topClient) lines.push(`Top client minier : ${liveC.topClient} (${liveC.topClientShare} du volume minier AGL).`);
-    if (liveN && liveN.metrics) lines.push(`${liveN.metrics.totalNouveauxClients} nouveaux clients miniers AGL captés vs N-1.`);
-    addInsightBox(s, 0.15, 5.35, 12.9, 0.95, '🏆', lines.length ? lines : ['Analyse clientèle minière live.']);
+    if (liveC && liveC.topClient) lines.push(`🏆 FOCUS AGL : top client minier AGL = ${liveC.topClient} (${liveC.topClientShare} du volume minier AGL).`);
+    if (liveN && liveN.metrics) lines.push(`🎯 CONQUÊTE : ${liveN.metrics.totalNouveauxClients} nouveaux clients miniers AGL captés vs N-1.`);
+    addInsightBox(s, 0.15, 5.55, 12.9, 1.05, '⛏', lines.length ? lines : ['Analyse clientèle minière live (marché vs AGL).']);
   } else {
     s.addText('Ventilation Master-list Mining (fallback)', {
       x: 0.25, y: 1.2, w: 12.9, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'

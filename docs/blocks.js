@@ -29,6 +29,7 @@ const BLOCK_SEQUENCE = [
   "AER_clientele",
   "AER_nouveaux_entrants",
   "sep_DSM",
+  "DSM_vue_ensemble",
   "DSM_armateurs",
   "DSM_manutentionnaires",
   "DSM_consignataires_pol",

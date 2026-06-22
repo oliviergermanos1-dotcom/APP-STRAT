@@ -429,12 +429,50 @@ function buildDsmDatasets(keptN, keptN1, period, filename) {
   }
   growth.sort((a, b) => b.delta - a.delta);
 
+  // ─── Vue d'ensemble (même schéma que les autres métiers) ───────────────
+  // KPI période + évolution mensuelle marché/AGL + PDM AGL mensuel + N vs N-1.
+  const aglTonnage = aglRows.reduce((s, r) => s + (Number(r.poids) || 0), 0);
+  // AGL rank among ALL consignataires (not just top 10).
+  const consAll = [...aggPoids(periodRows, (r) => r.consignataire).entries()]
+    .sort((a, b) => b[1] - a[1]);
+  const aglRank = consAll.findIndex(([name]) => isAglConsignataire(name)) + 1; // 0 if absent
+  const secondName = consAll[0] && isAglConsignataire(consAll[0][0])
+    ? (consAll[1] ? consAll[1][0] : null)
+    : (consAll[0] ? consAll[0][0] : null);
+  // Monthly series over the N period (tonnage).
+  const mMkt = aggPoids(periodRows, (r) => r.mois);
+  const mAgl = aggPoids(aglRows, (r) => r.mois);
+  const mensuel = MONTHS_FR_B.filter((m) => mMkt.has(m)).map((m) => ({
+    mois: m,
+    volume_marche: round(mMkt.get(m)),
+    volume_agl: round(mAgl.get(m) || 0),
+    pdm_agl: mMkt.get(m) > 0 ? Math.round(((mAgl.get(m) || 0) / mMkt.get(m)) * 1000) / 10 : 0,
+  }));
+  // N-1 same period (already filtered above as periodN1Rows).
+  const marketN1 = periodN1Rows.reduce((s, r) => s + (Number(r.poids) || 0), 0);
+  const aglTonnageN1 = periodN1Rows
+    .filter((r) => isAglConsignataire(r.consignataire))
+    .reduce((s, r) => s + (Number(r.poids) || 0), 0);
+  const overview = {
+    market: round(market),
+    aglTonnage: round(aglTonnage),
+    aglPdm: pdmOf(aglTonnage, market),
+    aglRank: aglRank || null,
+    secondName,
+    marketN1: round(marketN1),
+    aglTonnageN1: round(aglTonnageN1),
+    marketGrowthPct: marketN1 > 0 ? Math.round(((market - marketN1) / marketN1) * 1000) / 10 : null,
+    aglGrowthPct: aglTonnageN1 > 0 ? Math.round(((aglTonnage - aglTonnageN1) / aglTonnageN1) * 1000) / 10 : null,
+    mensuel,
+  };
+
   return {
     filename,
     market: round(market),
-    aglTonnage: round(aglRows.reduce((s, r) => s + (Number(r.poids) || 0), 0)),
-    aglPdm: pdmOf(aglRows.reduce((s, r) => s + (Number(r.poids) || 0), 0), market),
+    aglTonnage: round(aglTonnage),
+    aglPdm: pdmOf(aglTonnage, market),
     datasets: [
+      { datasetType: 'dsm_overview',         rows: [overview] },
       { datasetType: 'dsm_armateurs',        rows: armateurs },
       { datasetType: 'dsm_manutentionnaires', rows: manutentionnaires },
       { datasetType: 'dsm_consignataires',   rows: consignataires },

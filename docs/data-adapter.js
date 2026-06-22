@@ -438,6 +438,43 @@ function buildDsmFullData(study) {
   };
 }
 
+/**
+ * DSM vue d'ensemble — same schema as the other métiers (KPI bar + monthly
+ * market/AGL chart + monthly PDM bars), period-aware, derived from the TIM
+ * import maritime base by weight. Returns null if the dsm_overview dataset
+ * is absent.
+ */
+function buildDsmOverviewData(study) {
+  const ds = findDataset(study, 'DSM', 'dsm_overview');
+  if (!ds || !ds.rows.length) return null;
+  const o = ds.rows[0];
+  const mensuel = o.mensuel || [];
+  const monthLabels = mensuel.map((m) => {
+    const full = MONTHS_FR_FULL.find((x) => x.toLowerCase().startsWith(String(m.mois).slice(0, 3).toLowerCase()));
+    return full ? full.slice(0, 3) : String(m.mois).slice(0, 3);
+  });
+  return {
+    kpis: {
+      marche: fmtInt(o.market),
+      agl: fmtInt(o.aglTonnage),
+      pdm: fmtPdm(o.aglPdm || 0),
+      rang: o.aglRank ? `#${o.aglRank}` : '—',
+      growth: o.aglGrowthPct != null ? (o.aglGrowthPct >= 0 ? '+' : '') + fmtPdm(o.aglGrowthPct) : '—',
+    },
+    aglRank: o.aglRank,
+    aglGrowthPct: o.aglGrowthPct,
+    marketGrowthPct: o.marketGrowthPct,
+    aglTonnageN1: fmtInt(o.aglTonnageN1 || 0),
+    marketN1: fmtInt(o.marketN1 || 0),
+    secondName: o.secondName,
+    monthLabels,
+    monthlyMarket: mensuel.map((m) => m.volume_marche),
+    monthlyAgl: mensuel.map((m) => m.volume_agl),
+    monthlyPdm: mensuel.map((m) => m.pdm_agl),
+    aglPdm: o.aglPdm,
+  };
+}
+
 /** AYMAN focus reader. Returns null if no ayman_focus dataset. */
 function buildAymanFocusData(study) {
   const ds = findDataset(study, 'AYMAN', 'ayman_focus');
@@ -469,6 +506,7 @@ window.dataAdapter = {
   buildNouveauxFullData,
   buildRepartitionPaysData,
   buildDsmFullData,
+  buildDsmOverviewData,
   buildAymanFocusData,
   // Legacy aliases for TIM-specific call sites (slide 4/5)
   buildTimOverviewData: (study) => buildOverviewData(study, 'TIM'),
