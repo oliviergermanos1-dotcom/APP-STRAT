@@ -1,23 +1,34 @@
 // STATCOM raw B/L parser — runs in the browser.
 //
-// Supports 2 STATCOM exports:
-//   - Maritime  (TIM/TEM/HIMP/HEXP): 46 columns, Qualifié? = Oui/Non,
-//     volume in NOMBRE_TEU, Mois escale = French month name.
-//   - Aerial    (AER IMP/EXP):       23 columns, qualifie = 1/0,
-//     volume in "Poids marchandise" (kg), Mois escale = 1..12.
+// Schemas supported (auto-detected):
+//   - Maritime  (TIM/TEM/HIMP/HEXP): 46 cols, NOMBRE_TEU, Mois escale = name,
+//                                    Qualifié? = Oui/Non
+//   - Aerial    (AER IMP/EXP):       23 cols, Poids marchandise (kg),
+//                                    Mois escale = 1..12, qualifie = 1/0
 //
-// Filters (configurable via opts):
-//   - excludeNonApure (default true) → drop Transitaire == "NON APURE"
-//   - excludePetroleum (default true) → drop hydrocarbon merchandises
-//   - excludeSirSmb (default true) → drop the 2 historical SIR CI / SMB
-//     consignees used by the v1 reference
+// Configurable filters (opts):
+//   - excludeNonApure (default on)            → drop Transitaire == 'NON APURE'
+//   - excludePetroleum (default on)           → drop hydrocarbon merchandises
+//   - excludeSirSmbTransitaire (default on)   → drop SIR/SMB found in Transitaire
+//   - excludeSirSmbDestinataire (default on)  → drop SIR/SMB found in Destinataire
+//
+// Period filtering is handled OUTSIDE this parser: parseStatcomBuffer returns
+// the full set of kept rows (after exclusion filters). The caller derives
+// "current period" and "N-1 full year" views from the same row set.
 
 const PETROLEUM_KEYWORDS = [
-  'petrole', 'petroleum', 'brut',
-  'gazole', 'gas oil', 'gasoil', 'diesel', 'jet a1', 'jet-a1',
-  'essence', 'fuel', 'kerosen', 'kerosene',
+  // Bruts
+  'petrole brut', 'crude oil', 'pet brut', 'brut petrol',
+  // Raffinés et produits dérivés
+  'petrole', 'petroleum', 'petrol',
+  'gazole', 'gas oil', 'gasoil', 'diesel',
+  'jet a1', 'jet-a1', 'jet a-1', 'kerosen', 'kerosene',
+  'essence', 'fuel', 'fuel-oil', 'fuel oil',
   'hydrocarbure', 'hydrocarbon',
-  'bitume', 'naphta', 'naphtha', 'gpl',
+  'bitume', 'asphalt',
+  'naphta', 'naphtha',
+  'gpl', 'lpg', 'butane', 'propane',
+  'raffine', 'raffines',
 ];
 
 const MONTHS_FR = [
@@ -43,11 +54,18 @@ function isNonApure(name) {
   return n === 'non apure' || n.startsWith('non apur');
 }
 
-function isSirOrSmb(transitName, destName) {
-  const t = norm(transitName);
-  const d = norm(destName);
-  return t === 'sir' || t === 'sir ci' || t === 'sir-ci' || t === 'smb'
-      || d.includes('sir ci') || d.includes('societe ivoirienne de raffinage')
+function isSirSmbTransitaire(name) {
+  const t = norm(name);
+  return t === 'sir' || t === 'sir ci' || t === 'sir-ci'
+      || t === 'smb' || t === 'smb ci';
+}
+
+function isSirSmbDestinataire(name) {
+  const d = norm(name);
+  if (!d) return false;
+  return d.includes('sir ci')
+      || d.includes('societe ivoirienne de raffinage')
+      || d.includes('smb ')
       || d.includes('societe multinationale de bitumes');
 }
 
@@ -57,16 +75,9 @@ function isPetroleum(merchLabel) {
   return PETROLEUM_KEYWORDS.some((kw) => n.includes(kw));
 }
 
-/**
- * Detect schema by looking at the column set of the first row.
- * Returns { schema: 'aer'|'maritime', volumeKey, merchKey, qualifKey,
- *           clientKey, monthIsNumeric }.
- */
 function detectSchema(headers, metier) {
   const set = new Set(headers.map((h) => String(h || '').toLowerCase()));
-  // AER has 'compagnie' and 'aéroport escale'
   const isAer = set.has('compagnie') || set.has('aéroport escale') || set.has('aeroport escale');
-
   if (isAer || metier === 'AER') {
     return {
       schema: 'aer',
@@ -75,6 +86,8 @@ function detectSchema(headers, metier) {
       qualifKey: 'qualifie',
       qualifTrueValues: [1, '1', true, 'oui', 'yes'],
       clientKey: (metier === 'TEM' || metier === 'HEXP') ? 'Chargeur' : 'Destinataire',
+      yearKey: 'Année escale',
+      monthKey: 'Mois escale',
       monthIsNumeric: true,
       unit: 'kg',
     };
@@ -86,6 +99,8 @@ function detectSchema(headers, metier) {
     qualifKey: 'Qualifié?',
     qualifTrueValues: ['Oui', 'oui', 'OUI', 1, '1', true],
     clientKey: (metier === 'TEM' || metier === 'HEXP') ? 'Chargeur' : 'Destinataire',
+    yearKey: 'Année escale',
+    monthKey: 'Mois escale',
     monthIsNumeric: false,
     unit: metier === 'DSM' ? 'T' : 'TEU',
   };
@@ -102,160 +117,84 @@ function monthLabel(value, isNumeric) {
 }
 
 /**
- * Parse a STATCOM xlsx ArrayBuffer and derive the 4 datasets used by the
- * generator.
+ * Parse a STATCOM xlsx ArrayBuffer.
  *
- * @param {ArrayBuffer} buffer
- * @param {string} metier 'TIM' | 'TEM' | 'HIMP' | 'HEXP' | 'AER' | 'DSM'
- * @param {string} filename
- * @param {{ excludeNonApure?: boolean, excludePetroleum?: boolean,
- *           excludeSirSmb?: boolean }} [opts]
+ * Returns the rows kept after exclusion filters, plus per-filter counters.
+ * The caller is responsible for applying period filtering when deriving
+ * slide datasets.
  */
 function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
   const o = {
     excludeNonApure: opts.excludeNonApure !== false,
     excludePetroleum: opts.excludePetroleum !== false,
-    excludeSirSmb: opts.excludeSirSmb !== false,
+    excludeSirSmbTransitaire: opts.excludeSirSmbTransitaire !== false,
+    excludeSirSmbDestinataire: opts.excludeSirSmbDestinataire !== false,
   };
 
   const wb = XLSX.read(buffer, { type: 'array', cellDates: false, cellHTML: false });
   const sheetName = wb.SheetNames.find((n) => /export|statcom|data/i.test(n)) || wb.SheetNames[0];
   const ws = wb.Sheets[sheetName];
 
-  // Get raw headers to detect schema
   const headerRow = XLSX.utils.sheet_to_json(ws, { header: 1, range: 0 })[0] || [];
   const sch = detectSchema(headerRow, metier);
-
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
 
-  // ─── Filter pipeline ────────────────────────────────────────────────────
-  const dropped = { nonQualified: 0, nonApure: 0, sirSmb: 0, petroleum: 0 };
-  const qualified = rows.filter((r) => {
-    // Qualified check
+  const dropped = { nonQualified: 0, nonApure: 0, sirSmbTransit: 0, sirSmbDest: 0, petroleum: 0 };
+  const kept = [];
+
+  for (const r of rows) {
+    // Qualified
     const q = r[sch.qualifKey];
     if (q !== undefined && q !== null) {
       const qs = String(q).toLowerCase();
       const ok = sch.qualifTrueValues.some((v) => String(v).toLowerCase() === qs);
-      if (!ok) { dropped.nonQualified += 1; return false; }
+      if (!ok) { dropped.nonQualified += 1; continue; }
     }
-    // Non Apuré
     if (o.excludeNonApure && isNonApure(r['Transitaire'])) {
-      dropped.nonApure += 1; return false;
+      dropped.nonApure += 1; continue;
     }
-    // SIR / SMB
-    if (o.excludeSirSmb && isSirOrSmb(r['Transitaire'], r['Destinataire'])) {
-      dropped.sirSmb += 1; return false;
+    if (o.excludeSirSmbTransitaire && isSirSmbTransitaire(r['Transitaire'])) {
+      dropped.sirSmbTransit += 1; continue;
     }
-    // Pétroliers
+    if (o.excludeSirSmbDestinataire && isSirSmbDestinataire(r['Destinataire'])) {
+      dropped.sirSmbDest += 1; continue;
+    }
     if (o.excludePetroleum && isPetroleum(r[sch.merchKey])) {
-      dropped.petroleum += 1; return false;
+      dropped.petroleum += 1; continue;
     }
-    return true;
-  });
 
-  // ─── Aggregations ───────────────────────────────────────────────────────
-  const market = qualified.reduce((s, r) => s + (Number(r[sch.volumeKey]) || 0), 0);
-
-  // Concurrents (top by Transitaire)
-  const byTransit = new Map();
-  for (const r of qualified) {
-    const name = String(r['Transitaire'] || '').trim();
-    if (!name) continue;
-    byTransit.set(name, (byTransit.get(name) || 0) + (Number(r[sch.volumeKey]) || 0));
+    // Normalize fields for downstream consumption
+    kept.push({
+      transitaire: String(r['Transitaire'] || '').trim(),
+      destinataire: String(r['Destinataire'] || '').trim(),
+      chargeur: String(r['Chargeur'] || '').trim(),
+      marchandise: String(r[sch.merchKey] || '').trim(),
+      volume: Number(r[sch.volumeKey]) || 0,
+      mois: monthLabel(r[sch.monthKey], sch.monthIsNumeric),
+      annee: r[sch.yearKey] != null ? Number(r[sch.yearKey]) : null,
+      range: String(r['Range'] || '').trim(),
+      pays_chargement: String(r['Pays de prise en charge'] || '').trim(),
+      pays_livraison: String(r['Pays de livraison'] || '').trim(),
+    });
   }
-  const concurrentsRows = [...byTransit.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, vol], i) => ({
-      rang: i + 1,
-      transitaire: name,
-      volume: Math.round(vol * 100) / 100,
-      pdm: market > 0 ? Math.round((vol / market) * 10000) / 100 : 0,
-    }));
 
-  // Clients AGL
-  const aglRows = qualified.filter((r) => isAgl(r['Transitaire']));
-  const byClient = new Map();
-  const segByClient = new Map();
-  for (const r of aglRows) {
-    const name = String(r[sch.clientKey] || '').trim();
-    if (!name) continue;
-    byClient.set(name, (byClient.get(name) || 0) + (Number(r[sch.volumeKey]) || 0));
-    if (!segByClient.has(name)) segByClient.set(name, String(r[sch.merchKey] || '').trim());
-  }
-  const aglTotal = [...byClient.values()].reduce((s, v) => s + v, 0);
-  const clientsRows = [...byClient.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([name, vol]) => ({
-      client: name,
-      volume: Math.round(vol * 100) / 100,
-      segment: segByClient.get(name) || '—',
-      pct_vol_agl: aglTotal > 0 ? Math.round((vol / aglTotal) * 1000) / 10 : 0,
-    }));
-
-  // Segments
-  const byMerch = new Map();
-  const aglByMerch = new Map();
-  for (const r of qualified) {
-    const seg = String(r[sch.merchKey] || '').trim();
-    if (!seg) continue;
-    byMerch.set(seg, (byMerch.get(seg) || 0) + (Number(r[sch.volumeKey]) || 0));
-    if (isAgl(r['Transitaire'])) {
-      aglByMerch.set(seg, (aglByMerch.get(seg) || 0) + (Number(r[sch.volumeKey]) || 0));
-    }
-  }
-  const segmentsRows = [...byMerch.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 11)
-    .map(([seg, vol]) => ({
-      segment: seg,
-      volume_marche: Math.round(vol * 100) / 100,
-      pdm_agl: vol > 0 ? Math.round(((aglByMerch.get(seg) || 0) / vol) * 100) : 0,
-    }));
-
-  // Mensuel
-  const mMkt = new Map(), mAgl = new Map();
-  for (const r of qualified) {
-    const m = monthLabel(r['Mois escale'], sch.monthIsNumeric);
-    if (!m) continue;
-    mMkt.set(m, (mMkt.get(m) || 0) + (Number(r[sch.volumeKey]) || 0));
-    if (isAgl(r['Transitaire'])) {
-      mAgl.set(m, (mAgl.get(m) || 0) + (Number(r[sch.volumeKey]) || 0));
-    }
-  }
-  const mensuelRows = MONTHS_FR
-    .filter((m) => mMkt.has(m))
-    .map((m) => ({
-      mois: m,
-      volume_marche: Math.round(mMkt.get(m) * 100) / 100,
-      volume_agl: Math.round((mAgl.get(m) || 0) * 100) / 100,
-      pdm_agl: mMkt.get(m) > 0
-        ? Math.round(((mAgl.get(m) || 0) / mMkt.get(m)) * 1000) / 10
-        : 0,
-    }));
-
-  const referentielRows = [...byTransit.entries()].map(([name, vol]) => ({
-    nom_entite: name,
-    metier,
-    volume_annuel_n1: Math.round(vol * 100) / 100,
-  }));
+  const market = kept.reduce((s, r) => s + r.volume, 0);
 
   return {
     filename,
     schema: sch.schema,
     unit: sch.unit,
     rowCount: rows.length,
-    qualifiedCount: qualified.length,
+    keptCount: kept.length,
     dropped,
     market,
-    datasets: [
-      { datasetType: 'concurrents',    filename, rowCount: concurrentsRows.length, rows: concurrentsRows },
-      { datasetType: 'clients',        filename, rowCount: clientsRows.length,     rows: clientsRows },
-      { datasetType: 'segments',       filename, rowCount: segmentsRows.length,    rows: segmentsRows },
-      { datasetType: 'mensuel',        filename, rowCount: mensuelRows.length,     rows: mensuelRows },
-      { datasetType: 'referentiel_n1', filename, rowCount: referentielRows.length, rows: referentielRows },
-    ],
+    kept,
   };
 }
 
 window.parseStatcomBuffer = parseStatcomBuffer;
+window.STATCOM = {
+  MONTHS_FR,
+  isAgl,
+  isPetroleum,
+};

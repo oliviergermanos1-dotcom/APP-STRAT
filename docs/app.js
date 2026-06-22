@@ -1,10 +1,11 @@
-// Comité de Direction — vanilla browser app (STATCOM-driven).
+// Comité de Direction — vanilla browser app (STATCOM-driven, period-aware).
 //
-// Workflow:
-//   1. Olivier uploads one raw STATCOM xlsx per metier (one row per B/L).
-//   2. window.parseStatcomBuffer() derives concurrents/clients/segments/mensuel
-//      datasets directly from the raw export.
-//   3. window.generateStudyBuffer() builds the 35-slide PPTX.
+// Flow:
+//   1. Olivier uploads STATCOM raw xlsx files (N + N-1 per metier).
+//   2. parseStatcomBuffer() filters and normalises rows; rows kept in memory.
+//   3. At generation time, buildDatasets() derives the slide datasets using
+//      the selected period (N) and cross-checks against full N-1 for nouveaux.
+//   4. generateStudyBuffer() emits the 35-slide PPTX.
 
 const METIERS = [
   { code: 'TIM',  label: 'Transit Import Maritime', unit: 'TEU' },
@@ -15,8 +16,9 @@ const METIERS = [
   { code: 'DSM',  label: 'Direction Solutions Maritimes', unit: 'T' },
 ];
 
-const STORAGE_KEY = 'cdd_study_v2';
+const STORAGE_KEY = 'cdd_study_v3';
 
+// Persisted metadata (file names, counts) — small and safe for localStorage.
 const state = {
   study: {
     title: `Etude_${new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}`,
@@ -24,23 +26,24 @@ const state = {
       .toISOString().slice(0, 10),
     periodEnd: new Date().toISOString().slice(0, 10),
     metiers: METIERS.map((m) => m.code),
-    datasets: [],
-    n1Runs: [],
   },
-  // Per-metier raw STATCOM file metadata (n = current year, n1 = N-1 reference)
-  statcomFiles: {},
+  // statcomMeta[`${metier}|${scope}`] = { filename, rowCount, keptCount, dropped, market, schema, unit }
+  statcomMeta: {},
 };
 
+// Raw kept rows (per metier+scope), in-memory only — too big for localStorage.
+// Lost on page refresh; user re-uploads.
+const rowsCache = {}; // rowsCache[`${metier}|${scope}`] = [...rows]
+
 // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
-// localStorage stores derived datasets only (not the raw STATCOM file which
-// can be 50+ MB and would blow the 5 MB quota). Raw file metadata (name +
-// derived stats) is kept so the user sees what was uploaded.
 function saveState() {
   try {
-    const payload = { study: state.study, statcomFiles: state.statcomFiles };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      study: state.study,
+      statcomMeta: state.statcomMeta,
+    }));
   } catch (e) {
-    console.warn('localStorage save failed (probably quota):', e);
+    console.warn('localStorage save failed:', e);
   }
 }
 
@@ -50,7 +53,7 @@ function loadState() {
     if (!raw) return;
     const p = JSON.parse(raw);
     if (p.study) state.study = { ...state.study, ...p.study };
-    if (p.statcomFiles) state.statcomFiles = p.statcomFiles;
+    if (p.statcomMeta) state.statcomMeta = p.statcomMeta;
   } catch (e) {
     console.warn('localStorage load failed:', e);
   }
@@ -59,17 +62,17 @@ function loadState() {
 // ─── STATCOM UPLOAD ──────────────────────────────────────────────────────────
 async function handleStatcomUpload(metier, scope, file) {
   const tile = document.querySelector(`[data-tile="${metier}|${scope}"]`);
-  setTileBusy(tile, `Parsing ${file.name}… (peut prendre 30s sur les gros fichiers)`);
+  setTileBusy(tile, `Parsing ${file.name}… (peut prendre 30-60s pour les gros fichiers)`);
 
   try {
     const buffer = await file.arrayBuffer();
     const filterOpts = {
-      excludeNonApure: document.getElementById('filter-non-apure').checked,
-      excludePetroleum: document.getElementById('filter-petroleum').checked,
-      excludeSirSmb: document.getElementById('filter-sir-smb').checked,
+      excludeNonApure:           document.getElementById('filter-non-apure').checked,
+      excludePetroleum:          document.getElementById('filter-petroleum').checked,
+      excludeSirSmbTransitaire:  document.getElementById('filter-sir-transit').checked,
+      excludeSirSmbDestinataire: document.getElementById('filter-sir-dest').checked,
     };
     const result = await new Promise((resolve, reject) => {
-      // Yield to the browser so the busy indicator shows
       setTimeout(() => {
         try {
           resolve(window.parseStatcomBuffer(buffer, metier, file.name, filterOpts));
@@ -79,47 +82,18 @@ async function handleStatcomUpload(metier, scope, file) {
       }, 50);
     });
 
-    // Remove previously derived datasets for this metier
-    state.study.datasets = state.study.datasets.filter(
-      (d) => !(d.metier === metier && d._fromStatcom === scope),
-    );
-    if (scope === 'n') {
-      // For N (current period), inject concurrents/clients/segments/mensuel
-      for (const ds of result.datasets.filter((d) => d.datasetType !== 'referentiel_n1')) {
-        state.study.datasets.push({
-          metier,
-          datasetType: ds.datasetType,
-          filename: file.name,
-          rowCount: ds.rowCount,
-          rows: ds.rows,
-          _fromStatcom: 'n',
-        });
-      }
-    } else {
-      // For N-1, only inject the referential
-      const ref = result.datasets.find((d) => d.datasetType === 'referentiel_n1');
-      if (ref) {
-        state.study.datasets.push({
-          metier,
-          datasetType: 'referentiel_n1',
-          filename: file.name,
-          rowCount: ref.rowCount,
-          rows: ref.rows,
-          _fromStatcom: 'n1',
-        });
-      }
-    }
-
-    state.statcomFiles[`${metier}|${scope}`] = {
+    rowsCache[`${metier}|${scope}`] = result.kept;
+    state.statcomMeta[`${metier}|${scope}`] = {
       filename: file.name,
       uploadedAt: new Date().toISOString(),
       rowCount: result.rowCount,
-      qualifiedCount: result.qualifiedCount,
-      market: result.market,
+      keptCount: result.keptCount,
       dropped: result.dropped,
+      market: result.market,
       schema: result.schema,
+      unit: result.unit,
+      filters: filterOpts,
     };
-
     saveState();
     renderDatasets();
     renderStatus();
@@ -131,20 +105,17 @@ async function handleStatcomUpload(metier, scope, file) {
 }
 
 function removeStatcom(metier, scope) {
-  delete state.statcomFiles[`${metier}|${scope}`];
-  state.study.datasets = state.study.datasets.filter(
-    (d) => !(d.metier === metier && d._fromStatcom === scope),
-  );
+  delete state.statcomMeta[`${metier}|${scope}`];
+  delete rowsCache[`${metier}|${scope}`];
   saveState();
   renderDatasets();
   renderStatus();
 }
 
 function resetAll() {
-  if (!confirm('Effacer toutes les données uploadées et les datasets dérivés ?')) return;
-  state.study.datasets = [];
-  state.study.n1Runs = [];
-  state.statcomFiles = {};
+  if (!confirm('Effacer toutes les données uploadées ?')) return;
+  state.statcomMeta = {};
+  for (const k of Object.keys(rowsCache)) delete rowsCache[k];
   localStorage.removeItem(STORAGE_KEY);
   renderDatasets();
   renderStatus();
@@ -164,12 +135,15 @@ function setTileBusy(tile, message) {
 
 function renderStatus() {
   const el = document.getElementById('status');
-  const loaded = Object.keys(state.statcomFiles).length;
+  const loaded = Object.keys(state.statcomMeta).length;
+  const inMemory = Object.keys(rowsCache).length;
   if (loaded === 0) {
     el.innerHTML = '<span class="text-gray-500">Aucun fichier STATCOM chargé — la génération produira le PPTX de référence Jan-Mai 2026.</span>';
+  } else if (inMemory < loaded) {
+    el.innerHTML = `<span class="text-aglorange">${loaded} fichier(s) enregistrés mais ${loaded - inMemory} ont été perdus au refresh — re-déposer pour générer en mode live.</span>`;
   } else {
-    const mNames = [...new Set(Object.keys(state.statcomFiles).map((k) => k.split('|')[0]))];
-    el.innerHTML = `<span class="text-aglgreen font-semibold">${loaded} fichier(s) STATCOM parsé(s)</span> sur ${mNames.length} métier(s) (${mNames.join(', ')}). La génération utilisera ces données.`;
+    const mNames = [...new Set(Object.keys(state.statcomMeta).map((k) => k.split('|')[0]))];
+    el.innerHTML = `<span class="text-aglgreen font-semibold">${loaded} fichier(s) STATCOM parsé(s)</span> sur ${mNames.length} métier(s) (${mNames.join(', ')}). La génération utilisera la période sélectionnée.`;
   }
 }
 
@@ -183,8 +157,10 @@ function renderDatasets() {
 
     const header = document.createElement('div');
     header.className = 'flex items-center justify-between mb-3';
-    const hasN = state.statcomFiles[`${m.code}|n`];
-    const hasN1 = state.statcomFiles[`${m.code}|n1`];
+    const hasN  = state.statcomMeta[`${m.code}|n`];
+    const hasN1 = state.statcomMeta[`${m.code}|n1`];
+    const memN  = rowsCache[`${m.code}|n`];
+    const memN1 = rowsCache[`${m.code}|n1`];
     header.innerHTML = `
       <div>
         <span class="text-sm font-bold text-navy">${m.code}</span>
@@ -192,7 +168,8 @@ function renderDatasets() {
         <span class="text-[10px] text-gray-400 ml-1">(${m.unit})</span>
       </div>
       <span class="text-[10px] ${hasN ? 'text-aglgreen' : 'text-gray-400'}">
-        ${hasN ? '✓ N' : '— N'} · ${hasN1 ? '✓ N-1' : '— N-1'}
+        ${hasN ? (memN ? '✓ N' : '⚠ N (re-uploader)') : '— N'} ·
+        ${hasN1 ? (memN1 ? '✓ N-1' : '⚠ N-1 (re-uploader)') : '— N-1'}
       </span>
     `;
     card.appendChild(header);
@@ -201,33 +178,44 @@ function renderDatasets() {
     grid.className = 'grid grid-cols-2 gap-3';
 
     for (const scope of ['n', 'n1']) {
-      const meta = state.statcomFiles[`${m.code}|${scope}`];
+      const meta = state.statcomMeta[`${m.code}|${scope}`];
+      const hasMem = Boolean(rowsCache[`${m.code}|${scope}`]);
       const slot = document.createElement('div');
       slot.className = 'border border-gray-200 rounded p-3';
       slot.innerHTML = `
         <div class="font-semibold text-navy text-xs mb-1">
-          STATCOM ${scope === 'n' ? 'année courante (N)' : 'référentiel N-1'}
+          STATCOM ${scope === 'n' ? 'année courante (N)' : 'année précédente complète (N-1)'}
         </div>
         <div class="text-[10px] text-gray-500 mb-2">
           ${scope === 'n'
-            ? 'Sert à dériver concurrents / clients / segments / mensuel'
-            : 'Sert à valider les nouveaux entrants (croisement N vs N-1)'}
+            ? 'Filtré sur la période sélectionnée pour KPI / classement / clients / segments / mensuel'
+            : 'Sert au croisement nouveaux entrants (toute l\'année N-1)'}
         </div>
         <div data-tile="${m.code}|${scope}">
           ${meta
             ? `<div class="text-xs">
-                <div class="text-aglgreen">✓ ${meta.filename}</div>
+                <div class="${hasMem ? 'text-aglgreen' : 'text-aglorange'}">
+                  ${hasMem ? '✓' : '⚠'} ${meta.filename}
+                </div>
                 <div class="text-gray-600 mt-1">
-                  ${meta.rowCount.toLocaleString('fr-FR')} B/L · qualifiés ${meta.qualifiedCount.toLocaleString('fr-FR')}
-                  ${meta.market ? ` · marché ${Math.round(meta.market).toLocaleString('fr-FR')} ${m.unit}` : ''}
+                  ${meta.rowCount.toLocaleString('fr-FR')} B/L · gardés ${meta.keptCount.toLocaleString('fr-FR')}
+                  · marché ${Math.round(meta.market).toLocaleString('fr-FR')} ${meta.unit}
                 </div>
                 ${meta.dropped ? `<div class="text-[10px] text-gray-500 mt-0.5">
-                  filtrés : non-qual. ${meta.dropped.nonQualified || 0} ·
+                  filtrés: non-qual ${meta.dropped.nonQualified || 0} ·
                   non-apuré ${meta.dropped.nonApure || 0} ·
-                  SIR/SMB ${meta.dropped.sirSmb || 0} ·
+                  SIR/SMB-tr ${meta.dropped.sirSmbTransit || 0} ·
+                  SIR/SMB-de ${meta.dropped.sirSmbDest || 0} ·
                   pétroliers ${meta.dropped.petroleum || 0}
                 </div>` : ''}
-                <button class="text-aglred text-[10px] hover:underline mt-2" data-remove="${m.code}|${scope}">retirer</button>
+                ${!hasMem ? '<div class="text-[10px] text-aglorange mt-1 italic">Rows perdus au refresh — re-uploader pour générer live</div>' : ''}
+                <div class="mt-2 flex gap-3">
+                  <button class="text-aglred text-[10px] hover:underline" data-remove="${m.code}|${scope}">retirer</button>
+                  <label class="text-aglblue text-[10px] hover:underline cursor-pointer">
+                    <input type="file" class="hidden" data-upload="${m.code}|${scope}" accept=".xlsx,.xls">
+                    remplacer
+                  </label>
+                </div>
               </div>`
             : `<label class="block text-center text-gray-500 cursor-pointer hover:text-navy text-xs border border-dashed border-gray-300 rounded p-2">
                 <input type="file" class="hidden" data-upload="${m.code}|${scope}" accept=".xlsx,.xls">
@@ -259,6 +247,21 @@ function renderDatasets() {
   });
 }
 
+// ─── PERIOD DERIVATION ───────────────────────────────────────────────────────
+function parsePeriod() {
+  const start = document.getElementById('study-start').value;
+  const end = document.getElementById('study-end').value;
+  if (!start || !end) return null;
+  const sd = new Date(start);
+  const ed = new Date(end);
+  return {
+    startYear: sd.getFullYear(),
+    startMonth: sd.getMonth() + 1,
+    endYear: ed.getFullYear(),
+    endMonth: ed.getMonth() + 1,
+  };
+}
+
 // ─── GENERATION ──────────────────────────────────────────────────────────────
 async function generatePptx() {
   const btn = document.getElementById('generate-btn');
@@ -271,7 +274,42 @@ async function generatePptx() {
     state.study.periodEnd = document.getElementById('study-end').value || state.study.periodEnd;
     saveState();
 
-    const blob = await window.generateStudyBuffer({ study: state.study });
+    const period = parsePeriod();
+
+    // Build derived datasets per metier that has rows in memory
+    const allDatasets = [];
+    for (const m of METIERS) {
+      const keptN = rowsCache[`${m.code}|n`];
+      const keptN1 = rowsCache[`${m.code}|n1`];
+      if (!keptN || keptN.length === 0) continue;
+      const built = window.buildDatasets({
+        keptN,
+        keptN1: keptN1 || null,
+        period,
+        metier: m.code,
+        filename: state.statcomMeta[`${m.code}|n`]?.filename || '',
+      });
+      // Stamp each dataset with metier so the adapter picks them up
+      for (const ds of built.datasets) {
+        allDatasets.push({
+          metier: m.code,
+          datasetType: ds.datasetType,
+          filename: ds.filename,
+          rowCount: ds.rowCount,
+          rows: ds.rows,
+        });
+      }
+    }
+
+    const study = {
+      title: state.study.title,
+      periodStart: state.study.periodStart,
+      periodEnd: state.study.periodEnd,
+      datasets: allDatasets,
+      n1Runs: [],
+    };
+
+    const blob = await window.generateStudyBuffer({ study });
     const filename = `Comite_de_Direction_${state.study.title.replace(/[^a-zA-Z0-9_-]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pptx`;
 
     const url = URL.createObjectURL(blob);

@@ -94,25 +94,34 @@
         <div class="text-xs font-bold uppercase tracking-wide text-gray-700 mb-2">
           Filtres d'exclusion (appliqués à chaque parsing)
         </div>
-        <div class="flex flex-wrap gap-4 text-xs text-gray-700">
-          <label class="inline-flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="filter-non-apure" checked class="h-4 w-4" />
-            <span>Exclure <strong>Non Apuré</strong></span>
-          </label>
-          <label class="inline-flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="filter-petroleum" checked class="h-4 w-4" />
-            <span>Exclure <strong>produits pétroliers &amp; brut</strong>
-              <span class="text-gray-400">(pétrole, gazole, fuel, hydrocarbures...)</span>
+        <div class="grid grid-cols-2 gap-2 text-xs text-gray-700">
+          <label class="inline-flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" id="filter-non-apure" checked class="h-4 w-4 mt-0.5" />
+            <span><strong>Non Apuré</strong> (transitaire)<br>
+              <span class="text-gray-400 text-[10px]">drop si Transitaire = NON APURE</span>
             </span>
           </label>
-          <label class="inline-flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="filter-sir-smb" checked class="h-4 w-4" />
-            <span>Exclure <strong>SIR CI &amp; SMB</strong></span>
+          <label class="inline-flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" id="filter-petroleum" checked class="h-4 w-4 mt-0.5" />
+            <span><strong>Pétroliers brut + raffinés</strong> (marchandise)<br>
+              <span class="text-gray-400 text-[10px]">pétrole, gazole, diesel, fuel, kérosène, GPL...</span>
+            </span>
+          </label>
+          <label class="inline-flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" id="filter-sir-transit" checked class="h-4 w-4 mt-0.5" />
+            <span><strong>SIR / SMB en transitaire</strong><br>
+              <span class="text-gray-400 text-[10px]">drop si Transitaire = SIR ou SMB</span>
+            </span>
+          </label>
+          <label class="inline-flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" id="filter-sir-dest" checked class="h-4 w-4 mt-0.5" />
+            <span><strong>SIR / SMB en destinataire</strong><br>
+              <span class="text-gray-400 text-[10px]">drop si Destinataire = SIR CI / Sté Iv. Raffinage / SMB</span>
+            </span>
           </label>
         </div>
         <div class="text-[10px] text-gray-500 mt-2 italic">
-          Les filtres s'appliquent au moment du parsing. Modifier ces options après
-          un upload nécessite de retirer puis re-déposer le fichier.
+          Les filtres s'appliquent au parsing. Pour modifier après upload : "remplacer" sur la tuile.
         </div>
       </div>
 
@@ -149,6 +158,7 @@
   <script src="./data-adapter.js"></script>
   <script src="./generator.js"></script>
   <script src="./statcom-parser.js"></script>
+  <script src="./dataset-builder.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
