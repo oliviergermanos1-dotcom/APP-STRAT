@@ -453,6 +453,24 @@
     baseZip.file('ppt/presentation.xml', presentation);
     baseZip.file('ppt/_rels/presentation.xml.rels', presRelsXml);
 
+    // ── PowerPoint-compliant ZIP layout ──────────────────────────────────────
+    // PowerPoint's OPC reader requires [Content_Types].xml to be the FIRST entry
+    // of the archive and rejects packages that lead with directory entries —
+    // exactly what pptxgenjs/JSZip emit (19 dir entries, [Content_Types].xml at
+    // position 19), which is why even a schema-perfect deck failed to open while
+    // the reference deck (CT first, 0 dir entries) opens. Rebuild the entry list:
+    // drop every directory entry and put [Content_Types].xml first.
+    const oldFiles = baseZip.files;
+    const ctKey = '[Content_Types].xml';
+    const ctFirstFiles = {};
+    if (oldFiles[ctKey]) ctFirstFiles[ctKey] = oldFiles[ctKey];
+    for (const k of Object.keys(oldFiles)) {
+      if (k === ctKey) continue;
+      if (oldFiles[k] && oldFiles[k].dir) continue; // drop directory entries
+      ctFirstFiles[k] = oldFiles[k];
+    }
+    baseZip.files = ctFirstFiles;
+
     return baseZip.generateAsync({ type: 'blob', mimeType:
       'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
   }
