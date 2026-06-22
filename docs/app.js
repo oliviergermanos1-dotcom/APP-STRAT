@@ -36,6 +36,13 @@ const state = {
 // Lost on page refresh (worker dies with the tab) — user re-uploads.
 const workerKeys = new Set();
 
+// Prediction inputs (PDF newsletters + AO Excel + free-text preconisations).
+const prediction = {
+  pdfTexts: [],   // [{ name, text }]
+  ao: null,       // parsed AO summary
+  signals: null,  // extracted sector/country signals
+};
+
 // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
 function saveState() {
   try {
@@ -318,6 +325,72 @@ function renderDatasets() {
   container.appendChild(note);
 }
 
+// ─── PREDICTION INPUTS ───────────────────────────────────────────────────────
+async function handlePdfUpload(files) {
+  const list = document.getElementById('pdf-list');
+  const arr = Array.from(files).slice(0, 6 - prediction.pdfTexts.length);
+  for (const f of arr) {
+    list.insertAdjacentHTML('beforeend', `<div class="text-aglblue">⏳ ${f.name}…</div>`);
+    try {
+      const text = await window.PREDICTION.extractPdfText(f);
+      prediction.pdfTexts.push({ name: f.name, text });
+    } catch (e) {
+      console.error('PDF extract failed', e);
+    }
+  }
+  prediction.signals = window.PREDICTION.extractSignals(prediction.pdfTexts.map((p) => p.text));
+  renderPrediction();
+}
+
+async function handleAoUpload(file) {
+  const yr = new Date(document.getElementById('study-start').value || Date.now()).getFullYear();
+  try {
+    const buf = await file.arrayBuffer();
+    prediction.ao = window.PREDICTION.parseAoExcel(buf, yr);
+    prediction.ao._filename = file.name;
+  } catch (e) {
+    alert('Erreur parsing AO : ' + e.message);
+  }
+  renderPrediction();
+}
+
+function renderPrediction() {
+  const list = document.getElementById('pdf-list');
+  if (list) {
+    list.innerHTML = prediction.pdfTexts.map((p, i) =>
+      `<div class="flex justify-between"><span class="text-aglgreen">✓ ${p.name}</span>` +
+      `<button class="text-aglred hover:underline" data-pdf-rm="${i}">retirer</button></div>`).join('');
+    if (prediction.signals && prediction.signals.sectors.length) {
+      list.insertAdjacentHTML('beforeend',
+        `<div class="text-gray-500 mt-1">Signaux : ${prediction.signals.sectors.slice(0, 4).map((x) => x.name + '(' + x.count + ')').join(', ')}</div>`);
+    }
+    list.querySelectorAll('button[data-pdf-rm]').forEach((b) => b.addEventListener('click', () => {
+      prediction.pdfTexts.splice(Number(b.dataset.pdfRm), 1);
+      prediction.signals = window.PREDICTION.extractSignals(prediction.pdfTexts.map((p) => p.text));
+      renderPrediction();
+    }));
+  }
+  const aoList = document.getElementById('ao-list');
+  if (aoList) {
+    aoList.innerHTML = prediction.ao
+      ? `<span class="text-aglgreen">✓ ${prediction.ao._filename}</span> — ${prediction.ao.total} dossiers (onglet ${prediction.ao.sheet}) · ` +
+        Object.entries(prediction.ao.byType || {}).map(([k, v]) => k + ' ' + v).join(', ')
+      : '';
+  }
+}
+
+function collectPreconisations() {
+  const v = (id) => (document.getElementById(id) ? document.getElementById(id).value.trim() : '');
+  return {
+    horizon: v('preco-horizon'),
+    secteurs: v('preco-secteurs'),
+    marchandises: v('preco-marchandises'),
+    clients: v('preco-clients'),
+    recommandations: v('preco-recommandations'),
+    synthese: v('preco-synthese'),
+  };
+}
+
 // ─── PERIOD DERIVATION ───────────────────────────────────────────────────────
 function parsePeriod() {
   const start = document.getElementById('study-start').value;
@@ -389,6 +462,12 @@ async function generatePptx() {
       periodEnd: state.study.periodEnd,
       datasets: allDatasets,
       n1Runs: [],
+      prediction: {
+        pdfCount: prediction.pdfTexts.length,
+        signals: prediction.signals,
+        ao: prediction.ao,
+        preconisations: collectPreconisations(),
+      },
     };
 
     const blob = await window.generateStudyBuffer({ study });
@@ -427,6 +506,12 @@ async function boot() {
   document.getElementById('study-end').value = state.study.periodEnd;
   document.getElementById('generate-btn').addEventListener('click', generatePptx);
   document.getElementById('reset-btn').addEventListener('click', resetAll);
+
+  // Prediction inputs
+  const pdfInput = document.getElementById('pdf-input');
+  if (pdfInput) pdfInput.addEventListener('change', (e) => { if (e.target.files.length) handlePdfUpload(e.target.files); e.target.value = ''; });
+  const aoInput = document.getElementById('ao-input');
+  if (aoInput) aoInput.addEventListener('change', (e) => { if (e.target.files[0]) handleAoUpload(e.target.files[0]); e.target.value = ''; });
 
   renderDatasets();
   renderStatus();

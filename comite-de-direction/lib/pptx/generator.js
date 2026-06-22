@@ -2244,6 +2244,136 @@ const miningData = require('./data/mining_clients.json');
   }
 }
 
+// ─── SÉPARATEUR 08 – PRÉDICTION MARCHÉ ───────────────────────────────────────
+addSeparator('08', 'PRÉDICTION MARCHÉ & PRÉCONISATIONS', 'Signaux newsletters  |  AO & agréments  |  Positionnement stratégique');
+
+// Données prédiction (passées via study.prediction)
+const pred = (study && study.prediction) || null;
+
+// Auto-suggestions dérivées des hausses STATCOM (tous métiers).
+function collectGrowthSuggestions() {
+  if (!study || !Array.isArray(study.datasets)) return [];
+  const out = [];
+  for (const ds of study.datasets) {
+    if (ds.datasetType !== 'top_growth') continue;
+    for (const r of (ds.rows || []).slice(0, 2)) {
+      if (r && r.segment && r.delta_volume > 0) {
+        out.push({
+          metier: ds.metier,
+          segment: r.segment,
+          delta: r.delta_volume,
+          growth: r.growth_pct,
+          pdm: r.pdm_agl,
+        });
+      }
+    }
+  }
+  return out.sort((a, b) => (b.delta || 0) - (a.delta || 0)).slice(0, 6);
+}
+
+// ─── SLIDE – SIGNAUX DE MARCHÉ ───────────────────────────────────────────────
+{
+  const s = pptx.addSlide();
+  addHeader(s, 'PRÉDICTION – SIGNAUX DE MARCHÉ',
+    pred ? `Sources : ${pred.pdfCount || 0} newsletter(s) · AO/agréments ${pred.ao ? pred.ao.sheet : '—'}`
+         : 'Signaux secteurs (newsletters)  |  Dynamique AO & agréments  |  Hausses STATCOM');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.signaux');
+
+  // Col 1 — Secteurs cités dans les newsletters
+  s.addText('Secteurs les plus cités (newsletters)', {
+    x: 0.25, y: 1.2, w: 6.4, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+  });
+  const sectors = pred && pred.signals && pred.signals.sectors ? pred.signals.sectors : [];
+  if (sectors.length) {
+    const maxC = Math.max(...sectors.map((x) => x.count), 1);
+    addSegmentBars(s, 0.15, 1.5, sectors.slice(0, 7).map((x) => ({
+      label: x.name, vol: x.count + ' cit.', pdm: Math.round((x.count / maxC) * 100),
+    })));
+  } else {
+    addInsightBox(s, 0.15, 1.5, 6.4, 0.8, 'ℹ',
+      ['Aucune newsletter PDF chargée. Déposer jusqu\'à 6 PDF dans la section Prédiction pour extraire les signaux secteurs.']);
+  }
+
+  // Col 2 — AO & agréments + hausses STATCOM
+  s.addText('Dynamique commerciale (AO & agréments)', {
+    x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+  });
+  if (pred && pred.ao) {
+    const byType = pred.ao.byType || {};
+    const aoRows = Object.entries(byType).map(([k, v]) => [k, String(v)]);
+    addRankTable(s, 7.1, 1.5, 6.0, ['Type', 'Nombre'], aoRows.length ? aoRows : [['—', '—']]);
+    const statuts = pred.ao.statuts || {};
+    const stRows = Object.entries(statuts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => [k.slice(0, 28), String(v)]);
+    s.addText('Statuts principaux', {
+      x: 7.1, y: 3.3, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 7.1, 3.6, 6.0, ['Statut', 'Nombre'], stRows.length ? stRows : [['—', '—']]);
+  } else {
+    addInsightBox(s, 7.1, 1.5, 6.0, 0.8, 'ℹ',
+      ['Excel AO/agréments non chargé. Déposer le fichier RECAP_AO_ET_AGREMENTS pour la synthèse.']);
+  }
+
+  // Bandeau hausses STATCOM
+  const sugg = collectGrowthSuggestions();
+  if (sugg.length) {
+    addInsightBox(s, 0.15, 5.7, 12.9, 1.2, '📈',
+      [
+        'HAUSSES STATCOM (signaux internes) : ' +
+        sugg.slice(0, 4).map((g) => `${g.segment} ${g.metier ? '(' + g.metier + ')' : ''} +${Math.round(g.delta)} ${g.growth != null ? '· +' + g.growth + '%' : ''}`).join('  ·  '),
+        'Ces dynamiques mesurées sur tes données croisées avec les signaux newsletters orientent les préconisations de la slide suivante.',
+      ]);
+  } else {
+    addInsightBox(s, 0.15, 5.7, 12.9, 0.8, '📈',
+      ['Uploader les fichiers STATCOM (N + N-1) pour faire ressortir automatiquement les hausses de marché comme signaux internes.']);
+  }
+}
+
+// ─── SLIDE – PRÉCONISATIONS (cadre McKinsey-style) ───────────────────────────
+{
+  const s = pptx.addSlide();
+  addHeader(s, 'PRÉDICTION – PRÉCONISATIONS DE POSITIONNEMENT',
+    pred && pred.preconisations && pred.preconisations.horizon
+      ? `Horizon ${pred.preconisations.horizon}  |  Lecture stratégique AGL`
+      : 'Secteurs porteurs  |  Marchandises  |  Clients cibles  |  Recommandations');
+  addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.préco');
+
+  const P = (pred && pred.preconisations) || {};
+  const sugg = collectGrowthSuggestions();
+  const suggText = sugg.length
+    ? 'Suggestion (données) : ' + sugg.slice(0, 3).map((g) => g.segment).join(', ')
+    : '';
+
+  // 4 quadrants McKinsey-style
+  const quad = (title, x, y, color, lines) => {
+    s.addShape(pptx.ShapeType.rect, { x, y, w: 6.35, h: 2.05, fill: { color: 'F8F9FA' }, line: { color: 'E5E7EB', width: 0.5 } });
+    s.addShape(pptx.ShapeType.rect, { x, y, w: 6.35, h: 0.32, fill: { color }, line: { type: 'none' } });
+    s.addText(title, { x: x + 0.12, y: y + 0.03, w: 6.1, h: 0.26, fontSize: 10, bold: true, color: WHITE, fontFace: 'Calibri', valign: 'middle' });
+    s.addText(lines.filter(Boolean).join('\n'), {
+      x: x + 0.15, y: y + 0.42, w: 6.05, h: 1.55, fontSize: 9, color: DGRAY, fontFace: 'Calibri', valign: 'top', wrap: true,
+    });
+  };
+
+  quad('SECTEURS PORTEURS', 0.15, 1.18, NAVY, [
+    P.secteurs || '(à compléter : secteurs en croissance, projets structurants…)',
+    P.secteurs ? '' : suggText,
+  ]);
+  quad('MARCHANDISES À SURVEILLER', 6.65, 1.18, GREEN, [
+    P.marchandises || '(à compléter : flux en hausse, nouvelles marchandises…)',
+  ]);
+  quad('CLIENTS CIBLES', 0.15, 3.40, BLUE2, [
+    P.clients || '(à compléter : comptes à conquérir, AO en cours…)',
+  ]);
+  quad('RECOMMANDATIONS DE POSITIONNEMENT', 6.65, 3.40, GOLD, [
+    P.recommandations || '(à compléter : leviers commerciaux, contrats-cadres, tarification…)',
+  ]);
+
+  addInsightBox(s, 0.15, 5.7, 12.9, 1.2, '🧭',
+    [
+      P.synthese || 'SYNTHÈSE PRÉDICTIVE : croiser les hausses STATCOM mesurées, les signaux des newsletters et le pipeline AO pour prioriser les secteurs et comptes à fort potentiel sur l\'horizon retenu.',
+      pred && pred.ao ? `Pipeline : ${pred.ao.total} dossiers AO/agréments suivis (${Object.entries(pred.ao.byType || {}).map(([k, v]) => k + ' ' + v).join(', ')}).` : '',
+    ].filter(Boolean));
+}
+
 // ─── SLIDE 32 – SÉPARATEUR ACTIONS STRATÉGIQUES ───────────────────────────────
 addSeparator('06', 'ACTIONS STRATÉGIQUES PRIORITAIRES', 'Synthèse transversale  |  6 axes  |  Horizon 12 mois');
 
