@@ -52,6 +52,19 @@
 
   <main class="max-w-6xl mx-auto px-6 py-8 space-y-8">
 
+    <!-- Restore banner (shown when a saved session exists in IndexedDB) -->
+    <div id="restore-banner" class="hidden bg-gold/10 border border-gold/50 rounded-lg p-4 flex items-center justify-between gap-4">
+      <div class="text-sm text-navy">
+        💾 <strong>Session sauvegardée détectée</strong>
+        <span id="restore-info" class="text-gray-600"></span>
+        — restaure tous tes fichiers (STATCOM, PDF, AO, PowerPoints) et paramètres.
+      </div>
+      <div class="flex gap-2 shrink-0">
+        <button id="restore-btn" class="px-4 py-2 bg-navy text-white rounded text-xs font-bold hover:bg-navy/90">Restaurer</button>
+        <button id="restore-dismiss" class="px-3 py-2 text-gray-500 text-xs hover:underline">Ignorer</button>
+      </div>
+    </div>
+
     <!-- Section 1: Étude -->
     <section class="bg-white rounded-lg border border-gray-200 p-6">
       <h2 class="text-lg font-bold text-navy mb-4">① Paramètres de l'étude</h2>
@@ -164,7 +177,7 @@
         </div>
       </div>
 
-      <div class="border border-aglgold/40 bg-aglgold/5 rounded p-3 text-[11px] text-gray-600">
+      <div class="border border-gold/40 bg-gold/5 rounded p-3 text-[11px] text-gray-600">
         <div class="font-bold text-navy mb-1">✍️ Préconisations rédigées par l'analyste</div>
         Les 5 sections des slides préconisations — <strong>secteurs porteurs</strong>,
         <strong>marchandises à surveiller</strong>, <strong>clients cibles</strong>,
@@ -211,9 +224,15 @@
     <section class="bg-white rounded-lg border border-gray-200 p-6">
       <h2 class="text-lg font-bold text-navy mb-2">⑤ Génération PPTX</h2>
       <p id="status" class="text-xs text-gray-500 mb-4">…</p>
-      <button id="generate-btn" class="px-6 py-3 bg-navy text-white rounded font-bold hover:bg-navy/90 transition disabled:opacity-50">
-        📥 Générer et télécharger le PPTX
-      </button>
+      <div class="flex flex-wrap items-center gap-3">
+        <button id="generate-btn" class="px-6 py-3 bg-navy text-white rounded font-bold hover:bg-navy/90 transition disabled:opacity-50">
+          📥 Générer et télécharger le PPTX
+        </button>
+        <button id="save-btn" class="px-6 py-3 bg-gold text-navy rounded font-bold hover:bg-gold/90 transition disabled:opacity-50">
+          💾 Sauvegarder la session
+        </button>
+      </div>
+      <p id="save-status" class="text-[11px] text-gray-500 mt-2"></p>
       <div class="mt-4 text-xs text-gray-500">
         Le fichier est généré 100% dans ton navigateur et téléchargé sur ton poste.
         Format : <code>Comite_de_Direction_&lt;titre&gt;_&lt;date&gt;.pptx</code>.
@@ -243,11 +262,11 @@
   <!-- App scripts (order matters). ?v= forces cache-bust on each redeploy.
        Note: statcom-parser.js + dataset-builder.js are loaded by the worker
        (parser-worker.js) only — they don't need to be on the main thread. -->
-  <script src="./blocks.js?v=20260622a"></script>
-  <script src="./data-adapter.js?v=20260622a"></script>
-  <script src="./generator.js?v=20260622a"></script>
-  <script src="./prediction.js?v=20260622a"></script>
-  <script src="./pptx-merge.js?v=20260622a"></script>
-  <script src="./app.js?v=20260622a"></script>
+  <script src="./blocks.js?v=20260622b"></script>
+  <script src="./data-adapter.js?v=20260622b"></script>
+  <script src="./generator.js?v=20260622b"></script>
+  <script src="./prediction.js?v=20260622b"></script>
+  <script src="./pptx-merge.js?v=20260622b"></script>
+  <script src="./app.js?v=20260622b"></script>
 </body>
 </html>

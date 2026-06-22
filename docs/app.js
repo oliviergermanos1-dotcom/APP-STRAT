@@ -60,6 +60,54 @@ const FALLBACK_PRECONISATIONS = {
   synthese: 'AGL CI consolide 3 positions #1 ; relais de croissance minier & BTP, conquête sur Hinterland Import et export cacao.',
 };
 
+// Original uploaded File/Blob objects, kept so the whole session can be saved
+// to (and restored from) IndexedDB. Disk-backed Blobs — cheap to hold.
+const sourceFiles = {
+  statcom: {},  // key "TIM|n" → File
+  ao: null,     // File
+  cx: null,     // File
+  analyse: null,// File
+};
+
+// ─── IndexedDB (large binary session storage) ────────────────────────────────
+const IDB_NAME = 'cdd_session';
+const IDB_STORE = 'kv';
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, val) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(val, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const r = tx.objectStore(IDB_STORE).get(key);
+    r.onsuccess = () => { db.close(); resolve(r.result); };
+    r.onerror = () => reject(r.error);
+  });
+}
+async function idbClear() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 // ─── PERSISTENCE ─────────────────────────────────────────────────────────────
 function saveState() {
   try {
@@ -160,8 +208,9 @@ async function handleStatcomUpload(metier, scope, file) {
       setTileBusy(t, `Parsing ${file.name}… (${phase})`);
     });
 
-    // Mark this key as "live in worker"
+    // Mark this key as "live in worker" + keep the original file for saving.
     workerKeys.add(key);
+    sourceFiles.statcom[key] = file;
 
     state.statcomMeta[key] = {
       filename: file.name,
@@ -187,6 +236,7 @@ async function handleStatcomUpload(metier, scope, file) {
 async function removeStatcom(metier, scope) {
   const key = `${metier}|${scope}`;
   delete state.statcomMeta[key];
+  delete sourceFiles.statcom[key];
   workerKeys.delete(key);
   try { await workerForget(key); } catch (_) {}
   saveState();
@@ -201,9 +251,14 @@ async function resetAll() {
   }
   workerKeys.clear();
   state.statcomMeta = {};
+  sourceFiles.statcom = {}; sourceFiles.ao = null; sourceFiles.cx = null; sourceFiles.analyse = null;
+  prediction.pdfTexts = []; prediction.ao = null; prediction.signals = null;
+  imports.cx = null; imports.analyse = null;
   localStorage.removeItem(STORAGE_KEY);
+  try { await idbClear(); } catch (_) {}
   renderDatasets();
   renderStatus();
+  renderImports();
 }
 
 // ─── RENDER ──────────────────────────────────────────────────────────────────
@@ -350,7 +405,7 @@ async function handlePdfUpload(files) {
     list.insertAdjacentHTML('beforeend', `<div class="text-aglblue">⏳ ${f.name}…</div>`);
     try {
       const text = await window.PREDICTION.extractPdfText(f);
-      prediction.pdfTexts.push({ name: f.name, text });
+      prediction.pdfTexts.push({ name: f.name, text, file: f });
     } catch (e) {
       console.error('PDF extract failed', e);
     }
@@ -365,6 +420,7 @@ async function handleAoUpload(file) {
     const buf = await file.arrayBuffer();
     prediction.ao = window.PREDICTION.parseAoExcel(buf, yr);
     prediction.ao._filename = file.name;
+    sourceFiles.ao = file;
   } catch (e) {
     alert('Erreur parsing AO : ' + e.message);
   }
@@ -406,6 +462,7 @@ async function handleImportUpload(slot, file) {
   try {
     const buffer = await file.arrayBuffer();
     imports[slot] = { name: file.name, buffer };
+    sourceFiles[slot] = file;
   } catch (e) {
     alert('Erreur lecture PowerPoint : ' + e.message);
   }
@@ -423,7 +480,150 @@ function renderImports() {
   draw('cx', 'cx-list');
   draw('analyse', 'analyse-list');
   document.querySelectorAll('button[data-imp-rm]').forEach((b) =>
-    b.addEventListener('click', () => { imports[b.dataset.impRm] = null; renderImports(); }));
+    b.addEventListener('click', () => {
+      imports[b.dataset.impRm] = null;
+      sourceFiles[b.dataset.impRm] = null;
+      renderImports();
+    }));
+}
+
+// ─── SESSION SAVE / RESTORE (IndexedDB) ──────────────────────────────────────
+async function saveSession() {
+  const btn = document.getElementById('save-btn');
+  const status = document.getElementById('save-status');
+  btn.disabled = true;
+  btn.textContent = 'Sauvegarde…';
+  try {
+    // Capture current settings from the form.
+    state.study.title = document.getElementById('study-title').value || state.study.title;
+    state.study.periodStart = document.getElementById('study-start').value || state.study.periodStart;
+    state.study.periodEnd = document.getElementById('study-end').value || state.study.periodEnd;
+
+    await idbClear();
+
+    const statcomKeys = [];
+    for (const key of Object.keys(sourceFiles.statcom)) {
+      if (sourceFiles.statcom[key]) {
+        await idbSet('file:statcom:' + key, sourceFiles.statcom[key]);
+        statcomKeys.push(key);
+      }
+    }
+    const pdfFiles = prediction.pdfTexts.map((p) => p.file).filter(Boolean);
+    for (let i = 0; i < pdfFiles.length; i++) await idbSet('file:pdf:' + i, pdfFiles[i]);
+    if (sourceFiles.ao) await idbSet('file:ao', sourceFiles.ao);
+    if (sourceFiles.cx) await idbSet('file:cx', sourceFiles.cx);
+    if (sourceFiles.analyse) await idbSet('file:analyse', sourceFiles.analyse);
+
+    const meta = {
+      savedAt: new Date().toISOString(),
+      study: state.study,
+      statcomMeta: state.statcomMeta,
+      filters: {
+        nonApure: document.getElementById('filter-non-apure').checked,
+        petroleum: document.getElementById('filter-petroleum').checked,
+        sirTransit: document.getElementById('filter-sir-transit').checked,
+        sirDest: document.getElementById('filter-sir-dest').checked,
+      },
+      keys: {
+        statcom: statcomKeys,
+        pdfCount: pdfFiles.length,
+        ao: !!sourceFiles.ao, cx: !!sourceFiles.cx, analyse: !!sourceFiles.analyse,
+      },
+      names: {
+        pdfs: prediction.pdfTexts.map((p) => p.name),
+        ao: sourceFiles.ao ? sourceFiles.ao.name : null,
+        cx: sourceFiles.cx ? sourceFiles.cx.name : null,
+        analyse: sourceFiles.analyse ? sourceFiles.analyse.name : null,
+      },
+    };
+    await idbSet('meta', meta);
+
+    const n = statcomKeys.length + pdfFiles.length +
+      (meta.keys.ao ? 1 : 0) + (meta.keys.cx ? 1 : 0) + (meta.keys.analyse ? 1 : 0);
+    status.innerHTML = `<span class="text-aglgreen">✓ Session sauvegardée</span> le ${new Date().toLocaleString('fr-FR')} — ${n} fichier(s). Elle sera proposée à la restauration à la prochaine ouverture.`;
+  } catch (e) {
+    console.error(e);
+    status.innerHTML = `<span class="text-aglred">Échec de la sauvegarde : ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 Sauvegarder la session';
+  }
+}
+
+async function checkSavedSession() {
+  let meta;
+  try { meta = await idbGet('meta'); } catch (_) { return; }
+  if (!meta) return;
+  const banner = document.getElementById('restore-banner');
+  const info = document.getElementById('restore-info');
+  const k = meta.keys || {};
+  const parts = [];
+  if (k.statcom && k.statcom.length) parts.push(`${k.statcom.length} STATCOM`);
+  if (k.pdfCount) parts.push(`${k.pdfCount} PDF`);
+  if (k.ao) parts.push('AO');
+  if (k.cx) parts.push('CX');
+  if (k.analyse) parts.push('analyse');
+  info.textContent = `(${new Date(meta.savedAt).toLocaleString('fr-FR')}${parts.length ? ' · ' + parts.join(', ') : ''})`;
+  banner.classList.remove('hidden');
+  document.getElementById('restore-dismiss').addEventListener('click', () => banner.classList.add('hidden'));
+  document.getElementById('restore-btn').addEventListener('click', () => restoreSession(meta));
+}
+
+async function restoreSession(meta) {
+  const banner = document.getElementById('restore-banner');
+  const btn = document.getElementById('restore-btn');
+  btn.disabled = true;
+  btn.textContent = 'Restauration…';
+  try {
+    // Settings + filters first (parsing reads the filter checkboxes).
+    if (meta.study) {
+      document.getElementById('study-title').value = meta.study.title || '';
+      document.getElementById('study-start').value = meta.study.periodStart || '';
+      document.getElementById('study-end').value = meta.study.periodEnd || '';
+      state.study = { ...state.study, ...meta.study };
+    }
+    if (meta.filters) {
+      document.getElementById('filter-non-apure').checked = !!meta.filters.nonApure;
+      document.getElementById('filter-petroleum').checked = !!meta.filters.petroleum;
+      document.getElementById('filter-sir-transit').checked = !!meta.filters.sirTransit;
+      document.getElementById('filter-sir-dest').checked = !!meta.filters.sirDest;
+    }
+
+    const k = meta.keys || {};
+    // STATCOM (re-parsed in the worker, sequentially).
+    for (const key of (k.statcom || [])) {
+      const file = await idbGet('file:statcom:' + key);
+      if (!file) continue;
+      const [metier, scope] = key.split('|');
+      btn.textContent = `Restauration ${metier} ${scope.toUpperCase()}…`;
+      await handleStatcomUpload(metier, scope, file);
+    }
+    // PDF newsletters.
+    const pdfFiles = [];
+    for (let i = 0; i < (k.pdfCount || 0); i++) {
+      const f = await idbGet('file:pdf:' + i);
+      if (f) pdfFiles.push(f);
+    }
+    if (pdfFiles.length) { btn.textContent = 'Restauration PDF…'; await handlePdfUpload(pdfFiles); }
+    // AO Excel.
+    if (k.ao) { const f = await idbGet('file:ao'); if (f) await handleAoUpload(f); }
+    // Imported PowerPoints.
+    if (k.cx) { const f = await idbGet('file:cx'); if (f) await handleImportUpload('cx', f); }
+    if (k.analyse) { const f = await idbGet('file:analyse'); if (f) await handleImportUpload('analyse', f); }
+
+    saveState();
+    renderDatasets();
+    renderStatus();
+    banner.classList.add('hidden');
+    const status = document.getElementById('save-status');
+    if (status) status.innerHTML = '<span class="text-aglgreen">✓ Session restaurée — prête à générer.</span>';
+  } catch (e) {
+    console.error(e);
+    alert('Erreur restauration : ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Restaurer';
+  }
 }
 
 // ─── PERIOD DERIVATION ───────────────────────────────────────────────────────
@@ -560,10 +760,12 @@ async function boot() {
   document.getElementById('study-end').value = state.study.periodEnd;
   document.getElementById('generate-btn').addEventListener('click', generatePptx);
   document.getElementById('reset-btn').addEventListener('click', resetAll);
+  const saveBtn = document.getElementById('save-btn');
+  if (saveBtn) saveBtn.addEventListener('click', saveSession);
 
   // Authored préconisations (rédigées par l'analyste à partir des documents).
   try {
-    const pr = await fetch('./data/preconisations.json?v=20260622a');
+    const pr = await fetch('./data/preconisations.json?v=20260622b');
     if (pr.ok) prediction.preconisations = await pr.json();
   } catch (e) { /* fallback used */ }
   const pStat = document.getElementById('preco-status');
@@ -587,6 +789,8 @@ async function boot() {
 
   renderDatasets();
   renderStatus();
+  renderImports();
+  checkSavedSession();
 }
 
 document.addEventListener('DOMContentLoaded', boot);
