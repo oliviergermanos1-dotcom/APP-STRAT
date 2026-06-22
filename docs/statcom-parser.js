@@ -156,9 +156,12 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
   //   TEM  (export maritime)  → keep only "Pays de prise en charge" = Côte d'Ivoire
   //   HEXP (hinterland export)→ keep only "Pays de prise en charge" ≠ Côte d'Ivoire
   //                             (flux export depuis Mali/BF via Abidjan)
+  //   HIMP (hinterland import)→ keep only "Pays de livraison" ≠ Côte d'Ivoire
+  //                             (flux import à destination de Mali/BF)
   const geoMode = metier === 'TIM'  ? 'livraison'
                 : metier === 'TEM'  ? 'chargement'
                 : metier === 'HEXP' ? 'chargement_hors_ci'
+                : metier === 'HIMP' ? 'livraison_hors_ci'
                 : null;
 
   for (const r of rows) {
@@ -186,6 +189,12 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
       dropped.geo += 1; continue;
     }
     if (geoMode === 'chargement' && !isCotedIvoire(r['Pays de prise en charge'])) {
+      dropped.geo += 1; continue;
+    }
+    if (geoMode === 'livraison_hors_ci' && isCotedIvoire(r['Pays de livraison'])) {
+      dropped.geo += 1; continue;
+    }
+    if (geoMode === 'chargement_hors_ci' && isCotedIvoire(r['Pays de prise en charge'])) {
       dropped.geo += 1; continue;
     }
 

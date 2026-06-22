@@ -1116,7 +1116,7 @@ addSeparator('03', 'HINTERLAND IMPORT MARITIME', '28 457 TEU qualifiés  |  AGL 
   s.addText('PDM AGL par marchandise – Hinterland Import', {
     x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
   });
-  const himpSegmentBars = live && live.segmentBars ? live.segmentBars : [
+  const himpSegmentBars = live && live.segmentBars ? live.segmentBars.slice(0, 7) : [
     { label: 'Malt',               vol: '439 TEU',   pdm: 73 },
     { label: 'Matériels Miniers',  vol: '600 TEU',   pdm: 50 },
     { label: 'Pâtes Alimentaires', vol: '528 TEU',   pdm: 31 },
@@ -1124,64 +1124,139 @@ addSeparator('03', 'HINTERLAND IMPORT MARITIME', '28 457 TEU qualifiés  |  AGL 
     { label: 'Riz',                vol: '736 TEU',   pdm: 20 },
     { label: 'Emballages',         vol: '1 151 TEU', pdm: 20 },
     { label: 'Matér. Construction',vol: '645 TEU',   pdm: 16 },
-    { label: 'Sucre',              vol: '2 701 TEU', pdm: 9 },
-    { label: 'Thé Alimentaire',    vol: '928 TEU',   pdm: 0 },
-    { label: 'Prod. Mer Congelé',  vol: '1 296 TEU', pdm: 0 },
-    { label: 'Motos & Bicyclettes',vol: '1 172 TEU', pdm: 1 },
   ];
   addSegmentBars(s, 7.1, 1.52, himpSegmentBars);
+
+  // Répartition import hinterland par pays de chargement (origines)
+  const himpRep = live ? dataAdapter.buildRepartitionPaysData(study, 'HIMP') : null;
+  if (himpRep && himpRep.bars.length) {
+    s.addText('Répartition import hinterland par pays de chargement', {
+      x: 7.1, y: 4.65, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addSegmentBars(s, 7.1, 4.95, himpRep.bars.slice(0, 4));
+  }
 }
 
-// ─── SLIDE 16 – HINTERLAND IMPORT NOUVEAUX ENTRANTS ──────────────────────────
-// TODO: cross-référencer study.n1Runs pour annoter les verdicts (en revue).
+// ─── SLIDE 16 – HINTERLAND IMPORT NOUVEAUX ENTRANTS + TENDANCES ──────────────
+// LIVE layout (5 sections, comme slide 7 mais destination = Mali/BF).
+// FALLBACK : layout v1 inchangé.
 {
   const s = pptx.addSlide();
-  const live = dataAdapter.buildNouveauxData(study, 'HIMP');
-  addHeader(s, 'HINTERLAND IMPORT – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
-    'Transitaires entrants  |  Nouvelles marchandises  |  Nouveaux destinataires Bamako–Ouagadougou');
+  const live = dataAdapter.buildNouveauxFullData(study, 'HIMP');
+  if (live) {
+    addHeader(s, 'HINTERLAND IMPORT – NOUVEAUX ENTRANTS & TENDANCES',
+      `Vrais nouveaux entrants (croisés vs toute l'année N-1) · Top hausses & destinataires · ${live.source}`);
+  } else {
+    addHeader(s, 'HINTERLAND IMPORT – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
+      'Transitaires entrants  |  Nouvelles marchandises  |  Nouveaux destinataires Bamako–Ouagadougou');
+  }
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.16');
 
-  s.addText('Nouveaux transitaires – Hinterland Import', {
-    x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  const himpNouveauxRows = live && live.rows.length ? live.rows : [
-    ['#11','SAHEL TRANSIT','620','2,2 %','Sucre / Alimentaire'],
-    ['#12','BURKINATRANS','580','2,0 %','BTP Burkina'],
-    ['#13','TRANS-SAHEL LOG.','450','1,6 %','Machines'],
-    ['#14','KARAMOKOTRAKRANSIT','380','1,3 %','Alimentation'],
-  ];
-  addRankTable(s, 0.15, 1.5, 6.8,
-    ['Rang','Transitaire','TEU','PDM','Spécialité'], himpNouveauxRows);
-  s.addText('Nouveaux destinataires AGL – Hinterland Import', {
-    x: 0.25, y: 3.0, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 0.15, 3.3, 6.8,
-    ['Destinataire','TEU','Destination','Entrée'],
-    [
-      ['SOFAO BF (alimentaire)','926','Ouagadougou','Q1 2026'],
-      ['BRAKINA (boissons)','552','Bobo-Dioulasso','Q1 2026'],
-      ['CODIMEX BF (emballages)','461','Ouagadougou','Q2 2026'],
-      ['TOTAL ENERGIES ML','390','Bamako','Q1 2026'],
-      ['ONATEL BF (télécoms)','320','Ouagadougou','Q2 2026'],
-    ]
-  );
+  if (live) {
+    const colW = 4.2, gap = 0.15, x0 = 0.15;
+    const x1 = x0, x2 = x0 + colW + gap, x3 = x0 + (colW + gap) * 2;
+    const yTitle = 1.18, yTable = 1.45;
 
-  s.addText('Nouvelles marchandises hinterland – PDM AGL', {
-    x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addSegmentBars(s, 7.1, 1.52, [
-    { label: 'Matériel Agricole',  vol: '520 TEU', pdm: 8 },
-    { label: 'Véhicules BTP',      vol: '380 TEU', pdm: 5 },
-    { label: 'Intrants Pharma',    vol: '290 TEU', pdm: 12 },
-  ]);
+    s.addText('Nouveaux transitaires (absents de tout N-1)', {
+      x: x1, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yTable, colW,
+      ['Transitaire', 'TEU', 'PDM'], live.nouveauxTransitaires);
 
-  addInsightBox(s, 7.1, 4.2, 6.0, 0.75, '🎯',
-    ['CIBLES : Thé (928 TEU) + Motos (1 172 TEU) à 0–1% PDM = 2 100 TEU de potentiel immédiat. Commercial dédié Ouagadougou recommandé (40% du marché hinterland).']
-  );
-  addInsightBox(s, 7.1, 5.1, 6.0, 0.75, '⚠',
-    ['MENACE : CEVA Logistics déjà #5 (4,4%) en quelques mois. UCT + Sitracom verrouillent 51,9% du marché — l\'écart vers le rang #2 est de 3 994 TEU.'],
-    'FEF2F2'
-  );
+    s.addText('Nouvelles marchandises (jamais vues en N-1)', {
+      x: x2, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x2, yTable, colW,
+      ['Marchandise', 'TEU marché', 'PDM AGL'], live.nouveauxMarchandises);
+
+    s.addText('Nouveaux destinataires AGL — opportunité de conquête', {
+      x: x3, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yTable, colW,
+      ['Destinataire', 'TEU AGL', 'TEU N-1 (autres)'], live.nouveauxClients);
+
+    const yRow2 = 3.65;
+    s.addText('Top 3 marchandises — plus forte hausse vs N-1 même période', {
+      x: x1, y: yRow2, w: colW + gap + colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yRow2 + 0.27, colW + gap + colW,
+      ['Marchandise', 'TEU N', 'TEU N-1', 'Δ', 'Croissance', 'PDM AGL'],
+      live.topGrowth.length > 0 ? live.topGrowth : [['—', '—', '—', '—', '—', '—']]);
+
+    s.addText('Top 5 destinataires (tous transitaires) — part AGL', {
+      x: x3, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yRow2 + 0.27, colW,
+      ['Destinataire', 'TEU marché', 'TEU AGL', 'PDM AGL'],
+      live.topDestinataires.slice(0, 5));
+
+    const M = live.metrics;
+    const insightLines = [];
+    insightLines.push(
+      `📊 ${M.totalNouveauxTransit} nouveaux transitaires · ${M.totalNouvellesMerch} nouvelles marchandises · ${M.totalNouveauxClients} nouveaux destinataires AGL (croisés vs toute l'année N-1)`
+    );
+    if (M.topGrowthName && M.topGrowthDelta > 0) {
+      const pdmInfo = M.topGrowthPdmAgl != null
+        ? (M.topGrowthPdmAgl < 5
+            ? `PDM AGL ${M.topGrowthPdmAgl}% — fort potentiel à capter`
+            : `PDM AGL ${M.topGrowthPdmAgl}% — position à consolider`)
+        : '';
+      insightLines.push(
+        `📈 PLUS FORTE HAUSSE : ${M.topGrowthName} (+${M.topGrowthDeltaStr} ${live.unit}${M.topGrowthPct != null ? `, +${M.topGrowthPct}%` : ''}) · ${pdmInfo}`
+      );
+    }
+    if (M.topConquestName && M.topConquestUpside > 0) {
+      insightLines.push(
+        `🎯 CONQUÊTE #1 : ${M.topConquestName} — déjà ${M.topConquestAglVolumeStr} ${live.unit} chez AGL, reste ${M.topConquestUpsideStr} ${live.unit} à capter chez la concurrence`
+      );
+    }
+    if (M.topUntappedName && M.topUntappedVolume > 0) {
+      insightLines.push(
+        `⚠ DESTINATAIRE NON CAPTÉ : ${M.topUntappedName} (${M.topUntappedVolumeStr} ${live.unit} marché, AGL ${M.topUntappedPdm}%) — cible commerciale prioritaire`
+      );
+    }
+    addInsightBox(s, 0.15, 5.70, 12.9, 1.40, '💡', insightLines);
+  } else {
+    s.addText('Nouveaux transitaires – Hinterland Import', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 6.8,
+      ['Rang','Transitaire','TEU','PDM','Spécialité'],
+      [
+        ['#11','SAHEL TRANSIT','620','2,2 %','Sucre / Alimentaire'],
+        ['#12','BURKINATRANS','580','2,0 %','BTP Burkina'],
+        ['#13','TRANS-SAHEL LOG.','450','1,6 %','Machines'],
+        ['#14','KARAMOKOTRAKRANSIT','380','1,3 %','Alimentation'],
+      ]);
+    s.addText('Nouveaux destinataires AGL – Hinterland Import', {
+      x: 0.25, y: 3.0, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 3.3, 6.8,
+      ['Destinataire','TEU','Destination','Entrée'],
+      [
+        ['SOFAO BF (alimentaire)','926','Ouagadougou','Q1 2026'],
+        ['BRAKINA (boissons)','552','Bobo-Dioulasso','Q1 2026'],
+        ['CODIMEX BF (emballages)','461','Ouagadougou','Q2 2026'],
+        ['TOTAL ENERGIES ML','390','Bamako','Q1 2026'],
+        ['ONATEL BF (télécoms)','320','Ouagadougou','Q2 2026'],
+      ]
+    );
+    s.addText('Nouvelles marchandises hinterland – PDM AGL', {
+      x: 7.1, y: 1.2, w: 6.0, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addSegmentBars(s, 7.1, 1.52, [
+      { label: 'Matériel Agricole',  vol: '520 TEU', pdm: 8 },
+      { label: 'Véhicules BTP',      vol: '380 TEU', pdm: 5 },
+      { label: 'Intrants Pharma',    vol: '290 TEU', pdm: 12 },
+    ]);
+    addInsightBox(s, 7.1, 4.2, 6.0, 0.75, '🎯',
+      ['CIBLES : Thé (928 TEU) + Motos (1 172 TEU) à 0–1% PDM = 2 100 TEU de potentiel immédiat. Commercial dédié Ouagadougou recommandé (40% du marché hinterland).']
+    );
+    addInsightBox(s, 7.1, 5.1, 6.0, 0.75, '⚠',
+      ['MENACE : CEVA Logistics déjà #5 (4,4%) en quelques mois. UCT + Sitracom verrouillent 51,9% du marché — l\'écart vers le rang #2 est de 3 994 TEU.'],
+      'FEF2F2'
+    );
+  }
 }
 
 // ─── SLIDE 17 – SÉPARATEUR HINTERLAND EXPORT ─────────────────────────────────
