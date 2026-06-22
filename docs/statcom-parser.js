@@ -75,6 +75,14 @@ function isPetroleum(merchLabel) {
   return PETROLEUM_KEYWORDS.some((kw) => n.includes(kw));
 }
 
+function isCotedIvoire(country) {
+  // Collapse all non-alphanumerics to single spaces so "COTE D'IVOIRE",
+  // "CÔTE D IVOIRE", "COTE-D-IVOIRE" all normalise identically.
+  const n = norm(country).replace(/[^a-z0-9]+/g, ' ').trim();
+  return n === 'cote d ivoire' || n === 'rci' || n === 'ci'
+      || n.startsWith('cote d ivoire');
+}
+
 function detectSchema(headers, metier) {
   const set = new Set(headers.map((h) => String(h || '').toLowerCase()));
   const isAer = set.has('compagnie') || set.has('aéroport escale') || set.has('aeroport escale');
@@ -139,8 +147,16 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
   const sch = detectSchema(headerRow, metier);
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
 
-  const dropped = { nonQualified: 0, nonApure: 0, sirSmbTransit: 0, sirSmbDest: 0, petroleum: 0 };
+  const dropped = { nonQualified: 0, nonApure: 0, sirSmbTransit: 0, sirSmbDest: 0, petroleum: 0, geo: 0 };
   const kept = [];
+
+  // Métier-specific geographic scope:
+  //   TIM  (import maritime) → keep only "Pays de livraison" = Côte d'Ivoire
+  //                            (exclut le transbordement vers Mali/BF = hinterland)
+  //   TEM  (export maritime) → keep only "Pays de prise en charge" = Côte d'Ivoire
+  const geoMode = metier === 'TIM' ? 'livraison'
+                : metier === 'TEM' ? 'chargement'
+                : null;
 
   for (const r of rows) {
     // Qualified
@@ -161,6 +177,13 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
     }
     if (o.excludePetroleum && isPetroleum(r[sch.merchKey])) {
       dropped.petroleum += 1; continue;
+    }
+    // Métier-specific geographic scope
+    if (geoMode === 'livraison' && !isCotedIvoire(r['Pays de livraison'])) {
+      dropped.geo += 1; continue;
+    }
+    if (geoMode === 'chargement' && !isCotedIvoire(r['Pays de prise en charge'])) {
+      dropped.geo += 1; continue;
     }
 
     // Normalize fields for downstream consumption

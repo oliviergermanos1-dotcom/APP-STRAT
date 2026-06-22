@@ -69,7 +69,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260618f');
+  _worker = new Worker('./parser-worker.js?v=20260618g');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -263,7 +263,10 @@ function renderDatasets() {
                   non-apuré ${meta.dropped.nonApure || 0} ·
                   SIR/SMB-tr ${meta.dropped.sirSmbTransit || 0} ·
                   SIR/SMB-de ${meta.dropped.sirSmbDest || 0} ·
-                  pétroliers ${meta.dropped.petroleum || 0}
+                  pétroliers ${meta.dropped.petroleum || 0}${
+                    (meta.dropped.geo || 0) > 0
+                      ? ` · hors-CI ${meta.dropped.geo}`
+                      : ''}
                 </div>` : ''}
                 ${!hasMem ? '<div class="text-[10px] text-aglorange mt-1 italic">Rows perdus au refresh — re-uploader pour générer live</div>' : ''}
                 <div class="mt-2 flex gap-3">
