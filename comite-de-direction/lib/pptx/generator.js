@@ -576,55 +576,122 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
   });
 }
 
-// ─── SLIDE 7 – TIM NOUVEAUX ENTRANTS ─────────────────────────────────────────
-// TODO: cross-reference avec study.n1Runs pour exclure automatiquement les
-// verdicts "existant" et ajuster le titre (en cours de revue).
+// ─── SLIDE 7 – TIM NOUVEAUX ENTRANTS + TENDANCES ─────────────────────────────
+// LIVE layout (5 sections, period vs full N-1):
+//   Row 1 (3 cols) : Nouveaux transitaires | Nouvelles marchandises | Nouveaux clients AGL
+//   Row 2 (2 cols) : Top 3 marchandises plus forte hausse | Top 10 destinataires + PDM AGL
+// FALLBACK layout (no upload): preserved byte-identical to the v1 reference.
 {
   const s = pptx.addSlide();
-  const live = dataAdapter.buildNouveauxData(study, 'TIM');
-  addHeader(s, 'TIM – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
-    'Transitaires entrants (rangs 11–15)  |  Nouvelles marchandises captées  |  Nouveaux destinataires');
+  const live = dataAdapter.buildNouveauxFullData(study, 'TIM');
+  if (live) {
+    addHeader(s, 'TIM – NOUVEAUX ENTRANTS & TENDANCES',
+      `Vrais nouveaux entrants (croisés vs toute l'année N-1) · Top hausses & destinataires · ${live.source}`);
+  } else {
+    addHeader(s, 'TIM – NOUVEAUX ENTRANTS & NOUVEAUX FLUX',
+      'Transitaires entrants (rangs 11–15)  |  Nouvelles marchandises captées  |  Nouveaux destinataires');
+  }
   addFooter(s, 'Africa Global Logistics – Étude de Marché Jan–Mai 2026  |  p.7');
 
-  s.addText('Nouveaux transitaires TIM (rangs 11–15)', {
-    x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  const nouveauxRows = live && live.rows.length ? live.rows.map((r) => r.slice(0, 5).concat(r.length < 5 ? ['—'] : [])) : [
-    ['#11','ATLANTIQUE TRANSIT CI','3 820','2,0 %','Emball. / Plastiques'],
-    ['#12','WESTAFRICA LOG. CI','3 410','1,8 %','Machines'],
-    ['#13','IVOIRE TRANSIT RAPID','3 180','1,6 %','Chimie / Pharma'],
-    ['#14','CEVA LOGISTICS CI','2 950','1,5 %','Multi-segments'],
-    ['#15','SOCOPHAR TRANSIT','2 640','1,4 %','Médicaments'],
-  ];
-  addRankTable(s, 0.15, 1.5, 7.0,
-    ['Rang','Transitaire','TEU','PDM','Spécialité'], nouveauxRows, live ? 0 : 3);
-  s.addText('Nouveaux destinataires AGL – TIM (1er flux 2026)', {
-    x: 0.25, y: 3.08, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addRankTable(s, 0.15, 3.38, 7.0,
-    ['Destinataire','TEU','Secteur','Entrée'],
-    [
-      ['ORANGE CI (équipements)','680','Télécoms','Q1 2026'],
-      ['NESTLÉ CI','420','Alim. industriel','Q1 2026'],
-      ['FOXTROT INTERNATIONAL','380','Pétrole','Q2 2026'],
-      ['AFRICA RE','290','Services','Q2 2026'],
-      ['MTN CI','245','Télécoms','Q2 2026'],
-    ]
-  );
+  if (live) {
+    // ─── Row 1 : 3 colonnes "nouveaux" ──────────────────────────────────────
+    const colW = 4.2, gap = 0.15, x0 = 0.15;
+    const x1 = x0;
+    const x2 = x0 + colW + gap;
+    const x3 = x0 + (colW + gap) * 2;
+    const yTitle = 1.18, yTable = 1.45, h1 = 2.05;
 
-  s.addText('Nouvelles marchandises captées par AGL – TIM', {
-    x: 7.3, y: 1.2, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
-  });
-  addSegmentBars(s, 7.3, 1.55, [
-    { label: 'Télécommunications', vol: '1 240 TEU', pdm: 9 },
-    { label: 'Huiles Végétales',   vol: '890 TEU',   pdm: 6 },
-    { label: 'Fertilisants',       vol: '650 TEU',   pdm: 4 },
-    { label: 'Matér. Électriques', vol: '580 TEU',   pdm: 3 },
-  ]);
-  addInsightBox(s, 7.3, 4.2, 5.8, 1.0, '⚠',
-    ['ALERTE : CEVA Logistics CI (groupe CMA CGM) entre dans le top 15 TIM en quelques mois — déploiement multi-métiers à surveiller en priorité. Télécoms : 9% PDM dès la 1ère année (effet 5G CI).'],
-    'FEF2F2'
-  );
+    // Col 1 — Nouveaux transitaires
+    s.addText('Nouveaux transitaires (absents de tout N-1)', {
+      x: x1, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yTable, colW,
+      ['Transitaire', 'TEU', 'PDM'],
+      live.nouveauxTransitaires);
+
+    // Col 2 — Nouvelles marchandises
+    s.addText('Nouvelles marchandises (jamais vues en N-1)', {
+      x: x2, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x2, yTable, colW,
+      ['Marchandise', 'TEU marché', 'PDM AGL'],
+      live.nouveauxMarchandises);
+
+    // Col 3 — Nouveaux clients AGL
+    s.addText('Nouveaux clients AGL (1er flux période)', {
+      x: x3, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yTable, colW,
+      ['Destinataire', 'TEU AGL', 'Segment'],
+      live.nouveauxClients);
+
+    // ─── Row 2 : 2 colonnes "tendances" ─────────────────────────────────────
+    const yRow2 = 4.0;
+
+    // Col gauche — Top 3 marchandises plus forte hausse
+    s.addText('Top 3 marchandises — plus forte hausse vs N-1 même période', {
+      x: x1, y: yRow2, w: colW + gap + colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x1, yRow2 + 0.27, colW + gap + colW,
+      ['Marchandise', 'TEU N', 'TEU N-1', 'Δ', 'Croissance', 'PDM AGL'],
+      live.topGrowth.length > 0 ? live.topGrowth : [['—', '—', '—', '—', '—', '—']]);
+
+    // Col droite — Top 10 destinataires (tous transitaires) + PDM AGL
+    s.addText('Top 10 destinataires (tous transitaires) — part AGL', {
+      x: x3, y: yRow2, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
+    });
+    addRankTable(s, x3, yRow2 + 0.27, colW,
+      ['Destinataire', 'TEU marché', 'TEU AGL', 'PDM AGL'],
+      live.topDestinataires);
+
+    // Bandeau insight
+    addInsightBox(s, 0.15, 6.85, 12.9, 0.4, '💡',
+      [`Nouveaux entrants identifiés via croisement vs N-1 année complète (filtre faux-nouveaux). Top hausses calculées sur même période N vs N-1.`]
+    );
+  } else {
+    // ─── FALLBACK : layout v1 inchangé (byte-identique référence) ──────────
+    s.addText('Nouveaux transitaires TIM (rangs 11–15)', {
+      x: 0.25, y: 1.2, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 1.5, 7.0,
+      ['Rang','Transitaire','TEU','PDM','Spécialité'],
+      [
+        ['#11','ATLANTIQUE TRANSIT CI','3 820','2,0 %','Emball. / Plastiques'],
+        ['#12','WESTAFRICA LOG. CI','3 410','1,8 %','Machines'],
+        ['#13','IVOIRE TRANSIT RAPID','3 180','1,6 %','Chimie / Pharma'],
+        ['#14','CEVA LOGISTICS CI','2 950','1,5 %','Multi-segments'],
+        ['#15','SOCOPHAR TRANSIT','2 640','1,4 %','Médicaments'],
+      ],
+      3
+    );
+    s.addText('Nouveaux destinataires AGL – TIM (1er flux 2026)', {
+      x: 0.25, y: 3.08, w: 6.5, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addRankTable(s, 0.15, 3.38, 7.0,
+      ['Destinataire','TEU','Secteur','Entrée'],
+      [
+        ['ORANGE CI (équipements)','680','Télécoms','Q1 2026'],
+        ['NESTLÉ CI','420','Alim. industriel','Q1 2026'],
+        ['FOXTROT INTERNATIONAL','380','Pétrole','Q2 2026'],
+        ['AFRICA RE','290','Services','Q2 2026'],
+        ['MTN CI','245','Télécoms','Q2 2026'],
+      ]
+    );
+
+    s.addText('Nouvelles marchandises captées par AGL – TIM', {
+      x: 7.3, y: 1.2, w: 5.8, h: 0.28, fontSize: 11, bold: true, color: DGRAY, fontFace: 'Calibri'
+    });
+    addSegmentBars(s, 7.3, 1.55, [
+      { label: 'Télécommunications', vol: '1 240 TEU', pdm: 9 },
+      { label: 'Huiles Végétales',   vol: '890 TEU',   pdm: 6 },
+      { label: 'Fertilisants',       vol: '650 TEU',   pdm: 4 },
+      { label: 'Matér. Électriques', vol: '580 TEU',   pdm: 3 },
+    ]);
+    addInsightBox(s, 7.3, 4.2, 5.8, 1.0, '⚠',
+      ['ALERTE : CEVA Logistics CI (groupe CMA CGM) entre dans le top 15 TIM en quelques mois — déploiement multi-métiers à surveiller en priorité. Télécoms : 9% PDM dès la 1ère année (effet 5G CI).'],
+      'FEF2F2'
+    );
+  }
 }
 
 // ─── SLIDE 8 – SÉPARATEUR TEM ────────────────────────────────────────────────

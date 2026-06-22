@@ -291,11 +291,64 @@ function buildNouveauxData(study, metier) {
   };
 }
 
+/**
+ * Build the full "nouveaux entrants" picture: 3 newcomer tables + top-3
+ * growth marchandises + top-10 destinataires with their AGL PDM. All five
+ * datasets must be present in study.datasets (produced by the browser
+ * dataset-builder) for the slide to render in live mode.
+ */
+function buildNouveauxFullData(study, metier) {
+  const find = (t) => findDataset(study, metier, t);
+  const nouveaux = find('nouveaux');
+  const nouveauxMerch = find('nouveaux_marchandises');
+  const nouveauxClients = find('nouveaux_clients');
+  const topGrowth = find('top_growth');
+  const topDest = find('top_destinataires_pdm');
+
+  if (!nouveaux || !nouveauxMerch || !nouveauxClients) return null;
+
+  const unit = unitOf(metier);
+  return {
+    source: nouveaux.filename,
+    unit,
+    nouveauxTransitaires: nouveaux.rows.slice(0, 5).map((r) => [
+      String(r.transitaire || ''),
+      fmtInt(Number(r.volume) || 0),
+      fmtPdm(Number(r.pdm) || 0),
+    ]),
+    nouveauxMarchandises: nouveauxMerch.rows.slice(0, 5).map((r) => [
+      String(r.segment || ''),
+      fmtInt(Number(r.volume_marche) || 0),
+      (r.pdm_agl != null ? r.pdm_agl + ' %' : '—'),
+    ]),
+    nouveauxClients: nouveauxClients.rows.slice(0, 5).map((r) => [
+      String(r.client || ''),
+      fmtInt(Number(r.volume) || 0),
+      String(r.segment || '—').slice(0, 22),
+    ]),
+    topGrowth: (topGrowth ? topGrowth.rows : []).map((r) => [
+      String(r.segment || ''),
+      fmtInt(Number(r.volume_marche) || 0),
+      fmtInt(Number(r.volume_n1) || 0),
+      '+' + fmtInt(Number(r.delta_volume) || 0),
+      (r.growth_pct != null ? r.growth_pct + ' %' : 'NEW'),
+      (r.pdm_agl != null ? r.pdm_agl + ' %' : '—'),
+    ]),
+    topDestinataires: (topDest ? topDest.rows : []).map((r) => [
+      String(r.client || '').slice(0, 32),
+      fmtInt(Number(r.volume) || 0),
+      fmtInt(Number(r.volume_agl) || 0),
+      (r.pdm_agl != null ? r.pdm_agl + ' %' : '—'),
+    ]),
+  };
+}
+
 module.exports = {
   buildOverviewData,
   buildConcurrentsData,
   buildClienteleData,
   buildNouveauxData,
+  buildNouveauxFullData,
   // Legacy aliases for TIM-specific call sites (slide 4/5)
   buildTimOverviewData: (study) => buildOverviewData(study, 'TIM'),
   buildTimConcurrentsData: (study) => buildConcurrentsData(study, 'TIM'),
