@@ -404,6 +404,50 @@
       return (pn && !presentParts.has(pn)) ? '' : tag;
     });
 
+    // ── Fix presentation.xml child ordering (pptxgenjs 3.12 bug) ─────────────
+    // CT_Presentation requires notesMasterIdLst BEFORE sldIdLst. pptxgenjs emits
+    // it after sldIdLst/sldSz, which PowerPoint rejects ("ne peut pas lire").
+    // Move the notesMasterIdLst block to just after </p:sldMasterIdLst>.
+    const nmMatch = presentation.match(/<p:notesMasterIdLst>[\s\S]*?<\/p:notesMasterIdLst>|<p:notesMasterIdLst\s*\/>/);
+    if (nmMatch) {
+      const nmBlock = nmMatch[0];
+      const idxNm = presentation.indexOf(nmBlock);
+      const idxSld = presentation.indexOf('<p:sldIdLst');
+      if (idxSld >= 0 && idxNm > idxSld) {
+        presentation = presentation.replace(nmBlock, '');
+        if (/<\/p:sldMasterIdLst>/.test(presentation)) {
+          presentation = presentation.replace('</p:sldMasterIdLst>', '</p:sldMasterIdLst>' + nmBlock);
+        } else {
+          presentation = presentation.replace('<p:sldIdLst', nmBlock + '<p:sldIdLst');
+        }
+      }
+    }
+
+    // ── Fix chart axId count (pptxgenjs 3.12 bug) ────────────────────────────
+    // pptxgenjs writes 3 <c:axId> into a 2-D barChart while only 2 axes
+    // (catAx/valAx) exist; CT_BarChart allows exactly 2, so the phantom axId is
+    // schema-invalid and PowerPoint refuses the file. For every chart part,
+    // drop axId references that don't match a declared axis.
+    const chartPaths = Object.keys(baseZip.files).filter(
+      (p) => /^ppt\/charts\/chart[^/]*\.xml$/.test(p));
+    for (const cp of chartPaths) {
+      let cx = await baseZip.file(cp).async('string');
+      const axisIds = new Set();
+      const axRe = /<c:(catAx|valAx|dateAx|serAx)>([\s\S]*?)<\/c:\1>/g;
+      let am;
+      while ((am = axRe.exec(cx))) {
+        const idm = am[2].match(/<c:axId val="(\d+)"\s*\/>/);
+        if (idm) axisIds.add(idm[1]);
+      }
+      if (!axisIds.size) continue;
+      let changed = false;
+      cx = cx.replace(/<c:axId val="(\d+)"\s*\/>/g, (tag, val) => {
+        if (axisIds.has(val)) return tag;
+        changed = true; return '';
+      });
+      if (changed) baseZip.file(cp, cx);
+    }
+
     // Write back the mutated core parts.
     baseZip.file('[Content_Types].xml', contentTypes);
     baseZip.file('ppt/presentation.xml', presentation);
