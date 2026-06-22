@@ -617,12 +617,12 @@ addSeparator('01', 'TRANSIT IMPORT MARITIME (TIM)', '193 989 TEU qualifiés  |  
       ['Marchandise', 'TEU marché', 'PDM AGL'],
       live.nouveauxMarchandises);
 
-    // Col 3 — Nouveaux clients AGL
-    s.addText('Nouveaux clients AGL (1er flux période)', {
+    // Col 3 — Nouveaux clients AGL (avec conquête)
+    s.addText('Nouveaux clients AGL — opportunité de conquête', {
       x: x3, y: yTitle, w: colW, h: 0.22, fontSize: 9, bold: true, color: NAVY, fontFace: 'Calibri',
     });
     addRankTable(s, x3, yTable, colW,
-      ['Destinataire', 'TEU AGL', 'Segment'],
+      ['Destinataire', 'TEU AGL', 'TEU N-1 (autres)'],
       live.nouveauxClients);
 
     // ─── Row 2 : 2 colonnes "tendances" ─────────────────────────────────────

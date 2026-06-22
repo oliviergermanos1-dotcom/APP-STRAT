@@ -324,7 +324,7 @@ function buildNouveauxFullData(study, metier) {
     nouveauxClients: nouveauxClients.rows.slice(0, 5).map((r) => [
       String(r.client || ''),
       fmtInt(Number(r.volume) || 0),
-      String(r.segment || '—').slice(0, 22),
+      fmtInt(Number(r.volume_n1_others) || 0),
     ]),
     topGrowth: (topGrowth ? topGrowth.rows : []).map((r) => [
       String(r.segment || ''),
