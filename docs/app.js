@@ -60,9 +60,28 @@ function loadState() {
 }
 
 // ─── STATCOM UPLOAD ──────────────────────────────────────────────────────────
+// Pool of Web Workers (1 per active parse) to keep the UI thread free.
+function parseInWorker(buffer, metier, filename, opts) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker('./parser-worker.js');
+    const id = Math.random().toString(36).slice(2);
+    worker.onmessage = (e) => {
+      worker.terminate();
+      if (e.data.ok) resolve(e.data.result);
+      else reject(new Error(e.data.error));
+    };
+    worker.onerror = (e) => {
+      worker.terminate();
+      reject(new Error(e.message || 'Worker error'));
+    };
+    // Transfer the ArrayBuffer (no copy) — much faster for big files.
+    worker.postMessage({ id, buffer, metier, filename, opts }, [buffer]);
+  });
+}
+
 async function handleStatcomUpload(metier, scope, file) {
   const tile = document.querySelector(`[data-tile="${metier}|${scope}"]`);
-  setTileBusy(tile, `Parsing ${file.name}… (peut prendre 30-60s pour les gros fichiers)`);
+  setTileBusy(tile, `Parsing ${file.name} en arrière-plan… (l'interface reste fluide)`);
 
   try {
     const buffer = await file.arrayBuffer();
@@ -72,15 +91,7 @@ async function handleStatcomUpload(metier, scope, file) {
       excludeSirSmbTransitaire:  document.getElementById('filter-sir-transit').checked,
       excludeSirSmbDestinataire: document.getElementById('filter-sir-dest').checked,
     };
-    const result = await new Promise((resolve, reject) => {
-      setTimeout(() => {
-        try {
-          resolve(window.parseStatcomBuffer(buffer, metier, file.name, filterOpts));
-        } catch (err) {
-          reject(err);
-        }
-      }, 50);
-    });
+    const result = await parseInWorker(buffer, metier, file.name, filterOpts);
 
     rowsCache[`${metier}|${scope}`] = result.kept;
     state.statcomMeta[`${metier}|${scope}`] = {

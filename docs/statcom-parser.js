@@ -192,8 +192,10 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
   };
 }
 
-window.parseStatcomBuffer = parseStatcomBuffer;
-window.STATCOM = {
+// Works in both main thread (window) and Web Worker (self) contexts.
+const _globalRef = (typeof self !== 'undefined') ? self : window;
+_globalRef.parseStatcomBuffer = parseStatcomBuffer;
+_globalRef.STATCOM = {
   MONTHS_FR,
   isAgl,
   isPetroleum,

@@ -137,10 +137,16 @@ function buildDatasets(args) {
   const transitN1 = new Set();
   const merchN1 = new Set();
   const aglDestN1 = new Set();
+  // Total N-1 volume per destinataire across ALL transitaires
+  // → "conquest opportunity" for nouveaux clients AGL.
+  const destTotalN1 = new Map();
   for (const r of fullN1Rows) {
     if (r.transitaire) transitN1.add(r.transitaire);
     if (r.marchandise) merchN1.add(r.marchandise);
     if (isAglB(r.transitaire) && r[clientKey]) aglDestN1.add(r[clientKey]);
+    if (r[clientKey]) {
+      destTotalN1.set(r[clientKey], (destTotalN1.get(r[clientKey]) || 0) + r.volume);
+    }
   }
 
   // True newcomer transitaires: in N period, NOT in any of N-1
@@ -173,19 +179,25 @@ function buildDatasets(args) {
     if (newcomerMerch.length >= 10) break;
   }
 
-  // True newcomer AGL clients (destinataires that AGL serves in N but not N-1)
+  // True newcomer AGL clients (destinataires that AGL serves in N but not N-1).
+  // We surface the N-1 volume this destinataire was doing with OTHER transitaires
+  // ("conquest_opportunity") so the slide can size the upside.
   const newcomerClients = [];
   const aglClientVolN = aggregateBy(aglPeriodRows, (r) => r[clientKey]);
   for (const [name, vol] of [...aglClientVolN.entries()].sort((a, b) => b[1] - a[1])) {
     if (aglDestN1.has(name)) continue;
+    const conquestOpportunity = destTotalN1.get(name) || 0;
     newcomerClients.push({
       client: name,
       volume: Math.round(vol * 100) / 100,
       segment: segByClient.get(name) || '—',
       pct_vol_agl: aglTotal > 0 ? Math.round((vol / aglTotal) * 1000) / 10 : 0,
+      volume_n1_others: Math.round(conquestOpportunity * 100) / 100,
     });
     if (newcomerClients.length >= 10) break;
   }
+  // Re-sort by conquest opportunity DESC so the biggest catches surface first
+  newcomerClients.sort((a, b) => (b.volume_n1_others || 0) - (a.volume_n1_others || 0));
 
   // ─── Top 3 marchandises avec plus forte hausse ──────────────────────────
   // Compare N period vs same-period N-1.
