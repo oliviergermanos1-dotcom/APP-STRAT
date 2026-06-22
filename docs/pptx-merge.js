@@ -131,8 +131,17 @@
   }
 
   // Relationship types whose targets we deliberately DROP (keeps the merge
-  // self-contained without dragging notes/masters that need their own chain).
+  // self-contained without dragging notes/masters that need their own chain,
+  // and without keeping external OLE/package links that PowerPoint refuses
+  // to validate when their SharePoint target is unreachable from the user).
   const DROP_TYPES = [/relationships\/notesSlide$/];
+  const DROP_EXTERNAL_TYPES = [
+    /relationships\/oleObject$/,
+    /relationships\/package$/,
+    /relationships\/audio$/,
+    /relationships\/video$/,
+    /relationships\/externalData$/,
+  ];
 
   async function copyExternalDeck(extZip, baseZip, ctr, baseCT, extCT) {
     // Memo: external part path → new base path.
@@ -168,16 +177,28 @@
       // Handle this part's relationships (if any), copying targets & rewriting.
       const relsPath = relsPathFor(oldPath);
       let newRelsXml = null;
+      const droppedRids = []; // rIds removed from this part's rels
       if (extZip.file(relsPath)) {
         const relsXml = await extZip.file(relsPath).async('string');
         const rels = parseRels(relsXml);
         const rewritten = [];
         for (const r of rels) {
-          if (r.mode === 'External') { rewritten.push(r); continue; }
-          if (DROP_TYPES.some((re) => re.test(r.type || ''))) continue; // drop notes etc.
+          if (r.mode === 'External') {
+            // External SharePoint/HTTP links to OLE objects, packages, audio
+            // and video make PowerPoint refuse to open the file if it cannot
+            // resolve them (auth, network, deleted source). Drop them — the
+            // slide still renders fine without the live data link.
+            if (DROP_EXTERNAL_TYPES.some((re) => re.test(r.type || ''))) {
+              droppedRids.push(r.id);
+              continue;
+            }
+            rewritten.push(r);
+            continue;
+          }
+          if (DROP_TYPES.some((re) => re.test(r.type || ''))) { droppedRids.push(r.id); continue; }
           const absOld = resolvePath(dirname(oldPath), r.target);
           const copiedNew = await copyPart(absOld);
-          if (!copiedNew) continue; // target missing → drop the rel
+          if (!copiedNew) { droppedRids.push(r.id); continue; }
           rewritten.push({ id: r.id, type: r.type, target: relPath(dirname(newPath), copiedNew) });
         }
         newRelsXml = buildRelsXml(rewritten);
@@ -185,7 +206,26 @@
 
       // Write the part itself (binary for media, string for xml).
       if (isXml) {
-        const content = await extZip.file(oldPath).async('string');
+        let content = await extZip.file(oldPath).async('string');
+        // Strip in-body references to any rIds we dropped. Without this,
+        // PowerPoint chokes on dangling r:id="rIdX" pointers (e.g. a chart's
+        // <c:externalData r:id="rId3"/> after we removed its external OLE
+        // rel). Targets:
+        //   - <c:externalData r:id="…"/>  (chart external data refresh)
+        //   - <p:oleObj r:id="…">…</p:oleObj> (slide-level embedded objects)
+        if (droppedRids.length) {
+          for (const rid of droppedRids) {
+            const ridEsc = rid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            content = content.replace(
+              new RegExp('<c:externalData\\b[^>]*?r:id="' + ridEsc + '"[^>]*?(?:/>|>[\\s\\S]*?</c:externalData>)', 'g'),
+              ''
+            );
+            content = content.replace(
+              new RegExp('<p:oleObj\\b[^>]*?r:id="' + ridEsc + '"[^>]*?(?:/>|>[\\s\\S]*?</p:oleObj>)', 'g'),
+              ''
+            );
+          }
+        }
         baseZip.file(newPath, content);
       } else {
         const content = await extZip.file(oldPath).async('uint8array');
