@@ -75,17 +75,32 @@ function buildDatasets(args) {
   const fullN1Rows = keptN1 || [];
 
   const market = periodRows.reduce((s, r) => s + r.volume, 0);
+  const marketN1Period = periodN1Rows.reduce((s, r) => s + r.volume, 0);
 
   // ─── Concurrents (ranked by Transitaire over N period) ──────────────────
+  // N-1 same-period ranking surfaces volume_n1 / pdm_n1 / rank_n1 per
+  // transitaire so downstream slides can colour bars + render evolution.
   const byTransit = aggregateBy(periodRows, (r) => r.transitaire);
+  const byTransitN1 = aggregateBy(periodN1Rows, (r) => r.transitaire);
+  const rankedN1 = [...byTransitN1.entries()].sort((a, b) => b[1] - a[1]);
+  const rankN1ByName = new Map(rankedN1.map(([name], i) => [name, i + 1]));
   const concurrents = [...byTransit.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([name, vol], i) => ({
-      rang: i + 1,
-      transitaire: name,
-      volume: Math.round(vol * 100) / 100,
-      pdm: market > 0 ? fmtPdmNum((vol / market) * 100) : 0,
-    }));
+    .map(([name, vol], i) => {
+      const volN1 = byTransitN1.get(name) || 0;
+      const pdmN = market > 0 ? (vol / market) * 100 : 0;
+      const pdmN1 = marketN1Period > 0 ? (volN1 / marketN1Period) * 100 : 0;
+      return {
+        rang: i + 1,
+        transitaire: name,
+        volume: Math.round(vol * 100) / 100,
+        pdm: fmtPdmNum(pdmN),
+        volume_n1: Math.round(volN1 * 100) / 100,
+        pdm_n1: fmtPdmNum(pdmN1),
+        rang_n1: rankN1ByName.get(name) || null,
+        delta_pdm: fmtPdmNum(pdmN - pdmN1),
+      };
+    });
 
   // ─── Clients AGL (top 10 by destinataire/chargeur over N period) ────────
   const aglPeriodRows = periodRows.filter((r) => isAglB(r.transitaire));
@@ -108,30 +123,52 @@ function buildDatasets(args) {
     }));
 
   // ─── Segments (top 11 merch + AGL PDM over N period) ────────────────────
+  // pdm_agl_n1 = PDM AGL sur le même segment N-1 même période, sert à colorer
+  // les barres (vert si PDM N ≥ PDM N-1).
+  const aglPeriodN1Rows = periodN1Rows.filter((r) => isAglB(r.transitaire));
   const byMerch = aggregateBy(periodRows, (r) => r.marchandise);
   const aglByMerch = aggregateBy(aglPeriodRows, (r) => r.marchandise);
+  const byMerchN1 = aggregateBy(periodN1Rows, (r) => r.marchandise);
+  const aglByMerchN1 = aggregateBy(aglPeriodN1Rows, (r) => r.marchandise);
   const segments = [...byMerch.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 11)
-    .map(([seg, vol]) => ({
-      segment: seg,
-      volume_marche: Math.round(vol * 100) / 100,
-      pdm_agl: vol > 0 ? Math.round(((aglByMerch.get(seg) || 0) / vol) * 100) : 0,
-    }));
+    .map(([seg, vol]) => {
+      const volN1 = byMerchN1.get(seg) || 0;
+      const aglN1 = aglByMerchN1.get(seg) || 0;
+      return {
+        segment: seg,
+        volume_marche: Math.round(vol * 100) / 100,
+        pdm_agl: vol > 0 ? Math.round(((aglByMerch.get(seg) || 0) / vol) * 100) : 0,
+        volume_marche_n1: Math.round(volN1 * 100) / 100,
+        pdm_agl_n1: volN1 > 0 ? Math.round((aglN1 / volN1) * 100) : 0,
+      };
+    });
 
   // ─── Mensuel (per month over N period) ──────────────────────────────────
+  // pdm_agl_n1 = PDM AGL sur le même mois année N-1, pour colorer les barres
+  // (vert si la PDM du mois N ≥ PDM même mois N-1).
   const mMkt = aggregateBy(periodRows, (r) => r.mois);
   const mAgl = aggregateBy(aglPeriodRows, (r) => r.mois);
+  const mMktN1 = aggregateBy(periodN1Rows, (r) => r.mois);
+  const mAglN1 = aggregateBy(aglPeriodN1Rows, (r) => r.mois);
   const mensuel = MONTHS_FR_B
     .filter((m) => mMkt.has(m))
-    .map((m) => ({
-      mois: m,
-      volume_marche: Math.round(mMkt.get(m) * 100) / 100,
-      volume_agl: Math.round((mAgl.get(m) || 0) * 100) / 100,
-      pdm_agl: mMkt.get(m) > 0
-        ? Math.round(((mAgl.get(m) || 0) / mMkt.get(m)) * 1000) / 10
-        : 0,
-    }));
+    .map((m) => {
+      const mkN1 = mMktN1.get(m) || 0;
+      const agN1 = mAglN1.get(m) || 0;
+      return {
+        mois: m,
+        volume_marche: Math.round(mMkt.get(m) * 100) / 100,
+        volume_agl: Math.round((mAgl.get(m) || 0) * 100) / 100,
+        pdm_agl: mMkt.get(m) > 0
+          ? Math.round(((mAgl.get(m) || 0) / mMkt.get(m)) * 1000) / 10
+          : 0,
+        volume_marche_n1: Math.round(mkN1 * 100) / 100,
+        volume_agl_n1: Math.round(agN1 * 100) / 100,
+        pdm_agl_n1: mkN1 > 0 ? Math.round((agN1 / mkN1) * 1000) / 10 : 0,
+      };
+    });
 
   // ─── Nouveaux entrants — cross-check against ENTIRE N-1 ────────────────
   // Build N-1 sets (over FULL year, not just same period).
@@ -439,15 +476,25 @@ function buildDsmDatasets(keptN, keptN1, period, filename) {
   const secondName = consAll[0] && isAglConsignataire(consAll[0][0])
     ? (consAll[1] ? consAll[1][0] : null)
     : (consAll[0] ? consAll[0][0] : null);
-  // Monthly series over the N period (tonnage).
+  // Monthly series over the N period (tonnage). pdm_agl_n1 = même mois N-1.
   const mMkt = aggPoids(periodRows, (r) => r.mois);
   const mAgl = aggPoids(aglRows, (r) => r.mois);
-  const mensuel = MONTHS_FR_B.filter((m) => mMkt.has(m)).map((m) => ({
-    mois: m,
-    volume_marche: round(mMkt.get(m)),
-    volume_agl: round(mAgl.get(m) || 0),
-    pdm_agl: mMkt.get(m) > 0 ? Math.round(((mAgl.get(m) || 0) / mMkt.get(m)) * 1000) / 10 : 0,
-  }));
+  const aglPeriodN1Rows = periodN1Rows.filter((r) => isAglConsignataire(r.consignataire));
+  const mMktN1 = aggPoids(periodN1Rows, (r) => r.mois);
+  const mAglN1 = aggPoids(aglPeriodN1Rows, (r) => r.mois);
+  const mensuel = MONTHS_FR_B.filter((m) => mMkt.has(m)).map((m) => {
+    const mkN1 = mMktN1.get(m) || 0;
+    const agN1 = mAglN1.get(m) || 0;
+    return {
+      mois: m,
+      volume_marche: round(mMkt.get(m)),
+      volume_agl: round(mAgl.get(m) || 0),
+      pdm_agl: mMkt.get(m) > 0 ? Math.round(((mAgl.get(m) || 0) / mMkt.get(m)) * 1000) / 10 : 0,
+      volume_marche_n1: round(mkN1),
+      volume_agl_n1: round(agN1),
+      pdm_agl_n1: mkN1 > 0 ? Math.round((agN1 / mkN1) * 1000) / 10 : 0,
+    };
+  });
   // N-1 same period (already filtered above as periodN1Rows).
   const marketN1 = periodN1Rows.reduce((s, r) => s + (Number(r.poids) || 0), 0);
   const aglTonnageN1 = periodN1Rows

@@ -150,18 +150,47 @@ def add_kpi_bar(s, kpis, y=1.2):
                  k['sub'], size=8.5, color=MGRAY, align='center')
 
 
+def _fit_text(text, max_inches, pt=8.5):
+    """Tronque text pour qu'il tienne dans max_inches à la taille pt donnée.
+    Approximation : 1 char ≈ 0.060 * (pt/8.5) inches en Calibri."""
+    if not text:
+        return ''
+    text = str(text)
+    char_w = 0.060 * (pt / 8.5)
+    max_chars = max(4, int((max_inches - 0.08) / char_w))
+    return text if len(text) <= max_chars else text[:max_chars - 1] + '…'
+
+
 def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=None):
-    """Tableau classement. firstColMode: 'rank' or 'wide' (auto-detected from header[0])."""
+    """Tableau classement. firstColMode: 'rank' or 'wide' (auto-detected from header[0]).
+    La colonne 'nom' (Transitaire/Client/Marchandise) reçoit ~2× la largeur
+    des autres colonnes pour éviter que les noms longs débordent sur les
+    colonnes numériques voisines."""
     row_h = 0.28
     h0 = str(headers[0]).strip()
     auto_rank = bool(re.match(r'^(rang|#|n[°o]\b|num)', h0, re.I))
     mode = first_col_mode or ('rank' if auto_rank else 'wide')
     n_cols = len(headers)
     if mode == 'rank':
-        col_w = [0.45] + [(w - 0.45) / (n_cols - 1)] * (n_cols - 1)
+        # 1ʳᵉ col = rang étroite ; 2ᵉ col = nom 2× plus large que les colonnes data.
+        if n_cols >= 3:
+            data_cols = n_cols - 2
+            other_w = (w - 0.45) / (data_cols + 2.0)
+            name_w = other_w * 2.0
+            col_w = [0.45, name_w] + [other_w] * data_cols
+        else:
+            col_w = [0.45] + [(w - 0.45) / (n_cols - 1)] * (n_cols - 1)
+        name_col_idx = 1
     else:
-        col_w = [w / n_cols] * n_cols
-    name_col_idx = 1 if mode == 'rank' else 0
+        # mode 'wide' : 1ʳᵉ col = nom 1.6× les autres
+        if n_cols >= 2:
+            data_cols = n_cols - 1
+            other_w = w / (data_cols + 1.6)
+            name_w = other_w * 1.6
+            col_w = [name_w] + [other_w] * data_cols
+        else:
+            col_w = [w]
+        name_col_idx = 0
 
     # Header bar
     _rect(s, _in(x), _in(y), _in(w), _in(row_h), fill=NAVY)
@@ -185,9 +214,11 @@ def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=No
             is_agl_row = (ri == 0 and ci == name_col_idx)
             is_last_hl = is_hl and ci == len(row) - 1
             color = GREEN if (is_agl_row or is_last_hl) else DGRAY
+            # Tronquer la colonne nom pour éviter débordement.
+            text = (_fit_text(cell, col_w[ci]) if ci == name_col_idx else str(cell))
             _txt(s, _in(cx2 + 0.04), _in(ry + 0.04),
                  _in(col_w[ci] - 0.05), _in(row_h - 0.06),
-                 str(cell), size=8.5,
+                 text, size=8.5,
                  bold=(is_hl and ci == name_col_idx),
                  color=color,
                  align=('left' if ci == name_col_idx else 'center'),
@@ -196,16 +227,25 @@ def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=No
 
 
 def add_segment_bars(s, x, y, segments):
-    """Barres horizontales PDM par segment."""
-    max_bar = 2.55
+    """Barres horizontales PDM par segment.
+    Si seg['pdm_n1'] est fourni : couleur vert si PDM N ≥ PDM N-1 du segment,
+    orange si PDM N < PDM N-1. Le delta s'affiche en bout de barre.
+    Fallback (pas de N-1) : palette historique par paliers (50/20/10)."""
+    max_bar = 2.20
     row_h = 0.42
     for i, seg in enumerate(segments):
         ry = y + i * row_h
         pdm = float(seg.get('pdm', 0))
+        pdm_n1 = seg.get('pdm_n1')
+        has_n1 = pdm_n1 is not None
         bar_w = max(0.06, (pdm / 100.0) * max_bar)
-        bar_color = (GREEN if pdm >= 50 else
-                     BLUE2 if pdm >= 20 else
-                     ORANGE if pdm >= 10 else RED)
+        if has_n1:
+            pdm_n1_f = float(pdm_n1)
+            bar_color = GREEN if pdm >= pdm_n1_f else ORANGE
+        else:
+            bar_color = (GREEN if pdm >= 50 else
+                         BLUE2 if pdm >= 20 else
+                         ORANGE if pdm >= 10 else RED)
         _txt(s, _in(x), _in(ry), _in(1.8), _in(0.28),
              str(seg.get('label', '')).upper(), size=8.5, color=DGRAY)
         _txt(s, _in(x + 1.82), _in(ry), _in(0.9), _in(0.28),
@@ -214,8 +254,25 @@ def add_segment_bars(s, x, y, segments):
               fill=LINE_GR)
         _rect(s, _in(x + 2.8), _in(ry + 0.04), _in(bar_w), _in(0.18),
               fill=bar_color)
-        _txt(s, _in(x + 2.8 + max_bar + 0.05), _in(ry), _in(0.5), _in(0.28),
+        _txt(s, _in(x + 2.8 + max_bar + 0.05), _in(ry), _in(0.55), _in(0.28),
              f"{int(round(pdm))}%", size=9, bold=True, color=bar_color)
+        if has_n1:
+            delta = pdm - pdm_n1_f
+            sign = '+' if delta >= 0 else ''
+            _txt(s, _in(x + 2.8 + max_bar + 0.62), _in(ry + 0.02),
+                 _in(1.10), _in(0.28),
+                 f"(N-1 {int(round(pdm_n1_f))}% · {sign}{delta:.0f} pt)",
+                 size=7.5, color=MGRAY)
+
+
+def add_segment_legend(s, x, y, w=4.0):
+    """Légende des couleurs des barres segments (vs N-1)."""
+    _rect(s, _in(x), _in(y), _in(0.14), _in(0.14), fill=GREEN)
+    _txt(s, _in(x + 0.18), _in(y - 0.02), _in(1.45), _in(0.2),
+         "PDM AGL ≥ N-1", size=8, color=DGRAY, wrap=False)
+    _rect(s, _in(x + 1.70), _in(y), _in(0.14), _in(0.14), fill=ORANGE)
+    _txt(s, _in(x + 1.88), _in(y - 0.02), _in(1.45), _in(0.2),
+         "PDM AGL < N-1", size=8, color=DGRAY, wrap=False)
 
 
 def add_insight_box(s, x, y, w, h, emoji, lines, bg=EYELLOW):
@@ -226,38 +283,139 @@ def add_insight_box(s, x, y, w, h, emoji, lines, bg=EYELLOW):
          text, size=9, color=DGRAY, wrap=True)
 
 
-def add_mensuel_bars(s, x, y, mois, valeurs, seuil=7.5):
+def add_mensuel_bars(s, x, y, mois, valeurs, seuil=7.5, valeurs_n1=None):
+    """Barres mensuelles PDM. Si valeurs_n1 fourni : couleur = comparaison
+    PDM N vs PDM N-1 du même mois (vert si N≥N-1, orange sinon). Sinon
+    fallback : comparaison à la moyenne période (seuil)."""
     row_h = 0.58
-    max_bar = 2.8
+    max_bar = 2.55
     clean = [round(float(v or 0), 1) for v in valeurs]
-    max_v = max(clean + [0.0001])
+    clean_n1 = [round(float(v or 0), 1) for v in (valeurs_n1 or [])]
+    has_n1 = bool(clean_n1) and any(v > 0 for v in clean_n1)
+    max_v = max(clean + clean_n1 + [0.0001])
     for i, m in enumerate(mois):
         ry = y + i * row_h
         v = clean[i] if i < len(clean) else 0
+        v_n1 = clean_n1[i] if i < len(clean_n1) else 0
         bw = max(0.02, (v / max_v) * max_bar)
-        bc = GREEN if v >= seuil else ORANGE
+        if has_n1 and v_n1 > 0:
+            bc = GREEN if v >= v_n1 else ORANGE
+        else:
+            bc = GREEN if v >= seuil else ORANGE
         _rect(s, _in(x), _in(ry), _in(6.0), _in(row_h - 0.06),
               fill=RGBColor(0xF8, 0xFA, 0xFC), line=LINE_GR, line_width=0.3)
         _txt(s, _in(x + 0.12), _in(ry + 0.14), _in(0.85), _in(0.3),
              str(m)[:8], size=11, color=DGRAY, wrap=False)
-        _rect(s, _in(x + 1.05), _in(ry + 0.14), _in(max_bar), _in(0.22),
+        _rect(s, _in(x + 1.0), _in(ry + 0.14), _in(max_bar), _in(0.22),
               fill=LINE_DK)
-        _rect(s, _in(x + 1.05), _in(ry + 0.14), _in(bw), _in(0.22), fill=bc)
+        _rect(s, _in(x + 1.0), _in(ry + 0.14), _in(bw), _in(0.22), fill=bc)
         label = f"{v:.1f}".replace('.', ',') + ' %'
-        _txt(s, _in(x + 1.05 + max_bar + 0.08), _in(ry + 0.1),
-             _in(0.95), _in(0.3),
-             label, size=11, bold=True, color=bc, valign='middle', wrap=False)
+        _txt(s, _in(x + 1.0 + max_bar + 0.06), _in(ry + 0.1),
+             _in(0.78), _in(0.3),
+             label, size=10, bold=True, color=bc, valign='middle', wrap=False)
+        # Référence N-1 + delta à droite si dispo
+        if has_n1:
+            n1_lbl = f"N-1 {v_n1:.1f}".replace('.', ',') + ' %'
+            delta = v - v_n1
+            sign = '+' if delta >= 0 else ''
+            d_lbl = f"({sign}{delta:.1f}".replace('.', ',') + ' pt)'
+            _txt(s, _in(x + 1.0 + max_bar + 0.85), _in(ry + 0.1),
+                 _in(1.30), _in(0.3),
+                 n1_lbl + ' ' + d_lbl, size=8, color=MGRAY,
+                 valign='middle', wrap=False)
 
 
-def add_mensuel_legend(s, x, y, seuil, w=6.0):
-    """Légende des couleurs sous le graphe PDM mensuel."""
-    seuil_str = f"{float(seuil):.1f}".replace('.', ',') + ' %'
+def add_mensuel_legend(s, x, y, seuil=None, w=6.0, mode='n1'):
+    """Légende des couleurs sous le graphe PDM mensuel.
+    mode='n1'      → vert si PDM N ≥ même mois N-1, orange sinon
+    mode='moyenne' → vert si PDM ≥ moyenne période (seuil)
+    """
+    if mode == 'n1':
+        green_lbl = "≥ même mois N-1 (progression)"
+        orange_lbl = "< même mois N-1 (recul)"
+    else:
+        seuil_str = (f"{float(seuil or 0):.1f}".replace('.', ',') + ' %'
+                     if seuil is not None else 'moyenne')
+        green_lbl = f"≥ moyenne période ({seuil_str})"
+        orange_lbl = f"< moyenne période ({seuil_str})"
     _rect(s, _in(x), _in(y), _in(0.14), _in(0.14), fill=GREEN)
-    _txt(s, _in(x + 0.18), _in(y - 0.02), _in(2.6), _in(0.2),
-         f"≥ moyenne période ({seuil_str})", size=8, color=DGRAY, wrap=False)
+    _txt(s, _in(x + 0.18), _in(y - 0.02), _in(2.9), _in(0.2),
+         green_lbl, size=8, color=DGRAY, wrap=False)
     _rect(s, _in(x + 3.0), _in(y), _in(0.14), _in(0.14), fill=ORANGE)
-    _txt(s, _in(x + 3.18), _in(y - 0.02), _in(2.7), _in(0.2),
-         f"< moyenne période ({seuil_str})", size=8, color=DGRAY, wrap=False)
+    _txt(s, _in(x + 3.18), _in(y - 0.02), _in(2.9), _in(0.2),
+         orange_lbl, size=8, color=DGRAY, wrap=False)
+
+
+def compute_concurrents_insights(live, label, unit='TEU'):
+    """Insight box jaune slide CONCURRENTS : rang AGL N vs N-1, top
+    transitaires qui montent / descendent, segments AGL les plus solides
+    et les plus érodés vs N-1."""
+    lines = []
+    if not live:
+        return [f"Uploader STATCOM {label} N + N-1 pour activer l'analyse live."]
+    full = live.get('fullRanked') or []
+    name_key = 'transitaire' if (full and 'transitaire' in full[0]) else 'nom_entite'
+    # Rang AGL N + N-1
+    agl_row = next((r for r in full if is_agl(str(r.get(name_key) or ''))), None)
+    if agl_row:
+        rang_n = next((i+1 for i, r in enumerate(full)
+                       if is_agl(str(r.get(name_key) or ''))), None)
+        rang_n1 = agl_row.get('rang_n1')
+        pdm = agl_row.get('pdm')
+        pdm_n1 = agl_row.get('pdm_n1')
+        delta = agl_row.get('delta_pdm')
+        if rang_n1 and pdm_n1 is not None:
+            arrow_rank = '▲' if (rang_n < rang_n1) else ('▼' if rang_n > rang_n1 else '=')
+            sign = '+' if (delta or 0) >= 0 else ''
+            lines.append(
+                f"🏁 AGL #{rang_n} ({pdm:.1f}".replace('.', ',') + f" %) vs #{rang_n1} ({pdm_n1:.1f}".replace('.', ',') +
+                f" %) en N-1 — {arrow_rank} {sign}{delta:.1f}".replace('.', ',') + " pt de PDM."
+            )
+        else:
+            lines.append(f"🏁 AGL #{rang_n} ({pdm:.1f}".replace('.', ',') +
+                         " %) — N-1 indisponible (uploader STATCOM N-1).")
+    # Top 3 montées / descentes parmi le top 10 concurrents
+    top = [r for r in full[:10] if r.get('delta_pdm') is not None
+           and not is_agl(str(r.get(name_key) or ''))]
+    if top:
+        movers_up = sorted(top, key=lambda r: -float(r.get('delta_pdm') or 0))[:2]
+        movers_dn = sorted(top, key=lambda r: float(r.get('delta_pdm') or 0))[:2]
+        up_lbls = ', '.join([
+            f"{r.get(name_key, '')[:18]} (+{r['delta_pdm']:.1f} pt)".replace('.', ',')
+            for r in movers_up if (r.get('delta_pdm') or 0) > 0
+        ])
+        dn_lbls = ', '.join([
+            f"{r.get(name_key, '')[:18]} ({r['delta_pdm']:.1f} pt)".replace('.', ',')
+            for r in movers_dn if (r.get('delta_pdm') or 0) < 0
+        ])
+        if up_lbls:
+            lines.append(f"📈 Concurrents en hausse vs N-1 : {up_lbls}.")
+        if dn_lbls:
+            lines.append(f"📉 Concurrents en recul vs N-1 : {dn_lbls}.")
+    # Segments AGL : meilleur gain / plus grosse perte vs N-1
+    segs = live.get('rawSegments') or []
+    seg_with_n1 = [s for s in segs if s.get('pdm_agl_n1') is not None]
+    if seg_with_n1:
+        gains = sorted(seg_with_n1,
+                       key=lambda s: -(float(s.get('pdm_agl') or 0) - float(s.get('pdm_agl_n1') or 0)))
+        best = gains[0]
+        worst = gains[-1]
+        d_best = float(best.get('pdm_agl') or 0) - float(best.get('pdm_agl_n1') or 0)
+        d_worst = float(worst.get('pdm_agl') or 0) - float(worst.get('pdm_agl_n1') or 0)
+        if d_best > 0:
+            lines.append(
+                f"✅ Segment gagné : {best.get('segment', '')[:25]} "
+                f"({int(round(float(best.get('pdm_agl_n1') or 0)))}% → {int(round(float(best.get('pdm_agl') or 0)))}%, +{d_best:.0f} pt)."
+            )
+        if d_worst < 0:
+            lines.append(
+                f"⚠ Segment érodé : {worst.get('segment', '')[:25]} "
+                f"({int(round(float(worst.get('pdm_agl_n1') or 0)))}% → {int(round(float(worst.get('pdm_agl') or 0)))}%, {d_worst:.0f} pt)."
+            )
+    # Source
+    if live.get('source'):
+        lines.append(f"📁 Source : {live['source']}.")
+    return lines
 
 
 def compute_metier_insights(live, unit='TEU'):
@@ -338,8 +496,10 @@ def add_bar_chart(s, x, y, w, h, series, colors=None):
 
 
 def add_pie_chart(s, x, y, w, h, labels, values):
+    # Tronquer les libellés longs (légende compacte, évite débordement sur le tracé).
+    short_labels = [_fit_text(l, 1.6, pt=8) for l in labels]
     cd = CategoryChartData()
-    cd.categories = list(labels)
+    cd.categories = list(short_labels)
     cd.add_series('Mix', list(values))
     chart = s.shapes.add_chart(
         XL_CHART_TYPE.PIE, _in(x), _in(y), _in(w), _in(h), cd
@@ -347,7 +507,9 @@ def add_pie_chart(s, x, y, w, h, labels, values):
     chart.has_title = False
     chart.has_legend = True
     chart.legend.position = XL_LEGEND_POSITION.RIGHT
-    chart.legend.font.size = Pt(8)
+    # include_in_layout=True : la légende réserve sa place et ne chevauche plus le pie.
+    chart.legend.include_in_layout = True
+    chart.legend.font.size = Pt(7.5)
     # Color the slices via theme palette
     palette = [NAVY, GOLD, BLUE2, GREEN, ORANGE, TEAL, RED,
                RGBColor(0x9C, 0xA3, 0xAF), LINE_DK]
@@ -465,6 +627,7 @@ def build_overview_data(study, metier):
     ecart = agl_vol - float(second.get('volume') or 0) if (agl and second) else 0
     second_name = str(second.get(name_key) or '') if second else None
     month_labels = monthly_market = monthly_agl = monthly_pdm = None
+    monthly_pdm_n1 = monthly_market_n1 = monthly_agl_n1 = None
     if mensuel and mensuel.get('rows'):
         m = mensuel['rows']
         month_labels = [str(r.get('mois') or '')[:4] for r in m]
@@ -472,6 +635,13 @@ def build_overview_data(study, metier):
         monthly_agl = [float(r.get('volume_agl') or 0) for r in m]
         monthly_pdm = [(monthly_agl[i] / monthly_market[i]) * 100 if monthly_market[i] > 0 else 0
                        for i in range(len(m))]
+        monthly_market_n1 = [float(r.get('volume_marche_n1') or 0) for r in m]
+        monthly_agl_n1 = [float(r.get('volume_agl_n1') or 0) for r in m]
+        monthly_pdm_n1 = [float(r.get('pdm_agl_n1') or 0) for r in m]
+    # AGL N-1 totals + growth on same period (when N-1 data is present)
+    agl_vol_n1 = sum(monthly_agl_n1) if monthly_agl_n1 else 0
+    market_n1 = sum(monthly_market_n1) if monthly_market_n1 else 0
+    agl_pdm_n1 = (agl_vol_n1 / market_n1) * 100 if market_n1 > 0 else 0
     return {
         'source': concurrents.get('filename', ''),
         'unit': unit_of(metier),
@@ -480,6 +650,9 @@ def build_overview_data(study, metier):
         'secondName': second_name, 'ecart': ecart, 'top4Pdm': top4_pdm,
         'monthLabels': month_labels, 'monthlyMarket': monthly_market,
         'monthlyAgl': monthly_agl, 'monthlyPdm': monthly_pdm,
+        'monthlyMarketN1': monthly_market_n1, 'monthlyAglN1': monthly_agl_n1,
+        'monthlyPdmN1': monthly_pdm_n1,
+        'marketN1': market_n1, 'aglVolumeN1': agl_vol_n1, 'aglPdmN1': agl_pdm_n1,
         'kpis': {
             'marche': fmt_int(market), 'agl': fmt_int(agl_vol),
             'pdm': fmt_pdm(agl_pdm),
@@ -509,12 +682,17 @@ def build_concurrents_data(study, metier):
     if segments and segments.get('rows'):
         bars = [{'label': str(r.get('segment') or ''),
                  'vol': fmt_int(r.get('volume_marche') or 0) + ' ' + unit,
-                 'pdm': int(round(float(r.get('pdm_agl') or 0)))}
+                 'pdm': int(round(float(r.get('pdm_agl') or 0))),
+                 'pdm_n1': (int(round(float(r.get('pdm_agl_n1'))))
+                            if r.get('pdm_agl_n1') is not None else None)}
                 for r in segments['rows']]
         segment_bars = sorted(bars, key=lambda b: -b['pdm'])[:11]
     agl_row_idx = next((i for i, r in enumerate(ranked) if is_agl(str(r.get(name_key) or ''))), -1)
+    # Full ranking enriched with N-1 (volume_n1, pdm_n1, rang_n1, delta_pdm).
+    full_ranked = sorted(rows, key=lambda r: -float(r.get('volume') or 0))
     return {'source': concurrents.get('filename', ''), 'unit': unit,
-            'rows': top10, 'aglRowIdx': agl_row_idx, 'segmentBars': segment_bars}
+            'rows': top10, 'aglRowIdx': agl_row_idx, 'segmentBars': segment_bars,
+            'fullRanked': full_ranked, 'rawSegments': segments['rows'] if segments and segments.get('rows') else None}
 
 
 def build_clientele_data(study, metier):
@@ -631,6 +809,7 @@ def build_dsm_overview_data(study):
         'monthlyMarket': [m.get('volume_marche', 0) for m in mensuel],
         'monthlyAgl': [m.get('volume_agl', 0) for m in mensuel],
         'monthlyPdm': [m.get('pdm_agl', 0) for m in mensuel],
+        'monthlyPdmN1': [m.get('pdm_agl_n1', 0) for m in mensuel],
         'aglPdm': o.get('aglPdm') or 0,
     }
 
@@ -928,14 +1107,17 @@ def build_tim_overview(prs, study):
         pdm_labels = [next((m for m in MONTHS_FR_FULL if m.startswith(l)), l)
                       for l in live['monthLabels']]
         pdm_values = live['monthlyPdm']
+        pdm_values_n1 = live.get('monthlyPdmN1')
         seuil = live['aglPdm']
     else:
         pdm_labels = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai']
         pdm_values = [8.3, 6.9, 7.5, 8.5, 7.8]
+        pdm_values_n1 = None
         seuil = 7.5
-    add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil)
-    # Légende des couleurs : vert = au-dessus moyenne, orange = sous moyenne
-    add_mensuel_legend(s, 7.1, 5.50, seuil)
+    add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil, pdm_values_n1)
+    # Légende : vert si PDM N ≥ même mois N-1, orange sinon
+    legend_mode = 'n1' if (pdm_values_n1 and any(v > 0 for v in pdm_values_n1)) else 'moyenne'
+    add_mensuel_legend(s, 7.1, 5.50, seuil=seuil, mode=legend_mode)
 
     # Insight enrichi (live) ou fallback statique
     if live:
@@ -975,12 +1157,15 @@ def build_tim_concurrents(prs, study):
     ]
     hl = live['aglRowIdx'] if live and 0 <= live['aglRowIdx'] < 10 else 0
     add_rank_table(s, 0.15, 1.5, 6.8, ['Rang', 'Transitaire', 'TEU', 'PDM'], rows, hl)
+    # Insight enrichi (rang AGL N vs N-1, mouvements concurrents, segments gagnés/érodés)
     if live:
-        rank_lbl = 'leader' if live['aglRowIdx'] == 0 else '#' + str(live['aglRowIdx'] + 1)
-        insight = f"TIM live : AGL {rank_lbl}."
+        ins_lines = compute_concurrents_insights(live, 'TIM', unit='TEU')
     else:
-        insight = 'Leader de justesse. Forces : Mat. Miniers (74%), Médicaments (50%), PVC (32%).'
-    add_insight_box(s, 0.15, 5.45, 6.8, 0.75, '💡', [insight])
+        ins_lines = [
+            "💡 Leader de justesse. Forces : Mat. Miniers (74 %), Médicaments (50 %), PVC (32 %).",
+            "🏁 Uploader STATCOM TIM N + N-1 pour activer l'analyse live (rang N vs N-1, mouvements concurrents).",
+        ]
+    add_insight_box(s, 0.15, 5.45, 6.8, 1.55, '💡', ins_lines, bg=EYELLOW)
 
     _txt(s, _in(7.1), _in(1.2), _in(6.0), _in(0.28),
          'PDM AGL par segment – TIM', size=11, bold=True, color=DGRAY)
@@ -996,6 +1181,8 @@ def build_tim_concurrents(prs, study):
         {'label': 'Riz', 'vol': '9 586 TEU', 'pdm': 0},
     ]
     add_segment_bars(s, 7.1, 1.52, segs)
+    # Légende couleurs segments (N vs N-1) sous les barres
+    add_segment_legend(s, 7.1, 6.30)
 
 
 def build_tim_clientele(prs, study):
@@ -1127,9 +1314,11 @@ def build_metier_overview(prs, study, code, label, page_no, fallback_sub, fallba
                    for l in live['monthLabels']]
                   if live and live.get('monthlyPdm') else fallback_pdm[0])
     pdm_values = live['monthlyPdm'] if live and live.get('monthlyPdm') else fallback_pdm[1]
+    pdm_values_n1 = live.get('monthlyPdmN1') if live else None
     seuil = live['aglPdm'] if live else fallback_pdm[2]
-    add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil)
-    add_mensuel_legend(s, 7.1, 5.50, seuil)
+    add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil, pdm_values_n1)
+    legend_mode = 'n1' if (pdm_values_n1 and any(v > 0 for v in pdm_values_n1)) else 'moyenne'
+    add_mensuel_legend(s, 7.1, 5.50, seuil=seuil, mode=legend_mode)
     if live:
         lines = compute_metier_insights(live, unit=unit)
     else:
@@ -1152,6 +1341,11 @@ def build_metier_concurrents(prs, study, code, label, page_no, fallback_rows, fa
          f"PDM AGL par segment – {label}", size=11, bold=True, color=DGRAY)
     segs = live.get('segmentBars') if live else None
     add_segment_bars(s, 7.1, 1.52, segs or fallback_segs)
+    # Légende couleurs segments (N vs N-1) sous les barres
+    add_segment_legend(s, 7.1, 6.30)
+    # Insight box jaune enrichi
+    lines = compute_concurrents_insights(live, label, unit=unit)
+    add_insight_box(s, 0.15, 5.45, 6.8, 1.55, '💡', lines, bg=EYELLOW)
 
 
 def build_metier_clientele(prs, study, code, label, page_no, fallback_rows,
@@ -1253,10 +1447,22 @@ def build_dsm_overview(prs, study):
             ], [NAVY, GREEN])
         _txt(s, _in(7.1), _in(2.28), _in(5.8), _in(0.28),
              'PDM AGL par mois (%)', size=11, bold=True, color=DGRAY)
-        add_mensuel_bars(s, 7.1, 2.62, ov['monthLabels'], ov['monthlyPdm'], ov['aglPdm'])
-        add_insight_box(s, 7.1, 5.7, 6.0, 0.85, '🚢',
-                        [f"AGL consignataire {ov['kpis']['rang']} avec {ov['kpis']['pdm']} du tonnage."],
-                        bg=EGREEN)
+        pdm_n1_vals = ov.get('monthlyPdmN1')
+        add_mensuel_bars(s, 7.1, 2.62, ov['monthLabels'], ov['monthlyPdm'],
+                         ov['aglPdm'], pdm_n1_vals)
+        legend_mode = 'n1' if (pdm_n1_vals and any(v > 0 for v in pdm_n1_vals)) else 'moyenne'
+        add_mensuel_legend(s, 7.1, 5.50, seuil=ov['aglPdm'], mode=legend_mode)
+        # Insight enrichi DSM
+        lines = [f"🚢 AGL consignataire {ov['kpis']['rang']} avec {ov['kpis']['pdm']} du tonnage marché."]
+        if ov.get('aglGrowthPct') is not None:
+            sign = '+' if ov['aglGrowthPct'] >= 0 else ''
+            lines.append(f"📈 Tonnage AGL vs N-1 : {sign}{ov['aglGrowthPct']} % (était {ov['aglTonnageN1']} T).")
+        if ov.get('marketGrowthPct') is not None:
+            sign = '+' if ov['marketGrowthPct'] >= 0 else ''
+            lines.append(f"🌊 Marché global vs N-1 : {sign}{ov['marketGrowthPct']} % (était {ov['marketN1']} T).")
+        if ov.get('secondName'):
+            lines.append(f"🥈 Concurrent #2 : {ov['secondName']}.")
+        add_insight_box(s, 7.1, 5.80, 6.0, 1.30, '🚢', lines, bg=EGREEN)
     else:
         add_insight_box(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
                         ["Uploader la base TIM (import maritime) pour activer la vue d'ensemble DSM."])
