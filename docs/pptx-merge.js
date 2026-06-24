@@ -471,8 +471,15 @@
     }
     baseZip.files = ctFirstFiles;
 
-    return baseZip.generateAsync({ type: 'blob', mimeType:
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+    return baseZip.generateAsync({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      // PowerPoint Desktop on Olivier's AGL poste refuses store-method (uncompressed)
+      // ZIPs and accepts DEFLATE only. JSZip defaults to STORE, so force DEFLATE
+      // explicitly. Also makes the file ~5× smaller.
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    });
   }
 
   window.PPTXMerge = { mergeExternalSlides };
