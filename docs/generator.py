@@ -1979,36 +1979,6 @@ def build_ayman_overview(prs, study):
                         ['Uploader STATCOM (TIM + AER) pour activer l\'analyse AYIMAN.'])
 
 
-def build_ayman_metiers(prs, study):
-    s = prs.slides.add_slide(prs.slide_layouts[6])
-    live = build_ayman_focus_data(study)
-    add_header(s, 'FOCUS CONCURRENT – AYIMAN LOGISTICS CI  |  Synthèse multi-métiers',
-               'Compétiteur logistique direct')
-    add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.ayman-2')
-    if live and live.get('parMetier'):
-        _txt(s, _in(0.25), _in(1.2), _in(12.9), _in(0.28),
-             'Activité AYIMAN par métier vs position AGL',
-             size=11, bold=True, color=DGRAY)
-        add_rank_table(s, 0.15, 1.5, 12.9,
-                       ['Métier', 'Rang Ayman', 'Volume Ayman',
-                        'PDM Ayman', 'PDM AGL', 'Écart AGL'],
-                       live['parMetier'])
-        add_insight_box(s, 0.15, 4.6, 12.9, 1.2, '⚠',
-                        [f"SURVEILLANCE : AYIMAN — TIM {live['timTotalN']} TEU sur la période.",
-                         "AGL domine mais l'écart se resserre — verrouiller les clients communs."])
-    else:
-        _txt(s, _in(0.25), _in(1.2), _in(12.9), _in(0.28),
-             'Activité AYIMAN (référence)',
-             size=11, bold=True, color=DGRAY)
-        add_rank_table(s, 0.15, 1.5, 12.9,
-                       ['Métier', 'Rang Ayman', 'Volume Ayman',
-                        'PDM Ayman', 'PDM AGL', 'Écart AGL'],
-                       [['TIM – Import Mar.', '#5', '10 862 TEU', '5,6 %', '7,8 %', '+2,2 pts'],
-                        ['Aérien Import', '#7', '273 092 kg', '4,9 %', '20,8 %', '+15,9 pts']])
-        add_insight_box(s, 0.15, 4.6, 12.9, 1.0, '⚠',
-                        ['Uploader STATCOM (TIM, AER, HIMP) pour l\'analyse AYIMAN live.'])
-
-
 def build_ayman_detail(prs, study):
     """Étude AYIMAN complète multi-métier : 3 colonnes (Import / Export /
     Aérien) avec, pour chacune : KPIs métier, top clients (destinataires
