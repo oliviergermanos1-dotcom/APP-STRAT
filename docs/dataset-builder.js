@@ -583,15 +583,21 @@ _ctx.isAyman = isAyiman;
 function buildAymanDatasets(sources, period) {
   const round = (v) => Math.round(v * 100) / 100;
   const pdmOf = (a, b) => (b > 0 ? Math.round((a / b) * 1000) / 10 : 0);
+  // Clé client selon le métier : destinataire pour import/aérien, chargeur pour export.
+  const clientKeyFor = (metier) => (metier === 'TEM' || metier === 'HEXP' ? 'chargeur' : 'destinataire');
 
-  // Per-métier summary: AYMAN volume, rank, AGL volume, gap.
+  // Per-métier summary + breakdown clients/marchandises/évolution PAR métier
+  // (TIM, HIMP, HEXP, TEM, AER) pour alimenter le slide focus complet.
   const parMetier = [];
+  const byMetierDetail = {};
   let aymanTimRows = [];
   let aymanTimN1Rows = [];
 
   for (const src of sources) {
     const pRows = period ? src.keptN.filter((r) => inPeriod(r, period)) : src.keptN;
     const market = pRows.reduce((s, r) => s + (r.volume || 0), 0);
+    const aymanRows = pRows.filter((r) => isAyman(r.transitaire));
+    const aymanN1Rows = (src.keptN1 || []).filter((r) => isAyman(r.transitaire));
     // rank AYMAN among transitaires
     const byTransit = aggregateBy(pRows, (r) => r.transitaire);
     const ranked = [...byTransit.entries()].sort((a, b) => b[1] - a[1]);
@@ -610,35 +616,96 @@ function buildAymanDatasets(sources, period) {
       agl_pdm: pdmOf(aglVol, market),
       ecart_pts: Math.round((pdmOf(aglVol, market) - pdmOf(aymanVol, market)) * 10) / 10,
     });
+
+    // Breakdown détaillé AYIMAN par métier (clients, marchandises, mois, N-1)
+    if (aymanRows.length > 0) {
+      const ck = clientKeyFor(src.metier);
+      const totMetier = aymanRows.reduce((s, r) => s + (r.volume || 0), 0);
+      // Clients (8) — chargeur/destinataire selon métier
+      const cMap = aggregateBy(aymanRows, (r) => r[ck]);
+      const topClients = [...cMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+        .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, totMetier) }));
+      // Marchandises (8)
+      const mMap = aggregateBy(aymanRows, (r) => r.marchandise);
+      const topMerch = [...mMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+        .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, totMetier) }));
+      // Évolution mensuelle
+      const monthMap = aggregateBy(aymanRows, (r) => r.mois);
+      const evolMonths = MONTHS_FR_B.filter((m) => monthMap.has(m))
+        .map((m) => ({ mois: m, vol: round(monthMap.get(m)) }));
+      // N-1 même période (volume seul)
+      const aymanN1Period = period
+        ? aymanN1Rows.filter((r) => inPeriod(r, shiftPeriodToN1(period)))
+        : aymanN1Rows;
+      const totN1 = aymanN1Period.reduce((s, r) => s + (r.volume || 0), 0);
+      // Clients communs AGL ↔ AYIMAN (cross-prospection / verrouillage)
+      const aglRowsMetier = pRows.filter((r) => isAglB(r.transitaire));
+      const aglClientSet = new Set(aglRowsMetier.map((r) => r[ck]).filter(Boolean));
+      const aymanClientSet = new Set(aymanRows.map((r) => r[ck]).filter(Boolean));
+      const commonClients = [...aymanClientSet].filter((c) => aglClientSet.has(c));
+      const aymanByClient = new Map();
+      const aglByClient = new Map();
+      for (const r of aymanRows) {
+        if (!r[ck]) continue;
+        aymanByClient.set(r[ck], (aymanByClient.get(r[ck]) || 0) + (r.volume || 0));
+      }
+      for (const r of aglRowsMetier) {
+        if (!r[ck]) continue;
+        aglByClient.set(r[ck], (aglByClient.get(r[ck]) || 0) + (r.volume || 0));
+      }
+      const sharedClients = commonClients
+        .map((name) => ({
+          name,
+          ayiman_vol: round(aymanByClient.get(name) || 0),
+          agl_vol: round(aglByClient.get(name) || 0),
+        }))
+        .sort((a, b) => b.ayiman_vol - a.ayiman_vol)
+        .slice(0, 5);
+
+      byMetierDetail[src.metier] = {
+        unit: src.unit,
+        rang: aymanRank,
+        vol: round(totMetier),
+        vol_n1: round(totN1),
+        growth_pct: totN1 > 0 ? Math.round(((totMetier - totN1) / totN1) * 1000) / 10 : null,
+        pdm: pdmOf(totMetier, market),
+        agl_pdm: pdmOf(aglVol, market),
+        clients: topClients,
+        marchandises: topMerch,
+        evolution: evolMonths,
+        sharedClients,
+        clientKey: ck,
+        marketTotal: round(market),
+      };
+    }
+
     if (src.metier === 'TIM') {
-      aymanTimRows = pRows.filter((r) => isAyman(r.transitaire));
-      aymanTimN1Rows = (src.keptN1 || []).filter((r) => isAyman(r.transitaire));
+      aymanTimRows = aymanRows;
+      aymanTimN1Rows = aymanN1Rows;
     }
   }
 
-  // AYMAN clients (TIM destinataires it serves)
+  // AYMAN clients TIM (compat existant)
   const byClient = aggregateBy(aymanTimRows, (r) => r.destinataire);
   const aymanTimTotal = aymanTimRows.reduce((s, r) => s + (r.volume || 0), 0);
   const clients = [...byClient.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
     .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, aymanTimTotal) }));
 
-  // AYMAN marchandises (TIM)
   const byMerch = aggregateBy(aymanTimRows, (r) => r.marchandise);
   const marchandises = [...byMerch.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
     .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, aymanTimTotal) }));
 
-  // Evolution mensuelle AYMAN (TIM)
   const byMonth = aggregateBy(aymanTimRows, (r) => r.mois);
   const evolution = MONTHS_FR_B.filter((m) => byMonth.has(m))
     .map((m) => ({ mois: m, vol: round(byMonth.get(m)) }));
 
-  // Evolution N vs N-1 (TIM total)
   const totN = aymanTimTotal;
   const periodN1 = period ? aymanTimN1Rows.filter((r) => inPeriod(r, shiftPeriodToN1(period))) : aymanTimN1Rows;
   const totN1 = periodN1.reduce((s, r) => s + (r.volume || 0), 0);
 
   return {
     parMetier,
+    byMetierDetail,
     clients,
     marchandises,
     evolution,
@@ -648,3 +715,136 @@ function buildAymanDatasets(sources, period) {
   };
 }
 _ctx.buildAymanDatasets = buildAymanDatasets;
+
+// ─── SECTOR PROSPECTS ──────────────────────────────────────────────────────
+// Croise les marchandises STATCOM B/L avec les secteurs prioritaires du
+// Plan National de Développement (PND) Côte d'Ivoire 2026-2030 et avec les
+// signaux extraits des newsletters, pour produire des LISTES DE PROSPECTS
+// CONCRETS (destinataires pour import/aérien, chargeurs pour export).
+//
+// Chaque secteur définit :
+//   • merchKeywords : motifs pour matcher la colonne marchandise
+//   • pnd          : true si secteur prioritaire PND
+// Le résultat fournit, par secteur : top 5 destinataires (import+aérien)
+// et top 5 chargeurs (export), volume total, métiers actifs, PDM AGL.
+const PND_SECTORS = [
+  { name: 'Agro-industrie (cacao, anacarde, hévéa)',
+    merchKeywords: ['cacao', 'feve.*cacao', 'anacarde', 'cajou', 'hevea', 'hévéa',
+                    'caoutchouc', 'palmier', 'huile palme', 'karite', 'karité'],
+    pnd: true },
+  { name: 'Coton & textile',
+    merchKeywords: ['coton', 'fibre.*coton', 'tissu', 'textile', 'habillement'],
+    pnd: true },
+  { name: 'Mines & métaux (or, manganèse, fer)',
+    merchKeywords: ['or\\b', 'gold', 'manganese', 'minerai', 'mining', 'minier',
+                    'fer\\b', 'acier', 'nickel', 'lithium', 'bauxite'],
+    pnd: true },
+  { name: 'Pétrole / hydrocarbures / gaz',
+    merchKeywords: ['petrole', 'pétrole', 'hydrocarbure', 'fuel', 'gaz\\b',
+                    'lpg', 'gpl', 'huile.*moteur'],
+    pnd: true },
+  { name: 'BTP & ciment',
+    merchKeywords: ['ciment', 'clinker', 'gypse', 'beton', 'béton',
+                    'materiel.*construction', 'matériaux.*construction',
+                    'carreau', 'céramique'],
+    pnd: true },
+  { name: 'Industrie pharma & santé',
+    merchKeywords: ['medicament', 'médicament', 'pharma', 'vaccin', 'hopital',
+                    'hôpital', 'sante', 'santé', 'soin'],
+    pnd: true },
+  { name: 'Agro-alimentaire (riz, blé, sucre, lait)',
+    merchKeywords: ['riz\\b', 'rice', 'ble\\b', 'blé', 'farine', 'sucre',
+                    'lait', 'huile alimentaire', 'boisson'],
+    pnd: true },
+  { name: 'Automobile (véhicules, RoRo)',
+    merchKeywords: ['vehicule', 'véhicule', 'voiture', 'automobile', 'roro',
+                    'moto\\b', 'occasion', 'tracteur'],
+    pnd: true },
+  { name: 'Pêche & aquaculture',
+    merchKeywords: ['poisson', 'pêche', 'peche', 'congele', 'congelé',
+                    'produits.*mer', 'crevette', 'thon'],
+    pnd: true },
+  { name: 'Chimie & engrais',
+    merchKeywords: ['engrais', 'fertilisant', 'urea', 'urée', 'chimi',
+                    'herbicide', 'insecticide', 'pesticide'],
+    pnd: true },
+  { name: 'Emballages & papier',
+    merchKeywords: ['emballage', 'papier', 'derives.*papier', 'carton',
+                    'plastique', 'pvc', 'polyethylene', 'polyéthylène'],
+    pnd: false },
+  { name: 'Électroménager / électronique',
+    merchKeywords: ['appareil.*electromenager', 'electromenager', 'électroménager',
+                    'electronique', 'électronique', 'smartphone', 'téléphone'],
+    pnd: false },
+];
+
+function clientKeyForMetier(metier) {
+  return (metier === 'TEM' || metier === 'HEXP') ? 'chargeur' : 'destinataire';
+}
+
+function buildSectorProspects(sources, period) {
+  const round = (v) => Math.round(v * 100) / 100;
+  const result = [];
+
+  for (const sector of PND_SECTORS) {
+    // Compile regex de matching marchandise (OR de tous les motifs).
+    const re = new RegExp('(' + sector.merchKeywords.join('|') + ')', 'i');
+    const destAgg = new Map();      // import/aérien
+    const chargAgg = new Map();     // export
+    const merchAgg = new Map();
+    const metierActive = new Set();
+    let totalVol = 0;
+    let aglVol = 0;
+    let totalLines = 0;
+
+    for (const src of sources) {
+      const pRows = period ? src.keptN.filter((r) => inPeriod(r, period)) : src.keptN;
+      const ck = clientKeyForMetier(src.metier);
+      for (const r of pRows) {
+        const m = String(r.marchandise || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+        if (!re.test(m)) continue;
+        totalVol += r.volume || 0;
+        totalLines += 1;
+        metierActive.add(src.metier);
+        if (isAglB(r.transitaire)) aglVol += r.volume || 0;
+        merchAgg.set(r.marchandise || '—',
+                     (merchAgg.get(r.marchandise || '—') || 0) + (r.volume || 0));
+        const c = r[ck];
+        if (c) {
+          if (ck === 'chargeur') {
+            chargAgg.set(c, (chargAgg.get(c) || 0) + (r.volume || 0));
+          } else {
+            destAgg.set(c, (destAgg.get(c) || 0) + (r.volume || 0));
+          }
+        }
+      }
+    }
+
+    if (totalVol === 0) continue;  // secteur sans flux STATCOM, on n'affiche pas
+
+    const topDest = [...destAgg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([name, vol]) => ({ name, vol: round(vol) }));
+    const topCharg = [...chargAgg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([name, vol]) => ({ name, vol: round(vol) }));
+    const topMerch = [...merchAgg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([name, vol]) => ({ name, vol: round(vol) }));
+
+    result.push({
+      sector: sector.name,
+      pnd: sector.pnd,
+      totalVol: round(totalVol),
+      aglVol: round(aglVol),
+      aglPdm: totalVol > 0 ? Math.round((aglVol / totalVol) * 1000) / 10 : 0,
+      lineCount: totalLines,
+      metiers: [...metierActive],
+      topDestinataires: topDest,
+      topChargeurs: topCharg,
+      topMarchandises: topMerch,
+    });
+  }
+  // Tri : PND prioritaires d'abord, puis par volume marché desc.
+  result.sort((a, b) => (b.pnd - a.pnd) || (b.totalVol - a.totalVol));
+  return result;
+}
+
+_ctx.buildSectorProspects = buildSectorProspects;

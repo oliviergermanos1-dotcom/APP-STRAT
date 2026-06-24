@@ -44,6 +44,7 @@ const BLOCK_SEQUENCE = [
   "ayman_detail",
   "sep_predictions",
   "prediction_signaux",
+  "prediction_prospects",
   "prediction_preconisations",
   "sep_cx",
   "sep_analyse_client",

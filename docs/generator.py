@@ -1045,6 +1045,8 @@ def build_ayman_focus_data(study):
         'timTotalN': fmt_int(a.get('timTotalN')),
         'timTotalN1': fmt_int(a.get('timTotalN1')),
         'timGrowthPct': a.get('timGrowthPct'),
+        # Détail par métier (TIM/HIMP/HEXP/TEM/AER) pour étude complète AYIMAN
+        'byMetierDetail': a.get('byMetierDetail') or {},
     }
 
 
@@ -1868,28 +1870,180 @@ def build_ayman_metiers(prs, study):
 
 
 def build_ayman_detail(prs, study):
+    """Étude AYIMAN complète multi-métier : 3 colonnes (Import / Export /
+    Aérien) avec, pour chacune : KPIs métier, top clients (destinataires
+    pour import + aérien, chargeurs pour export), top marchandises,
+    clients communs AGL↔AYIMAN. Insight cross-métier en bas."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_ayman_focus_data(study)
-    add_header(s, 'FOCUS AYIMAN – CLIENTS & MARCHANDISES  |  Maritime import',
-               'Clients servis par AYIMAN  |  Marchandises  |  Évolution')
+    add_header(s, 'FOCUS AYIMAN – ÉTUDE COMPLÈTE MULTI-MÉTIERS',
+               'Import (TIM/HIMP) · Export (TEM/HEXP) · Aérien (AER) · Clients communs AGL↔AYIMAN')
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.ayman-3')
-    if live and (live['clients'] or live['marchandises']):
-        _txt(s, _in(0.25), _in(1.2), _in(6.4), _in(0.28),
-             'Top clients AYIMAN (destinataires, TIM)',
-             size=11, bold=True, color=DGRAY)
-        add_rank_table(s, 0.15, 1.5, 6.4, ['Client', 'TEU', '% AYIMAN'],
-                       live['clients'] or [['—', '—', '—']])
-        _txt(s, _in(6.85), _in(1.2), _in(6.4), _in(0.28),
-             'Top marchandises AYIMAN (TIM)',
-             size=11, bold=True, color=DGRAY)
-        add_rank_table(s, 6.75, 1.5, 6.4, ['Marchandise', 'TEU', '% AYIMAN'],
-                       live['marchandises'] or [['—', '—', '—']])
-        add_insight_box(s, 0.15, 5.5, 12.9, 1.0, '🎯',
-                        [f"AYIMAN maritime import : {live['timTotalN']} TEU.",
-                         "RÉPONSE AGL : verrouiller clients communs, surveillance trimestrielle."])
-    else:
+
+    if not live or not live.get('byMetierDetail'):
         add_insight_box(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
-                        ['Uploader STATCOM pour l\'analyse détaillée AYIMAN.'])
+                        ["Uploader STATCOM (TIM + HIMP + HEXP + TEM + AER) "
+                         "+ N-1 pour activer l'étude complète AYIMAN."])
+        return
+
+    detail = live['byMetierDetail']
+    # Regroupement par grand bloc fonctionnel.
+    blocks = [
+        ('IMPORT MARITIME', ['TIM', 'HIMP'], NAVY),
+        ('EXPORT MARITIME', ['HEXP', 'TEM'], GREEN),
+        ('AÉRIEN', ['AER'], GOLD),
+    ]
+
+    col_w = 4.30
+    gap = 0.10
+    x0 = 0.15
+    xs = [x0, x0 + col_w + gap, x0 + 2 * (col_w + gap)]
+
+    def fmt_growth(g):
+        if g is None:
+            return '—'
+        sign = '+' if g >= 0 else ''
+        return f"{sign}{g} %"
+
+    for ci, (title, codes, color) in enumerate(blocks):
+        x = xs[ci]
+        # Bandeau couleur titre
+        _rect(s, _in(x), _in(1.18), _in(col_w), _in(0.30), fill=color)
+        _txt(s, _in(x + 0.12), _in(1.20), _in(col_w - 0.20), _in(0.26),
+             title, size=10, bold=True, color=WHITE, valign='middle', wrap=False)
+
+        # Agréger les métiers actifs du bloc
+        active = [(c, detail[c]) for c in codes if c in detail]
+        if not active:
+            _txt(s, _in(x + 0.05), _in(1.55), _in(col_w), _in(0.28),
+                 "Données indisponibles", size=9, color=MGRAY)
+            continue
+
+        # KPIs synthétiques du bloc (somme volumes, PDM moyenne pondérée).
+        sum_vol = sum(d.get('vol', 0) for _, d in active)
+        sum_vol_n1 = sum(d.get('vol_n1', 0) for _, d in active)
+        growth = (((sum_vol - sum_vol_n1) / sum_vol_n1) * 100 if sum_vol_n1 > 0 else None)
+        unit = active[0][1].get('unit', 'TEU')
+        avg_pdm = (sum(d.get('pdm', 0) * d.get('vol', 0) for _, d in active) /
+                   sum_vol if sum_vol > 0 else 0)
+        agl_avg_pdm = (sum(d.get('agl_pdm', 0) * d.get('vol', 0) for _, d in active) /
+                       sum_vol if sum_vol > 0 else 0)
+        rang_lbl = ', '.join([f"{c} #{d.get('rang') or '—'}" for c, d in active])
+
+        # Ligne KPIs
+        y = 1.55
+        kpi_h = 0.32
+        kpi_y = y
+        _rect(s, _in(x), _in(kpi_y), _in(col_w), _in(kpi_h),
+              fill=RGBColor(0xF8, 0xFA, 0xFC), line=LINE_GR, line_width=0.3)
+        kpi_text = (f"AYIMAN : {fmt_int(sum_vol)} {unit}  |  "
+                    f"PDM {avg_pdm:.1f} %".replace('.', ',') +
+                    f"  |  vs N-1 : {fmt_growth(round(growth, 1) if growth is not None else None)}  |  "
+                    f"AGL {agl_avg_pdm:.1f} %".replace('.', ','))
+        _txt(s, _in(x + 0.08), _in(kpi_y + 0.04), _in(col_w - 0.16), _in(kpi_h - 0.08),
+             kpi_text, size=8, bold=True, color=DGRAY, valign='middle', wrap=False)
+        # Rangs
+        _txt(s, _in(x + 0.08), _in(kpi_y + 0.32 + 0.02), _in(col_w - 0.16), _in(0.18),
+             f"Rangs : {rang_lbl}", size=7.5, color=MGRAY, wrap=False)
+
+        # Top clients (consolidé multi-métiers du bloc) — top 5
+        client_map = {}
+        for code, d in active:
+            for c in d.get('clients', []):
+                nm = c.get('name')
+                if not nm:
+                    continue
+                client_map[nm] = client_map.get(nm, 0) + (c.get('vol') or 0)
+        top_clients = sorted(client_map.items(), key=lambda kv: -kv[1])[:5]
+        total_block = sum_vol or 1
+        tab_y = y + 0.55
+        _txt(s, _in(x + 0.08), _in(tab_y), _in(col_w - 0.16), _in(0.20),
+             ("Top chargeurs AYIMAN" if codes[0] in ('TEM', 'HEXP')
+              else "Top destinataires AYIMAN"),
+             size=8.5, bold=True, color=NAVY, wrap=False)
+        rows_c = [[c[0], fmt_int(c[1]),
+                   f"{(c[1]/total_block*100):.1f}".replace('.', ',') + ' %']
+                  for c in top_clients] or [['—', '—', '—']]
+        add_rank_table(s, x, tab_y + 0.22, col_w,
+                       ['Client', unit, '% AYIMAN'], rows_c)
+
+        # Top marchandises — top 5
+        merch_map = {}
+        for code, d in active:
+            for m in d.get('marchandises', []):
+                nm = m.get('name')
+                if not nm:
+                    continue
+                merch_map[nm] = merch_map.get(nm, 0) + (m.get('vol') or 0)
+        top_merch = sorted(merch_map.items(), key=lambda kv: -kv[1])[:5]
+        rows_m = [[m[0], fmt_int(m[1]),
+                   f"{(m[1]/total_block*100):.1f}".replace('.', ',') + ' %']
+                  for m in top_merch] or [['—', '—', '—']]
+        merch_y = tab_y + 0.22 + 0.28 * (len(rows_c) + 1) + 0.12
+        _txt(s, _in(x + 0.08), _in(merch_y), _in(col_w - 0.16), _in(0.20),
+             "Top marchandises AYIMAN", size=8.5, bold=True, color=NAVY, wrap=False)
+        add_rank_table(s, x, merch_y + 0.22, col_w,
+                       ['Marchandise', unit, '% AYIMAN'], rows_m)
+
+    # ── Insight bas : synthèse cross-métier ──────────────────────────────
+    lines = []
+    # 1. Volume total AYIMAN multi-métier
+    total_all = sum(d.get('vol', 0) for d in detail.values())
+    total_all_n1 = sum(d.get('vol_n1', 0) for d in detail.values())
+    if total_all_n1 > 0:
+        g = ((total_all - total_all_n1) / total_all_n1) * 100
+        arrow = '📈' if g >= 0 else '📉'
+        lines.append(
+            f"{arrow} AYIMAN tous métiers confondus : {fmt_int(total_all)} (vs {fmt_int(total_all_n1)} N-1, "
+            f"{'+' if g >= 0 else ''}{g:.1f} %).".replace('.', ',')
+        )
+    else:
+        lines.append(f"📊 AYIMAN tous métiers confondus : {fmt_int(total_all)} volume cumulé période.")
+
+    # 2. Métier dominant pour AYIMAN
+    if detail:
+        dom = max(detail.items(), key=lambda kv: kv[1].get('vol', 0))
+        lines.append(
+            f"🎯 Cœur d'activité AYIMAN : {dom[0]} ({fmt_int(dom[1]['vol'])} {dom[1].get('unit', '')}, "
+            f"PDM {dom[1].get('pdm', 0):.1f} %".replace('.', ',') + ")."
+        )
+
+    # 3. Clients communs AGL↔AYIMAN (verrouillage prioritaire)
+    shared_all = []
+    for code, d in detail.items():
+        for sc in d.get('sharedClients', []):
+            shared_all.append({**sc, 'metier': code, 'unit': d.get('unit', '')})
+    if shared_all:
+        shared_all.sort(key=lambda x: -x.get('ayiman_vol', 0))
+        top_shared = shared_all[:3]
+        lbls = '; '.join([
+            f"{str(c['name'])[:22]} ({c['metier']}, AYIMAN {fmt_int(c['ayiman_vol'])} {c['unit']} / AGL {fmt_int(c['agl_vol'])})"
+            for c in top_shared
+        ])
+        lines.append(f"🔒 Clients communs prioritaires (à verrouiller) : {lbls}.")
+
+    # 4. Croissance la plus forte — métier
+    growths = [(c, d.get('growth_pct')) for c, d in detail.items()
+               if d.get('growth_pct') is not None]
+    if growths:
+        growths.sort(key=lambda kv: -(kv[1] or 0))
+        winner = growths[0]
+        if (winner[1] or 0) > 5:
+            lines.append(
+                f"⚠ Métier AYIMAN en plus forte progression : {winner[0]} "
+                f"({'+' if (winner[1] or 0) >= 0 else ''}{winner[1]} % vs N-1) — alerte concurrentielle."
+            )
+        losers = sorted(growths, key=lambda kv: (kv[1] or 0))
+        if losers and (losers[0][1] or 0) < -5:
+            lines.append(
+                f"✅ Métier AYIMAN en recul : {losers[0][0]} ({losers[0][1]} % vs N-1) — fenêtre de reprise AGL."
+            )
+
+    # 5. Recommandation finale
+    lines.append("📌 Recommandation : verrouiller les destinataires/chargeurs communs, "
+                 "ouvrir prospection multi-métiers sur les clients AYIMAN exclusifs (gisement conquête).")
+
+    add_insight_box(s, 0.15, 6.55, 12.95, 0.85, '🎯', lines, bg=EYELLOW)
 
 
 # ────────── Prediction (3 slides) ──────────
@@ -1927,6 +2081,118 @@ def build_prediction_signaux(prs, study):
     else:
         add_insight_box(s, 7.1, 1.5, 6.0, 0.8, 'ℹ',
                         ['Déposer RECAP_AO_ET_AGREMENTS pour la synthèse.'])
+
+
+def build_prediction_prospects(prs, study):
+    """Slide PRÉDICTION – PROSPECTS PAR SECTEUR : croise les secteurs
+    prioritaires du PND Côte d'Ivoire 2026-2030 (+ signaux newsletters)
+    avec les destinataires/chargeurs STATCOM réellement actifs sur ces
+    segments. Surface des prospects concrets à démarcher, ventilés par
+    secteur, avec PDM AGL actuelle pour qualifier l'effort commercial."""
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    pred = study.get('prediction') or {}
+    pn_signals = (pred.get('signals') or {}).get('sectors') or []
+    pn_top = ', '.join([f"{x.get('name', '')} ({x.get('count', 0)})"
+                        for x in pn_signals[:3]]) if pn_signals else '—'
+
+    ds = find_dataset(study, 'PREDICTION', 'sector_prospects')
+    prospects = ds['rows'] if ds and ds.get('rows') else []
+
+    add_header(s, "PRÉDICTION – PROSPECTS PAR SECTEUR  |  PND CI 2026-2030 × STATCOM",
+               f"Croisement Plan National × flux STATCOM réels  |  Signaux newsletters : {pn_top}")
+    add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.prospects')
+
+    if not prospects:
+        add_insight_box(s, 0.15, 1.6, 12.95, 1.4, 'ℹ',
+                        ["Uploader STATCOM (TIM / HIMP / HEXP / TEM / AER) pour activer la "
+                         "détection de prospects par secteur PND. Les newsletters seules ne "
+                         "suffisent pas — on a besoin des B/L pour identifier qui importe / "
+                         "exporte réellement sur chaque segment."])
+        return
+
+    # Cartes secteurs en grille 3 × 4 (12 secteurs max affichés).
+    cols = 3
+    card_w = 4.30
+    card_h = 1.65
+    gap_x = 0.10
+    gap_y = 0.12
+    x0, y0 = 0.15, 1.18
+
+    shown = prospects[:12]
+    for i, p in enumerate(shown):
+        row = i // cols
+        c = i % cols
+        x = x0 + c * (card_w + gap_x)
+        y = y0 + row * (card_h + gap_y)
+        # Couleur bandeau selon PND prioritaire
+        head_color = GREEN if p.get('pnd') else BLUE2
+        _rect(s, _in(x), _in(y), _in(card_w), _in(card_h),
+              fill=RGBColor(0xF9, 0xFA, 0xFC), line=LINE_GR, line_width=0.4)
+        _rect(s, _in(x), _in(y), _in(card_w), _in(0.30), fill=head_color)
+        pnd_tag = '★ PND PRIORITAIRE' if p.get('pnd') else '○ Hors PND'
+        _txt(s, _in(x + 0.10), _in(y + 0.04), _in(card_w - 0.85), _in(0.22),
+             _fit_text(p.get('sector', ''), card_w - 1.10, pt=9),
+             size=9, bold=True, color=WHITE, valign='middle', wrap=False)
+        _txt(s, _in(x + card_w - 0.95), _in(y + 0.04), _in(0.90), _in(0.22),
+             pnd_tag, size=7, color=WHITE, align='right', valign='middle', wrap=False)
+
+        # Ligne KPIs : marché + PDM AGL + #lignes B/L
+        unit_label = ('TEU' if 'AER' not in (p.get('metiers') or [None])[0:1]
+                      else 'mixte')
+        pdm = float(p.get('aglPdm') or 0)
+        kpi_y = y + 0.34
+        kpi_text = (f"Marché : {fmt_int(p.get('totalVol'))} {unit_label}  ·  "
+                    f"AGL : {fmt_int(p.get('aglVol'))} ({pdm:.1f} %".replace('.', ',') +
+                    f")  ·  {p.get('lineCount', 0)} B/L")
+        _txt(s, _in(x + 0.10), _in(kpi_y), _in(card_w - 0.20), _in(0.18),
+             kpi_text, size=7.5, color=DGRAY, wrap=False)
+        # Métiers actifs
+        metiers = ' · '.join(p.get('metiers') or [])
+        _txt(s, _in(x + 0.10), _in(kpi_y + 0.18), _in(card_w - 0.20), _in(0.16),
+             f"Métiers actifs : {metiers}", size=7, color=MGRAY, wrap=False)
+
+        # Top destinataires OU chargeurs (selon ce qui domine)
+        dest = p.get('topDestinataires') or []
+        charg = p.get('topChargeurs') or []
+        use_dest = len(dest) >= len(charg)
+        prospects_list = dest if use_dest else charg
+        title_lbl = 'Destinataires (import/aérien)' if use_dest else 'Chargeurs (export)'
+        list_y = kpi_y + 0.40
+        _txt(s, _in(x + 0.10), _in(list_y), _in(card_w - 0.20), _in(0.16),
+             f"🎯 Top {title_lbl} :", size=7.5, bold=True, color=NAVY, wrap=False)
+        line_y = list_y + 0.16
+        for j, cl in enumerate(prospects_list[:4]):
+            _txt(s, _in(x + 0.14), _in(line_y + j * 0.13), _in(card_w - 0.28), _in(0.13),
+                 f"• {_fit_text(cl.get('name', ''), card_w - 1.20, pt=7)}  "
+                 f"({fmt_int(cl.get('vol'))})",
+                 size=7, color=DGRAY, wrap=False)
+
+    # Insight bas : synthèse + méthode
+    pnd_count = sum(1 for p in shown if p.get('pnd'))
+    total_vol_all = sum(float(p.get('totalVol') or 0) for p in shown)
+    weighted_pdm = (sum(float(p.get('aglPdm') or 0) * float(p.get('totalVol') or 0) for p in shown)
+                    / total_vol_all if total_vol_all > 0 else 0)
+    # Secteurs prioritaires PND où PDM AGL est faible (≤10%) = gisement conquête
+    gisements = sorted([p for p in shown if p.get('pnd')
+                        and float(p.get('aglPdm') or 0) <= 10],
+                       key=lambda x: -float(x.get('totalVol') or 0))[:3]
+    lines = [
+        f"📊 {len(shown)} secteurs détectés ({pnd_count} prioritaires PND, "
+        f"{len(shown) - pnd_count} hors PND) — PDM AGL moyenne pondérée : "
+        f"{weighted_pdm:.1f} %.".replace('.', ','),
+    ]
+    if gisements:
+        g_lbls = ', '.join([
+            f"{str(g.get('sector', ''))[:30]} (PDM {float(g.get('aglPdm') or 0):.0f} %, marché {fmt_int(g.get('totalVol'))})"
+            for g in gisements
+        ])
+        lines.append(f"🎯 GISEMENTS PRIORITAIRES PND (PDM ≤ 10 %, volume marché élevé) : {g_lbls}.")
+    lines.append("📌 Méthode : on croise (a) les marchandises STATCOM avec les "
+                 "12 secteurs PND CI 2026-2030, (b) les signaux extraits des "
+                 "newsletters. Les noms affichés sont les destinataires/chargeurs "
+                 "réels présents sur la période — à démarcher en priorité.")
+
+    add_insight_box(s, 0.15, 6.55, 12.95, 0.85, '🎯', lines, bg=EYELLOW)
 
 
 def build_prediction_preconisations(prs, study):
@@ -1972,7 +2238,7 @@ BLOCK_SEQUENCE = [
     'sep_DSM', 'DSM_vue_ensemble', 'DSM_armateurs', 'DSM_manutentionnaires', 'DSM_consignataires_pol',
     'sep_divers', 'sep_mining', 'mining_overview', 'mining_concurrents', 'mining_clientele',
     'sep_ayman', 'ayman_overview', 'ayman_metiers', 'ayman_detail',
-    'sep_predictions', 'prediction_signaux', 'prediction_preconisations',
+    'sep_predictions', 'prediction_signaux', 'prediction_prospects', 'prediction_preconisations',
     'sep_cx', 'sep_analyse_client',
 ]
 
@@ -2127,6 +2393,7 @@ def dispatch_block(prs, study, key):
     if key == 'ayman_detail':            build_ayman_detail(prs, study); return
 
     if key == 'prediction_signaux':         build_prediction_signaux(prs, study); return
+    if key == 'prediction_prospects':       build_prediction_prospects(prs, study); return
     if key == 'prediction_preconisations':  build_prediction_preconisations(prs, study); return
 
     # Unknown key — placeholder

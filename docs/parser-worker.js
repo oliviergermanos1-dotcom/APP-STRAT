@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260618m');
-importScripts('./dataset-builder.js?v=20260618m');
+importScripts('./statcom-parser.js?v=20260624k');
+importScripts('./dataset-builder.js?v=20260624k');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
@@ -143,6 +143,21 @@ self.onmessage = (event) => {
           const ay = self.buildAymanDatasets(sources, period);
           allDatasets.push({ metier: 'AYIMAN', datasetType: 'ayiman_focus', rows: [ay] });
         }
+      }
+
+      // SECTOR PROSPECTS — cross PND/newsletter ↔ STATCOM marchandises.
+      // Réutilise toutes les sources STATCOM uploadées pour fournir des
+      // exemples concrets de destinataires/chargeurs par secteur prioritaire.
+      const prospectSources = [];
+      for (const [metier, scopes] of Object.entries(metierKeys || {})) {
+        const cN = scopes.n ? cache.get(scopes.n) : null;
+        if (cN) prospectSources.push({ metier, keptN: cN.kept });
+      }
+      if (prospectSources.length && self.buildSectorProspects) {
+        const prospects = self.buildSectorProspects(prospectSources, period);
+        allDatasets.push({
+          metier: 'PREDICTION', datasetType: 'sector_prospects', rows: prospects,
+        });
       }
 
       reply(id, { ok: true, kind: 'build', datasets: allDatasets, reports });
