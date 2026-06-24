@@ -477,7 +477,7 @@ function buildDsmOverviewData(study) {
 
 /** AYMAN focus reader. Returns null if no ayman_focus dataset. */
 function buildAymanFocusData(study) {
-  const ds = findDataset(study, 'AYMAN', 'ayman_focus');
+  const ds = findDataset(study, 'AYIMAN', 'ayiman_focus');
   if (!ds || !ds.rows.length) return null;
   const a = ds.rows[0];
   return {

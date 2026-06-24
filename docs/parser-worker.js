@@ -141,7 +141,7 @@ self.onmessage = (event) => {
         }
         if (sources.length) {
           const ay = self.buildAymanDatasets(sources, period);
-          allDatasets.push({ metier: 'AYMAN', datasetType: 'ayman_focus', rows: [ay] });
+          allDatasets.push({ metier: 'AYIMAN', datasetType: 'ayiman_focus', rows: [ay] });
         }
       }
 

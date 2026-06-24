@@ -515,15 +515,18 @@ function isMiningDestinataire(name) {
 }
 _ctx.isMiningDestinataire = isMiningDestinataire;
 
-// ─── AYMAN FOCUS ───────────────────────────────────────────────────────────
-// AYMAN = competitor forwarder group (DJAM DKS on maritime, HANNYYAH ET SAID
-// on air). Matched on the Transitaire column.
-const AYMAN_KEYS = ['djam dks', 'hannyyah', 'ayman', 'ayiman'].map(normMatch);
-function isAyman(name) {
+// ─── AYIMAN FOCUS ──────────────────────────────────────────────────────────
+// AYIMAN = competitor forwarder. Le nom STATCOM canonique est
+// "AYIMAN LOGISTICS CI". On élargit légèrement sur la racine 'ayiman' pour
+// attraper d'éventuelles variantes orthographiques.
+const AYIMAN_KEYS = ['ayiman logistics ci', 'ayiman'].map(normMatch);
+function isAyiman(name) {
   const n = normMatch(name);
-  return AYMAN_KEYS.some((k) => n.includes(k));
+  return AYIMAN_KEYS.some((k) => n.includes(k));
 }
-_ctx.isAyman = isAyman;
+_ctx.isAyiman = isAyiman;
+// Back-compat alias — older callers may still use isAyman.
+_ctx.isAyman = isAyiman;
 
 /**
  * AYMAN multi-métier focus.

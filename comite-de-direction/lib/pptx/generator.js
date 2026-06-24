@@ -2253,7 +2253,7 @@ addBrandSeparator('MINING', 'FOCUS MINING',
 }
 
 // ─── SÉPARATEUR FOCUS AYMAN (avant l'analyse concurrent AYMAN) ───────────────
-addBrandSeparator('AYMAN', 'FOCUS AYMAN',
+addBrandSeparator('AYIMAN', 'FOCUS AYMAN',
   'Concurrent forwarder  |  DJAM DKS (maritime) · HANNYYAH ET SAID (aérien)  |  Jan–Mai 2026');
 
 // ─── AYMAN – VUE D'ENSEMBLE (style TIM : KPI + évolution mensuelle) ──────────

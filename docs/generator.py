@@ -627,7 +627,7 @@ def build_dsm_full_data(study):
 
 
 def build_ayman_focus_data(study):
-    ds = find_dataset(study, 'AYMAN', 'ayman_focus')
+    ds = find_dataset(study, 'AYIMAN', 'ayiman_focus')
     if not ds or not ds.get('rows'):
         return None
     a = ds['rows'][0]
@@ -772,7 +772,7 @@ def build_sommaire(prs, study):
         ('03', ORANGE, 'Hinterland Import Maritime', '#3 → objectif #2 : 11,3%'),
         ('04', BLUE2, 'Hinterland Export Maritime', 'Leader #1 – 66,1% PDM'),
         ('05', TEAL, 'Aérien Import', '#1 ABSOLU – 20,8% PDM'),
-        ('06', RGBColor(0x8B, 0x69, 0x14), 'Synthèses', 'Mining · AYMAN · Prédictions'),
+        ('06', RGBColor(0x8B, 0x69, 0x14), 'Synthèses', 'Mining · AYIMAN · Prédictions'),
     ]
     cw, ch = 4.2, 2.0
     for i, (num, col, title, desc) in enumerate(cards):
@@ -1339,25 +1339,25 @@ def build_mining_clientele(prs, study):
                         ['Uploader TIM (N + N-1) pour activer l\'analyse minière.'])
 
 
-# ────────── AYMAN (3 slides) ──────────
+# ────────── AYIMAN (3 slides) ──────────
 def build_ayman_overview(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_ayman_focus_data(study)
     sub = (f"TIM {live['timTotalN']} TEU sur la période · {live['timTotalN1']} TEU N-1"
-           if live else 'Volume AYMAN  |  Croissance N vs N-1')
-    add_header(s, "FOCUS AYMAN – VUE D'ENSEMBLE  |  Maritime import", sub)
+           if live else 'Volume AYIMAN  |  Croissance N vs N-1')
+    add_header(s, "FOCUS AYIMAN – VUE D'ENSEMBLE  |  Maritime import", sub)
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.ayman-1')
     if live and live.get('parMetier'):
         tim = next((m for m in live['parMetier'] if 'TIM' in str(m[0])), None)
         kpis = [
-            {'label': 'AYMAN TIM', 'value': live['timTotalN'], 'sub': 'TEU période'},
+            {'label': 'AYIMAN TIM', 'value': live['timTotalN'], 'sub': 'TEU période'},
             {'label': 'Évolution N-1', 'value': (
                 ('+' if (live.get('timGrowthPct') or 0) >= 0 else '') +
                 f"{live['timGrowthPct']} %") if live.get('timGrowthPct') is not None else '—',
              'sub': 'TEU N-1',
              'color': RED if (live.get('timGrowthPct') or 0) >= 0 else GREEN, 'big': True},
-            {'label': 'Rang AYMAN TIM', 'value': tim[1] if tim else 'NC', 'sub': 'transitaires'},
-            {'label': 'PDM AYMAN TIM', 'value': tim[3] if tim else '—', 'sub': 'du marché'},
+            {'label': 'Rang AYIMAN TIM', 'value': tim[1] if tim else 'NC', 'sub': 'transitaires'},
+            {'label': 'PDM AYIMAN TIM', 'value': tim[3] if tim else '—', 'sub': 'du marché'},
             {'label': 'PDM AGL TIM', 'value': tim[4] if tim else '—',
              'sub': 'référence', 'color': GREEN},
         ]
@@ -1365,41 +1365,41 @@ def build_ayman_overview(prs, study):
         evol = live.get('evolution') or []
         if evol:
             _txt(s, _in(0.25), _in(2.28), _in(12.9), _in(0.28),
-                 'Évolution mensuelle AYMAN (TIM, TEU)',
+                 'Évolution mensuelle AYIMAN (TIM, TEU)',
                  size=11, bold=True, color=DGRAY)
             add_bar_chart(s, 0.15, 2.55, 12.9, 3.0,
-                          [{'name': 'AYMAN TEU',
+                          [{'name': 'AYIMAN TEU',
                             'labels': [e.get('mois', '') for e in evol],
                             'values': [int(round(e.get('vol', 0))) for e in evol]}],
                           [ORANGE])
         add_insight_box(s, 0.15, 5.7, 12.9, 1.2, '⚠',
-                        [f"DYNAMIQUE : AYMAN {('progresse' if (live.get('timGrowthPct') or 0) >= 0 else 'recule')} "
+                        [f"DYNAMIQUE : AYIMAN {('progresse' if (live.get('timGrowthPct') or 0) >= 0 else 'recule')} "
                          f"vs N-1 ({live['timTotalN1']} → {live['timTotalN']} TEU)."])
     else:
         add_insight_box(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
-                        ['Uploader STATCOM (TIM + AER) pour activer l\'analyse AYMAN.'])
+                        ['Uploader STATCOM (TIM + AER) pour activer l\'analyse AYIMAN.'])
 
 
 def build_ayman_metiers(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_ayman_focus_data(study)
-    add_header(s, 'FOCUS CONCURRENT – GROUPE AYMAN  |  Synthèse multi-métiers',
-               'DJAM DKS (maritime) & HANNYYAH ET SAID (aérien)')
+    add_header(s, 'FOCUS CONCURRENT – AYIMAN LOGISTICS CI  |  Synthèse multi-métiers',
+               'Compétiteur logistique direct')
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.ayman-2')
     if live and live.get('parMetier'):
         _txt(s, _in(0.25), _in(1.2), _in(12.9), _in(0.28),
-             'Activité AYMAN par métier vs position AGL',
+             'Activité AYIMAN par métier vs position AGL',
              size=11, bold=True, color=DGRAY)
         add_rank_table(s, 0.15, 1.5, 12.9,
                        ['Métier', 'Rang Ayman', 'Volume Ayman',
                         'PDM Ayman', 'PDM AGL', 'Écart AGL'],
                        live['parMetier'])
         add_insight_box(s, 0.15, 4.6, 12.9, 1.2, '⚠',
-                        [f"SURVEILLANCE : AYMAN — TIM {live['timTotalN']} TEU sur la période.",
+                        [f"SURVEILLANCE : AYIMAN — TIM {live['timTotalN']} TEU sur la période.",
                          "AGL domine mais l'écart se resserre — verrouiller les clients communs."])
     else:
         _txt(s, _in(0.25), _in(1.2), _in(12.9), _in(0.28),
-             'Activité AYMAN (référence)',
+             'Activité AYIMAN (référence)',
              size=11, bold=True, color=DGRAY)
         add_rank_table(s, 0.15, 1.5, 12.9,
                        ['Métier', 'Rang Ayman', 'Volume Ayman',
@@ -1407,32 +1407,32 @@ def build_ayman_metiers(prs, study):
                        [['TIM – Import Mar.', '#5', '10 862 TEU', '5,6 %', '7,8 %', '+2,2 pts'],
                         ['Aérien Import', '#7', '273 092 kg', '4,9 %', '20,8 %', '+15,9 pts']])
         add_insight_box(s, 0.15, 4.6, 12.9, 1.0, '⚠',
-                        ['Uploader STATCOM (TIM, AER, HIMP) pour l\'analyse AYMAN live.'])
+                        ['Uploader STATCOM (TIM, AER, HIMP) pour l\'analyse AYIMAN live.'])
 
 
 def build_ayman_detail(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_ayman_focus_data(study)
-    add_header(s, 'FOCUS AYMAN – CLIENTS & MARCHANDISES  |  Maritime import',
-               'Clients servis par AYMAN  |  Marchandises  |  Évolution')
+    add_header(s, 'FOCUS AYIMAN – CLIENTS & MARCHANDISES  |  Maritime import',
+               'Clients servis par AYIMAN  |  Marchandises  |  Évolution')
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.ayman-3')
     if live and (live['clients'] or live['marchandises']):
         _txt(s, _in(0.25), _in(1.2), _in(6.4), _in(0.28),
-             'Top clients AYMAN (destinataires, TIM)',
+             'Top clients AYIMAN (destinataires, TIM)',
              size=11, bold=True, color=DGRAY)
-        add_rank_table(s, 0.15, 1.5, 6.4, ['Client', 'TEU', '% AYMAN'],
+        add_rank_table(s, 0.15, 1.5, 6.4, ['Client', 'TEU', '% AYIMAN'],
                        live['clients'] or [['—', '—', '—']])
         _txt(s, _in(6.85), _in(1.2), _in(6.4), _in(0.28),
-             'Top marchandises AYMAN (TIM)',
+             'Top marchandises AYIMAN (TIM)',
              size=11, bold=True, color=DGRAY)
-        add_rank_table(s, 6.75, 1.5, 6.4, ['Marchandise', 'TEU', '% AYMAN'],
+        add_rank_table(s, 6.75, 1.5, 6.4, ['Marchandise', 'TEU', '% AYIMAN'],
                        live['marchandises'] or [['—', '—', '—']])
         add_insight_box(s, 0.15, 5.5, 12.9, 1.0, '🎯',
-                        [f"AYMAN maritime import : {live['timTotalN']} TEU.",
+                        [f"AYIMAN maritime import : {live['timTotalN']} TEU.",
                          "RÉPONSE AGL : verrouiller clients communs, surveillance trimestrielle."])
     else:
         add_insight_box(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
-                        ['Uploader STATCOM pour l\'analyse détaillée AYMAN.'])
+                        ['Uploader STATCOM pour l\'analyse détaillée AYIMAN.'])
 
 
 # ────────── Prediction (3 slides) ──────────
@@ -1553,14 +1553,14 @@ SEPARATORS = {
     'sep_HEXP': ('04', 'HINTERLAND EXPORT MARITIME', '4 294 TEU  |  PDM AGL 66,1%'),
     'sep_AER':  ('05', 'AÉRIEN IMPORT', '5 603 T  |  PDM AGL 20,8%'),
     'sep_DSM':  ('DSM', 'DIRECTION DES SOLUTIONS MARITIMES', 'Armateurs · Manut · Consignataires (poids T)'),
-    'sep_divers': ('07', 'DIVERS FOCUS', 'Mining  |  AYMAN  |  Période en cours'),
+    'sep_divers': ('07', 'DIVERS FOCUS', 'Mining  |  AYIMAN LOGISTICS CI  |  Période en cours'),
     'sep_predictions': ('08', 'PRÉDICTION MARCHÉ', 'Signaux newsletters  |  AO  |  Positionnement'),
     'sep_cx':   ('09', 'EXPÉRIENCE CLIENT (CX)', 'Slides importées'),
     'sep_analyse_client': ('10', 'ANALYSE ACTIVITÉ CLIENT', 'Slides importées'),
 }
 BRAND_SEPARATORS = {
     'sep_mining': ('MINING', 'FOCUS MINING', 'Clients miniers traités par AGL'),
-    'sep_ayman': ('AYMAN', 'FOCUS AYMAN', 'Concurrent forwarder · DJAM DKS / HANNYYAH'),
+    'sep_ayman': ('AYIMAN', 'FOCUS AYIMAN LOGISTICS CI', 'Concurrent forwarder · AYIMAN LOGISTICS CI'),
 }
 
 
