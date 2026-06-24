@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260624l');
-importScripts('./dataset-builder.js?v=20260624l');
+importScripts('./statcom-parser.js?v=20260624m');
+importScripts('./dataset-builder.js?v=20260624m');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();

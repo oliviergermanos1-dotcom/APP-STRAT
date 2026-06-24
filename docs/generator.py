@@ -318,11 +318,21 @@ def add_segment_legend(s, x, y, w=4.0, mode='n1'):
 
 
 def add_insight_box(s, x, y, w, h, emoji, lines, bg=EYELLOW):
+    """Encadré jaune avec auto-fit du texte : la taille de police diminue
+    automatiquement quand il y a beaucoup de lignes, pour garantir que le
+    contenu rentre dans la box (h fixée par le caller)."""
     _rect(s, _in(x), _in(y), _in(w), _in(h),
           fill=bg, line=EBORDER, line_width=0.5)
-    text = f"{emoji}  " + '\n'.join(str(l) for l in lines if l)
+    clean = [str(l) for l in lines if l]
+    n = max(len(clean), 1)
+    # Estimation : chaque ligne occupe (size * 1.25)/72 in. On résout pour
+    # que (n + 0.5 marge) lignes tiennent dans h - 0.16.
+    avail_h = max(0.20, h - 0.16)
+    target_size = (avail_h / (n + 0.4)) * 72 / 1.25
+    size = max(6.5, min(9.0, target_size))
+    text = f"{emoji}  " + '\n'.join(clean)
     _txt(s, _in(x + 0.1), _in(y + 0.08), _in(w - 0.2), _in(h - 0.12),
-         text, size=9, color=DGRAY, wrap=True)
+         text, size=size, color=DGRAY, wrap=True)
 
 
 def add_mensuel_bars(s, x, y, mois, valeurs, seuil=7.5, valeurs_n1=None):
@@ -520,8 +530,6 @@ def compute_concurrents_insights(live, label, unit='TEU'):
             )
 
     # ── 7. Source ──────────────────────────────────────────────────────
-    if live.get('source'):
-        lines.append(f"📁 Source : {live['source']}.")
     return lines
 
 
@@ -628,8 +636,6 @@ def compute_metier_insights(live, unit='TEU'):
             sign = '+' if diff > 0 else ''
             lines.append(f"{arrow} Tendance période : {trend_word} ({sign}{diff:+.1f} pts entre 1ʳᵉ et 2ᵈᵉ moitié).".replace('+-', '−'))
     # Source
-    if live.get('source'):
-        lines.append(f"📁 Source : {live['source']}.")
     return lines
 
 
@@ -1072,8 +1078,6 @@ def compute_nouveaux_insights(live, label, unit='TEU'):
             )
 
     # ── 7. Source ──────────────────────────────────────────────────────
-    if live.get('source'):
-        lines.append(f"📁 Source : {live['source']}.")
     return lines
 
 
@@ -1508,10 +1512,9 @@ def build_tim_clientele(prs, study):
     ]
     add_rank_table(s, 0.15, 1.5, 7.0,
                    ['Client (Destinataire)', 'TEU', 'Segment', '% Vol. AGL'], rows)
-    add_insight_box(s, 0.15, 5.35, 7.0, 0.95, '⚠', [
-        (f"Concentration : {live['topClient']} = {live['topClientShare']} du volume AGL TIM."
-         if live else "Concentration : K1 Mining = 10,1% du volume AGL TIM."),
-        "Cross-sell : SITAB, UBIPHARM, SOLIBRA = clients multi-métiers à développer."])
+    add_insight_box(s, 0.15, 5.35, 7.0, 1.95, '⚠',
+                    compute_clientele_insights(live, 'TIM', unit='TEU'),
+                    bg=EYELLOW)
 
     _txt(s, _in(7.3), _in(1.2), _in(5.8), _in(0.28),
          'Mix marchandises AGL – TIM', size=11, bold=True, color=DGRAY)
@@ -1660,9 +1663,9 @@ def build_metier_clientele(prs, study, code, label, page_no, fallback_rows,
     rows = live['rows'] if live else fallback_rows
     add_rank_table(s, 0.15, 1.5, 7.0,
                    ['Client', 'Volume', 'Segment', '% AGL'], rows)
-    add_insight_box(s, 0.15, 5.35, 7.0, 0.95, '⚠',
-                    [(f"Concentration : {live['topClient']} = {live['topClientShare']} du volume AGL {label}."
-                      if live else f"Concentration {label} : à analyser.")])
+    add_insight_box(s, 0.15, 5.35, 7.0, 1.95, '⚠',
+                    compute_clientele_insights(live, label, unit=unit),
+                    bg=EYELLOW)
     _txt(s, _in(7.3), _in(1.2), _in(5.8), _in(0.28),
          f'Mix marchandises AGL – {label}', size=11, bold=True, color=DGRAY)
     if live and live.get('mixLabels'):
@@ -2248,11 +2251,13 @@ def build_prediction_prospects(prs, study):
         return
 
     # Cartes secteurs en grille 3 × 4 (12 secteurs max affichés).
+    # Hauteur ajustée pour que les 12 cartes + insight bas tiennent
+    # entièrement dans la slide (7.5 in - header - footer ≈ 6.2 in utiles).
     cols = 3
     card_w = 4.30
-    card_h = 1.65
+    card_h = 1.42
     gap_x = 0.10
-    gap_y = 0.12
+    gap_y = 0.08
     x0, y0 = 0.15, 1.18
 
     shown = prospects[:12]
@@ -2304,32 +2309,7 @@ def build_prediction_prospects(prs, study):
                  f"({fmt_int(cl.get('vol'))})",
                  size=7, color=DGRAY, wrap=False)
 
-    # Insight bas : synthèse + méthode
-    pnd_count = sum(1 for p in shown if p.get('pnd'))
-    total_vol_all = sum(float(p.get('totalVol') or 0) for p in shown)
-    weighted_pdm = (sum(float(p.get('aglPdm') or 0) * float(p.get('totalVol') or 0) for p in shown)
-                    / total_vol_all if total_vol_all > 0 else 0)
-    # Secteurs prioritaires PND où PDM AGL est faible (≤10%) = gisement conquête
-    gisements = sorted([p for p in shown if p.get('pnd')
-                        and float(p.get('aglPdm') or 0) <= 10],
-                       key=lambda x: -float(x.get('totalVol') or 0))[:3]
-    lines = [
-        f"📊 {len(shown)} secteurs détectés ({pnd_count} prioritaires PND, "
-        f"{len(shown) - pnd_count} hors PND) — PDM AGL moyenne pondérée : "
-        f"{weighted_pdm:.1f} %.".replace('.', ','),
-    ]
-    if gisements:
-        g_lbls = ', '.join([
-            f"{str(g.get('sector', ''))[:30]} (PDM {float(g.get('aglPdm') or 0):.0f} %, marché {fmt_int(g.get('totalVol'))})"
-            for g in gisements
-        ])
-        lines.append(f"🎯 GISEMENTS PRIORITAIRES PND (PDM ≤ 10 %, volume marché élevé) : {g_lbls}.")
-    lines.append("📌 Méthode : on croise (a) les marchandises STATCOM avec les "
-                 "12 secteurs PND CI 2026-2030, (b) les signaux extraits des "
-                 "newsletters. Les noms affichés sont les destinataires/chargeurs "
-                 "réels présents sur la période — à démarcher en priorité.")
-
-    add_insight_box(s, 0.15, 6.55, 12.95, 0.85, '🎯', lines, bg=EYELLOW)
+    # Insight bas retiré sur demande — la grille de cartes suffit.
 
 
 def build_prediction_preconisations(prs, study):
