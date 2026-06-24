@@ -249,6 +249,63 @@ def add_mensuel_bars(s, x, y, mois, valeurs, seuil=7.5):
              label, size=11, bold=True, color=bc, valign='middle', wrap=False)
 
 
+def add_mensuel_legend(s, x, y, seuil, w=6.0):
+    """Légende des couleurs sous le graphe PDM mensuel."""
+    seuil_str = f"{float(seuil):.1f}".replace('.', ',') + ' %'
+    _rect(s, _in(x), _in(y), _in(0.14), _in(0.14), fill=GREEN)
+    _txt(s, _in(x + 0.18), _in(y - 0.02), _in(2.6), _in(0.2),
+         f"≥ moyenne période ({seuil_str})", size=8, color=DGRAY, wrap=False)
+    _rect(s, _in(x + 3.0), _in(y), _in(0.14), _in(0.14), fill=ORANGE)
+    _txt(s, _in(x + 3.18), _in(y - 0.02), _in(2.7), _in(0.2),
+         f"< moyenne période ({seuil_str})", size=8, color=DGRAY, wrap=False)
+
+
+def compute_metier_insights(live, unit='TEU'):
+    """Build a list of 5–7 insight lines from a build_overview_data() dict."""
+    if not live:
+        return []
+    lines = []
+    market_str = live['kpis']['marche']
+    agl_str = live['kpis']['agl']
+    pdm_str = live['kpis']['pdm']
+    rank_str = f"#{live['aglRank']}" if live.get('aglRank') else '—'
+    lines.append(f"📊 PDM AGL : {pdm_str} sur {market_str} {unit} de marché — rang {rank_str}.")
+    # Second + écart
+    if live.get('secondName') and live.get('aglRank') == 1:
+        ecart = live['kpis']['ecart']
+        lines.append(f"🥈 #2 = {live['secondName']} — avance AGL {ecart} {unit} (à consolider).")
+    elif live.get('secondName'):
+        ecart = live['kpis']['ecart']
+        lines.append(f"🏆 Leader = {live['secondName']} — AGL à {ecart} {unit} (objectif : combler l'écart).")
+    # Top 4 cumul
+    top4 = live['kpis']['top4']
+    lines.append(f"🎯 Concentration : TOP 4 transitaires = {top4} du marché qualifié.")
+    # Monthly analysis
+    pdm = live.get('monthlyPdm') or []
+    labels = live.get('monthLabels') or []
+    if pdm and labels:
+        full_months = [next((m for m in MONTHS_FR_FULL if m.startswith(l)), l) for l in labels]
+        max_i = pdm.index(max(pdm))
+        min_i = pdm.index(min(pdm))
+        max_v = f"{pdm[max_i]:.1f}".replace('.', ',')
+        min_v = f"{pdm[min_i]:.1f}".replace('.', ',')
+        lines.append(f"📈 Meilleur mois : {full_months[max_i]} ({max_v} %)  ·  ⚠ Plus faible : {full_months[min_i]} ({min_v} %).")
+        # Trend (compare first half avg to second half)
+        if len(pdm) >= 4:
+            half = len(pdm) // 2
+            avg1 = sum(pdm[:half]) / half
+            avg2 = sum(pdm[half:]) / (len(pdm) - half)
+            diff = avg2 - avg1
+            arrow = '↗' if diff > 0.3 else ('↘' if diff < -0.3 else '→')
+            trend_word = 'progression' if diff > 0.3 else ('érosion' if diff < -0.3 else 'stabilité')
+            sign = '+' if diff > 0 else ''
+            lines.append(f"{arrow} Tendance période : {trend_word} ({sign}{diff:+.1f} pts entre 1ʳᵉ et 2ᵈᵉ moitié).".replace('+-', '−'))
+    # Source
+    if live.get('source'):
+        lines.append(f"📁 Source : {live['source']}.")
+    return lines
+
+
 def add_bar_chart(s, x, y, w, h, series, colors=None):
     """series = [{'name','labels','values'}, ...]"""
     if not series:
@@ -877,12 +934,21 @@ def build_tim_overview(prs, study):
         pdm_values = [8.3, 6.9, 7.5, 8.5, 7.8]
         seuil = 7.5
     add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil)
+    # Légende des couleurs : vert = au-dessus moyenne, orange = sous moyenne
+    add_mensuel_legend(s, 7.1, 5.50, seuil)
 
-    # Insight
-    text = (f"Données live. PDM AGL : {live['kpis']['pdm']} — rang #{live['aglRank'] or '—'}. "
-            f"Cumul TOP 4 = {live['kpis']['top4']}.") if live else \
-        "PDM qualifiée 7,8% vs 7,3% brut. Avance sur STRACOTRANS : +558 TEU — à consolider."
-    add_insight_box(s, 7.1, 5.7, 6.0, 0.75, '✓', [text], bg=EGREEN)
+    # Insight enrichi (live) ou fallback statique
+    if live:
+        lines = compute_metier_insights(live, unit='TEU')
+    else:
+        lines = [
+            "📊 PDM AGL : 7,8 % sur 193 989 TEU de marché — rang #1.",
+            "🥈 #2 = STRACOTRANS — avance AGL +558 TEU (à consolider).",
+            "🎯 TOP 4 transitaires = 29,1 % du marché qualifié.",
+            "📈 Meilleur mois : Avril (8,5 %) · ⚠ Plus faible : Février (6,9 %).",
+            "→ Tendance période : stabilité (+0,1 pt entre 1ʳᵉ et 2ᵈᵉ moitié).",
+        ]
+    add_insight_box(s, 7.1, 5.80, 6.0, 1.30, '✓', lines, bg=EGREEN)
 
 
 def build_tim_concurrents(prs, study):
@@ -1063,9 +1129,12 @@ def build_metier_overview(prs, study, code, label, page_no, fallback_sub, fallba
     pdm_values = live['monthlyPdm'] if live and live.get('monthlyPdm') else fallback_pdm[1]
     seuil = live['aglPdm'] if live else fallback_pdm[2]
     add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil)
-    add_insight_box(s, 7.1, 5.7, 6.0, 0.75, '✓',
-                    [(f"Données live. PDM {live['kpis']['pdm']} · rang #{live['aglRank'] or '—'}."
-                      if live else f"Référence {label} — uploader STATCOM pour le live.")], bg=EGREEN)
+    add_mensuel_legend(s, 7.1, 5.50, seuil)
+    if live:
+        lines = compute_metier_insights(live, unit=unit)
+    else:
+        lines = [f"📊 Référence {label} — uploader STATCOM N + N-1 pour activer l'analyse live."]
+    add_insight_box(s, 7.1, 5.80, 6.0, 1.30, '✓', lines, bg=EGREEN)
 
 
 def build_metier_concurrents(prs, study, code, label, page_no, fallback_rows, fallback_segs, unit='TEU'):
