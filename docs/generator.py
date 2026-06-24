@@ -764,31 +764,52 @@ def build_cover(prs, study):
 
 def build_sommaire(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
-    add_header(s, 'SOMMAIRE', 'Analyse par métier – 5 segments + synthèses')
+    add_header(s, 'SOMMAIRE', 'Analyse par métier  |  Focus concurrent  |  Prédiction & CX')
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.2')
+    # 10 sections — layout 5 colonnes × 2 lignes
+    PURPLE = RGBColor(0x6B, 0x46, 0xC1)
+    BROWN = RGBColor(0x8B, 0x69, 0x14)
+    SLATE = RGBColor(0x47, 0x55, 0x69)
+    DARKGREEN = RGBColor(0x05, 0x46, 0x2A)
     cards = [
-        ('01', NAVY, 'TIM – Transit Import Maritime', 'Leader #1 – PDM 7,8%'),
-        ('02', GREEN, 'TEM – Transit Export Maritime', 'Dominance absolue – 26,2%'),
-        ('03', ORANGE, 'Hinterland Import Maritime', '#3 → objectif #2 : 11,3%'),
-        ('04', BLUE2, 'Hinterland Export Maritime', 'Leader #1 – 66,1% PDM'),
-        ('05', TEAL, 'Aérien Import', '#1 ABSOLU – 20,8% PDM'),
-        ('06', RGBColor(0x8B, 0x69, 0x14), 'Synthèses', 'Mining · AYIMAN · Prédictions'),
+        ('01', NAVY,      'TIM',     'Transit Import Maritime'),
+        ('02', GREEN,     'TEM',     'Transit Export Maritime'),
+        ('03', ORANGE,    'Hint.IMP', 'Hinterland Import'),
+        ('04', BLUE2,     'Hint.EXP', 'Hinterland Export'),
+        ('05', TEAL,      'AÉRIEN',  'Aérien Import'),
+        ('06', DARKGREEN, 'DSM',     'Direction Solutions Maritimes'),
+        ('07', BROWN,     'DIVERS',  'Focus Mining & AYIMAN'),
+        ('08', PURPLE,    'PRÉDICT.','Veille marché & préconisations'),
+        ('09', RED,       'CX',      'Expérience client'),
+        ('10', SLATE,     'ANALYSE', 'Activité client'),
     ]
-    cw, ch = 4.2, 2.0
+    cols = 5
+    rows = 2
+    margin_x = 0.2
+    gap_x = 0.12
+    avail_w = 13.33 - 2 * margin_x - gap_x * (cols - 1)
+    cw = avail_w / cols
+    ch = 2.5
+    gap_y = 0.15
+    y0 = 1.3
     for i, (num, col, title, desc) in enumerate(cards):
-        row, c = i // 3, i % 3
-        x = 0.2 + c * (cw + 0.15)
-        y = 1.25 + row * (ch + 0.1)
+        row = i // cols
+        c = i % cols
+        x = margin_x + c * (cw + gap_x)
+        y = y0 + row * (ch + gap_y)
         _rect(s, _in(x), _in(y), _in(cw), _in(ch),
               fill=RGBColor(0xF0, 0xF2, 0xF5),
               line=RGBColor(0xDD, 0xE0, 0xE4), line_width=0.5)
+        # Coloured badge with number
         _rect(s, _in(x + 0.12), _in(y + 0.15), _in(0.55), _in(0.55), fill=col)
         _txt(s, _in(x + 0.12), _in(y + 0.15), _in(0.55), _in(0.55),
              num, size=15, bold=True, color=WHITE, align='center', valign='middle')
-        _txt(s, _in(x + 0.12), _in(y + 0.82), _in(cw - 0.25), _in(0.45),
-             title, size=12, bold=True, color=DGRAY)
-        _txt(s, _in(x + 0.12), _in(y + 1.28), _in(cw - 0.25), _in(0.55),
-             desc, size=10, color=MGRAY)
+        # Title
+        _txt(s, _in(x + 0.12), _in(y + 0.85), _in(cw - 0.25), _in(0.4),
+             title, size=13, bold=True, color=DGRAY)
+        # Description
+        _txt(s, _in(x + 0.12), _in(y + 1.30), _in(cw - 0.25), _in(1.1),
+             desc, size=9.5, color=MGRAY, wrap=True)
 
 
 # ────────── TIM (4 slides) ──────────
