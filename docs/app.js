@@ -457,14 +457,32 @@ function collectPreconisations() {
   return prediction.preconisations || FALLBACK_PRECONISATIONS;
 }
 
-// ─── IMPORTED POWERPOINTS (verbatim — sections 09 CX / 10) ───────────────────
+// ─── IMPORTED PDFs (sections 09 CX / 10) ─────────────────────────────────────
+// User exports his CX/Analyse PowerPoints to PDF (Fichier → Enregistrer sous → PDF)
+// then uploads the PDFs here. We rasterise each PDF page to PNG via PDF.js in the
+// browser; Python (Pyodide) inserts the PNGs as full-slide pictures after the
+// section separators. This avoids the AGL GPO rejection of merged external XML.
 async function handleImportUpload(slot, file) {
   try {
     const buffer = await file.arrayBuffer();
-    imports[slot] = { name: file.name, buffer };
+    const pdf = await window.pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+    const pages = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 1.6 }); // ~115 DPI for 13.33×7.5"
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const dataUrl = canvas.toDataURL('image/png');
+      pages.push(dataUrl.split(',')[1]); // base64 payload only
+    }
+    imports[slot] = { name: file.name, pngBase64: pages };
     sourceFiles[slot] = file;
   } catch (e) {
-    alert('Erreur lecture PowerPoint : ' + e.message);
+    console.error(e);
+    alert(`Erreur traitement PDF ${slot} : ${e.message}`);
   }
   renderImports();
 }
@@ -473,8 +491,12 @@ function renderImports() {
   const draw = (slot, elId) => {
     const el = document.getElementById(elId);
     if (!el) return;
+    const n = imports[slot] && imports[slot].pngBase64
+      ? imports[slot].pngBase64.length : 0;
     el.innerHTML = imports[slot]
-      ? `<span class="text-aglgreen">✓ ${imports[slot].name}</span> <button class="text-aglred hover:underline ml-1" data-imp-rm="${slot}">retirer</button>`
+      ? `<span class="text-aglgreen">✓ ${imports[slot].name}</span>` +
+        (n ? ` <span class="text-gray-500">— ${n} page${n > 1 ? 's' : ''} convertie${n > 1 ? 's' : ''} en image</span>` : '') +
+        ` <button class="text-aglred hover:underline ml-1" data-imp-rm="${slot}">retirer</button>`
       : '';
   };
   draw('cx', 'cx-list');
@@ -703,6 +725,12 @@ async function generatePptx() {
         ao: prediction.ao,
         preconisations: collectPreconisations(),
       },
+      // PDF→PNG imports: each one becomes a series of full-slide images,
+      // inserted by Python right after the corresponding section separator.
+      imports: {
+        cx: imports.cx ? imports.cx.pngBase64 : null,
+        analyse: imports.analyse ? imports.analyse.pngBase64 : null,
+      },
     };
 
     // ── Python (Pyodide + python-pptx) base deck ─────────────────────────────
@@ -725,23 +753,10 @@ async function generatePptx() {
       throw e;
     }
 
-    // ── Merge des PowerPoints importés (CX & Analyse) — passe JS ─────────────
-    // pptx-merge.js insère verbatim les slides des PPTX déposés, juste après
-    // leurs séparateurs 09 / 10. Tourne uniquement si un import est présent.
-    if ((imports.cx || imports.analyse) && window.PPTXMerge) {
-      const baseCount = window.BLOCK_SEQUENCE.length;
-      const inserts = [];
-      if (imports.analyse) inserts.push({ after: baseCount, buffer: imports.analyse.buffer });
-      if (imports.cx) inserts.push({ after: baseCount - 1, buffer: imports.cx.buffer });
-      btn.textContent = 'Intégration des PowerPoints importés…';
-      try {
-        blob = await window.PPTXMerge.mergeExternalSlides(blob, inserts);
-      } catch (e) {
-        console.error('Merge PPTX échoué', e);
-        alert('La fusion des PowerPoints importés a échoué (' + e.message +
-          '). Le PPTX est généré sans eux.');
-      }
-    }
+    // Le merge JS n'est plus utilisé : les imports CX/Analyse sont désormais
+    // injectés par Python (Pyodide) sous forme d'images PNG, dans la même
+    // étape pyGenerate ci-dessus. Le GPO AGL n'a plus de XML étranger à
+    // bloquer.
 
     const filename = `Comite_de_Direction_${state.study.title.replace(/[^a-zA-Z0-9_-]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pptx`;
 

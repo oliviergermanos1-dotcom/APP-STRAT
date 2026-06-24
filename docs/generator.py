@@ -1564,11 +1564,35 @@ BRAND_SEPARATORS = {
 }
 
 
+def _add_import_image_slides(prs, png_b64_list):
+    """For each base64-encoded PNG, add a python-pptx slide that fills the slide
+    with that picture. Used for CX (sep 09) and Analyse (sep 10) imports."""
+    if not png_b64_list:
+        return
+    import base64
+    blank = prs.slide_layouts[6]
+    for b64 in png_b64_list:
+        try:
+            png_bytes = base64.b64decode(b64)
+        except Exception:
+            continue
+        s = prs.slides.add_slide(blank)
+        s.shapes.add_picture(io.BytesIO(png_bytes), 0, 0,
+                             width=prs.slide_width, height=prs.slide_height)
+
+
 def dispatch_block(prs, study, key):
     """Map a BLOCK_SEQUENCE key to its slide builder."""
     if key in SEPARATORS:
         num, title, sub = SEPARATORS[key]
-        add_separator(prs, num, title, sub); return
+        add_separator(prs, num, title, sub)
+        # Right after the section separator, inject its imported PDF pages.
+        imports = (study or {}).get('imports') or {}
+        if key == 'sep_cx':
+            _add_import_image_slides(prs, imports.get('cx'))
+        elif key == 'sep_analyse_client':
+            _add_import_image_slides(prs, imports.get('analyse'))
+        return
     if key in BRAND_SEPARATORS:
         code, title, sub = BRAND_SEPARATORS[key]
         add_brand_separator(prs, code, title, sub); return
