@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260618l');
+  _worker = new Worker('./parser-worker.js?v=20260624n');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
