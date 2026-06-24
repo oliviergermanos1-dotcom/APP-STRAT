@@ -152,16 +152,35 @@ def add_kpi_bar(s, kpis, y=1.2):
 
 def _fit_text(text, max_inches, pt=8.5):
     """Tronque text pour qu'il tienne dans max_inches à la taille pt donnée.
-    Calibri uppercase : ~0.072 in/char à 8.5 pt (estimation pessimiste pour
-    éviter que les noms en CAPS ne débordent visuellement sur la colonne
-    voisine alors que le calcul théorique laisserait passer)."""
+    Calibri à 8.5 pt : ~0.060 in/char minuscules, ~0.092 in/char MAJUSCULES
+    (caps + chiffres comptent comme caps). Marge sécurité 0.20 in pour
+    éviter tout débordement visuel sur la colonne voisine quand wrap=False
+    (PowerPoint ne clipe pas — le texte qui dépasse le textbox s'écrit
+    par-dessus le contenu d'à côté)."""
     if not text:
         return ''
     text = str(text)
-    has_caps = any(c.isupper() for c in text)
-    char_w = (0.072 if has_caps else 0.060) * (pt / 8.5)
-    max_chars = max(4, int((max_inches - 0.12) / char_w))
+    # Ratio de caractères "larges" (caps + digits + ponctuation type W).
+    n_caps = sum(1 for c in text if c.isupper() or c.isdigit() or c in 'WMÉÈÊ')
+    caps_ratio = n_caps / max(len(text), 1)
+    char_w = (0.060 + caps_ratio * 0.032) * (pt / 8.5)
+    avail = max_inches - 0.20
+    max_chars = max(4, int(avail / char_w))
     return text if len(text) <= max_chars else text[:max_chars - 1] + '…'
+
+
+def _is_numeric_header(h):
+    """Reconnaît une colonne dont le contenu est numérique (volume, PDM,
+    pourcentage, écart) pour la right-aligner et l'éloigner visuellement
+    de la colonne nom."""
+    if not h:
+        return False
+    s = str(h).strip().lower()
+    return any(k in s for k in (
+        'teu', 'tonn', '%', 'pdm', 'pct', 'volume', 'vol.', 'nombre', 'nb',
+        ' t ', 't)', 't ', 'kg', 'rang', 'rank', 'écart', 'ecart', 'δ',
+        'croissance', 'growth', 'cit.', 'n-1', 'n+1',
+    )) or s == 't' or s == 'n' or s == '#'
 
 
 def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=None):
@@ -195,14 +214,26 @@ def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=No
             col_w = [w]
         name_col_idx = 0
 
+    # Détermine pour chaque colonne son alignement :
+    #   - nom → left
+    #   - colonne au contenu numérique → right (éloigne du nom voisin)
+    #   - autre (rang, label court) → center
+    col_align = []
+    for i, h in enumerate(headers):
+        if i == name_col_idx:
+            col_align.append('left')
+        elif _is_numeric_header(h) and i != 0:
+            col_align.append('right')
+        else:
+            col_align.append('center')
+
     # Header bar
     _rect(s, _in(x), _in(y), _in(w), _in(row_h), fill=NAVY)
     cx = x
     for i, h in enumerate(headers):
         _txt(s, _in(cx + 0.04), _in(y + 0.04), _in(col_w[i] - 0.05), _in(row_h - 0.06),
              str(h), size=8.5, bold=True, color=WHITE,
-             align=('left' if i == name_col_idx else 'center'),
-             valign='middle', wrap=False)
+             align=col_align[i], valign='middle', wrap=False)
         cx += col_w[i]
 
     # Rows
@@ -224,7 +255,7 @@ def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=No
                  text, size=8.5,
                  bold=(is_hl and ci == name_col_idx),
                  color=color,
-                 align=('left' if ci == name_col_idx else 'center'),
+                 align=col_align[ci],
                  valign='middle', wrap=False)
             cx2 += col_w[ci]
 
@@ -936,7 +967,114 @@ def build_nouveaux_full_data(study, metier):
              (f"{r['pdm_agl']} %" if r.get('pdm_agl') is not None else '—')]
             for r in (top_dest['rows'] if top_dest else [])
         ],
+        # Lignes brutes (gardées pour alimenter compute_nouveaux_insights).
+        '_rawTransitaires': nouveaux['rows'],
+        '_rawMarchandises': nouveaux_merch['rows'],
+        '_rawClients': nouveaux_clients['rows'],
+        '_rawGrowth': top_growth['rows'] if top_growth else [],
+        '_rawDestinataires': top_dest['rows'] if top_dest else [],
     }
+
+
+def compute_nouveaux_insights(live, label, unit='TEU'):
+    """Insight box jaune slide NOUVEAUX ENTRANTS — analyse approfondie :
+    leader des nouveaux entrants, marchandises émergentes les plus
+    volumineuses, opportunité de conquête (clients nouveaux pour AGL mais
+    importants en N-1), top growth en volume, destinataires les plus
+    importants du marché, lecture stratégique."""
+    if not live:
+        return [f"📊 Uploader STATCOM {label} N + N-1 pour activer l'analyse nouveaux entrants."]
+    lines = []
+
+    rawT = live.get('_rawTransitaires') or []
+    rawM = live.get('_rawMarchandises') or []
+    rawC = live.get('_rawClients') or []
+    rawG = live.get('_rawGrowth') or []
+    rawD = live.get('_rawDestinataires') or []
+
+    # ── 1. Synthèse + niveau de fragmentation ──────────────────────────
+    nT, nM, nC = len(rawT), len(rawM), len(rawC)
+    lines.append(
+        f"📊 Synthèse : {nT} nouveaux transitaires · {nM} nouvelles marchandises · "
+        f"{nC} nouveaux clients AGL — dynamique d'arrivée mesurée vs N-1 même période."
+    )
+
+    # ── 2. Nouveau transitaire #1 — alerte si volume significatif ──────
+    if rawT:
+        top_t = rawT[0]
+        vol_t = float(top_t.get('volume') or 0)
+        pdm_t = float(top_t.get('pdm') or 0)
+        if vol_t > 0:
+            alert = '⚠' if pdm_t >= 1.5 else '🆕'
+            lines.append(
+                f"{alert} Nouveau transitaire #1 : {str(top_t.get('transitaire') or '')[:30]} "
+                f"({fmt_int(vol_t)} {unit}, {pdm_t:.1f} % PDM).".replace('.', ',')
+                + (' Acteur déjà significatif → surveiller.' if pdm_t >= 1.5 else '')
+            )
+
+    # ── 3. Nouvelles marchandises à fort volume marché ─────────────────
+    big_merch = [m for m in rawM
+                 if float(m.get('volume_marche') or 0) >= 100]  # seuil pertinence
+    if big_merch:
+        lbls = ', '.join([
+            f"{str(m.get('segment') or '')[:22]} ({fmt_int(m.get('volume_marche'))} {unit})"
+            for m in big_merch[:3]
+        ])
+        lines.append(f"📦 Marchandises émergentes à fort volume marché : {lbls}.")
+        # AGL absente sur ces marchandises = gisement
+        absent = [m for m in big_merch[:5] if float(m.get('pdm_agl') or 0) == 0]
+        if absent:
+            lbls2 = ', '.join([str(m.get('segment') or '')[:22] for m in absent[:3]])
+            lines.append(
+                f"🎯 AGL ABSENTE sur ces nouveaux segments (PDM 0 %) — opportunité conquête : {lbls2}."
+            )
+
+    # ── 4. Opportunité conquête clients (volume N-1 chez les concurrents) ─
+    big_clients = sorted([c for c in rawC
+                          if float(c.get('volume_n1_others') or 0) > 0],
+                         key=lambda c: -float(c.get('volume_n1_others') or 0))[:3]
+    if big_clients:
+        lbls = '; '.join([
+            f"{str(c.get('client') or '')[:24]} "
+            f"(AGL {fmt_int(c.get('volume'))} / chez concurrents N-1 {fmt_int(c.get('volume_n1_others'))})"
+            for c in big_clients
+        ])
+        lines.append(f"🎯 Clients à plus fort potentiel (gros volumes N-1 chez concurrents) : {lbls}.")
+
+    # ── 5. Top growth marchandise — alerte si AGL absente ──────────────
+    if rawG:
+        top_g = rawG[0]
+        delta = float(top_g.get('delta_volume') or 0)
+        growth = top_g.get('growth_pct')
+        pdm_g = float(top_g.get('pdm_agl') or 0)
+        growth_str = (f"+{growth} %" if growth is not None else 'nouveau')
+        emoji = '⚠' if pdm_g <= 5 else '✅'
+        lines.append(
+            f"{emoji} Plus forte hausse marché : {str(top_g.get('segment') or '')[:28]} "
+            f"(+{fmt_int(delta)} {unit}, {growth_str}, PDM AGL {pdm_g:.0f} %) — "
+            + ('AGL sous-représentée, à investir.' if pdm_g <= 5
+               else 'AGL bien positionnée pour capter la croissance.')
+        )
+
+    # ── 6. Destinataire #1 du marché — référence concurrentielle ───────
+    if rawD:
+        top_d = rawD[0]
+        vol_d = float(top_d.get('volume') or 0)
+        vol_a = float(top_d.get('volume_agl') or 0)
+        pdm_d = float(top_d.get('pdm_agl') or 0)
+        if vol_d > 0:
+            posture = ('✅ AGL en force' if pdm_d >= 50 else
+                       '⚖ AGL présente' if pdm_d >= 10 else
+                       '⚠ AGL marginal')
+            lines.append(
+                f"🏢 Destinataire #1 marché : {str(top_d.get('client') or '')[:26]} "
+                f"({fmt_int(vol_d)} {unit}, AGL {fmt_int(vol_a)} = {pdm_d:.0f} %) — {posture}."
+            )
+
+    # ── 7. Source ──────────────────────────────────────────────────────
+    if live.get('source'):
+        lines.append(f"📁 Source : {live['source']}.")
+    return lines
 
 
 def build_dsm_overview_data(study):
@@ -1419,10 +1557,9 @@ def build_tim_nouveaux(prs, study):
         add_rank_table(s, x3, y2 + 0.27, col_w,
                        ['Destinataire', 'TEU marché', 'TEU AGL', 'PDM AGL'],
                        (live.get('topDestinataires') or [])[:5])
-        add_insight_box(s, 0.15, 5.70, 12.9, 1.40, '💡',
-                        [f"📊 Synthèse nouveaux : {len(live['nouveauxTransitaires'])} transitaires · "
-                         f"{len(live['nouveauxMarchandises'])} marchandises · "
-                         f"{len(live['nouveauxClients'])} clients AGL."])
+        add_insight_box(s, 0.15, 5.65, 12.9, 1.55, '💡',
+                        compute_nouveaux_insights(live, 'TIM', unit='TEU'),
+                        bg=EYELLOW)
     else:
         _txt(s, _in(0.25), _in(1.2), _in(6.5), _in(0.28),
              'Nouveaux transitaires TIM (rangs 11–15)', size=11, bold=True, color=DGRAY)
@@ -1887,17 +2024,17 @@ def build_ayman_detail(prs, study):
         return
 
     detail = live['byMetierDetail']
-    # Regroupement par grand bloc fonctionnel.
+    # Regroupement par grand bloc fonctionnel. EXPORT retiré sur demande
+    # (focus AYIMAN = import maritime + aérien uniquement).
     blocks = [
         ('IMPORT MARITIME', ['TIM', 'HIMP'], NAVY),
-        ('EXPORT MARITIME', ['HEXP', 'TEM'], GREEN),
         ('AÉRIEN', ['AER'], GOLD),
     ]
 
-    col_w = 4.30
-    gap = 0.10
+    col_w = 6.45
+    gap = 0.15
     x0 = 0.15
-    xs = [x0, x0 + col_w + gap, x0 + 2 * (col_w + gap)]
+    xs = [x0, x0 + col_w + gap]
 
     def fmt_growth(g):
         if g is None:
@@ -2237,7 +2374,7 @@ BLOCK_SEQUENCE = [
     'sep_AER', 'AER_vue_ensemble', 'AER_segments_concurrents', 'AER_clientele', 'AER_nouveaux_entrants',
     'sep_DSM', 'DSM_vue_ensemble', 'DSM_armateurs', 'DSM_manutentionnaires', 'DSM_consignataires_pol',
     'sep_divers', 'sep_mining', 'mining_overview', 'mining_concurrents', 'mining_clientele',
-    'sep_ayman', 'ayman_overview', 'ayman_metiers', 'ayman_detail',
+    'sep_ayman', 'ayman_overview', 'ayman_detail',
     'sep_predictions', 'prediction_signaux', 'prediction_prospects', 'prediction_preconisations',
     'sep_cx', 'sep_analyse_client',
 ]
@@ -2389,7 +2526,6 @@ def dispatch_block(prs, study, key):
     if key == 'mining_clientele':        build_mining_clientele(prs, study); return
 
     if key == 'ayman_overview':          build_ayman_overview(prs, study); return
-    if key == 'ayman_metiers':           build_ayman_metiers(prs, study); return
     if key == 'ayman_detail':            build_ayman_detail(prs, study); return
 
     if key == 'prediction_signaux':         build_prediction_signaux(prs, study); return

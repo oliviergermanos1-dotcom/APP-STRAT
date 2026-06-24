@@ -40,7 +40,6 @@ const BLOCK_SEQUENCE = [
   "mining_clientele",
   "sep_ayman",
   "ayman_overview",
-  "ayman_metiers",
   "ayman_detail",
   "sep_predictions",
   "prediction_signaux",
