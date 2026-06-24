@@ -226,6 +226,25 @@
             );
           }
         }
+        // Strip Microsoft forward-compat extensions on imported charts.
+        // PowerPoint AGL desktop refuses files containing <c:extLst> with
+        // chart:dataDisplayOptions16 / leaderLines etc. (Microsoft 2017
+        // chart extensions). Charts still render via their inline
+        // <c:numCache>/<c:plotArea> — only the optional fancy features are
+        // lost (data label leader lines, NaN handling override). This is a
+        // verbatim copy, so we keep the chart shape exactly as-is.
+        if (/^ppt\/charts\/chart.*\.xml$/.test(oldPath)) {
+          content = content.replace(/<c:extLst>[\s\S]*?<\/c:extLst>/g, '');
+          // Also defensively normalise any negative axId/crossAx (python-pptx
+          // emits these; some authoring tools too — Open XML schema wants
+          // positive int32).
+          content = content.replace(/<c:(axId|crossAx)\s+val="(-?\d+)"\s*\/>/g,
+            (m, tag, val) => {
+              const n = parseInt(val, 10);
+              const safe = (Math.abs(n) % 0x7FFFFFFE) + 1;
+              return '<c:' + tag + ' val="' + safe + '"/>';
+            });
+        }
         baseZip.file(newPath, content);
       } else {
         const content = await extZip.file(oldPath).async('uint8array');
