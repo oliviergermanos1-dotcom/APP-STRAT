@@ -1564,20 +1564,24 @@ BRAND_SEPARATORS = {
 }
 
 
-def _add_import_image_slides(prs, png_b64_list):
-    """For each base64-encoded PNG, add a python-pptx slide that fills the slide
-    with that picture. Used for CX (sep 09) and Analyse (sep 10) imports."""
-    if not png_b64_list:
+def _add_import_image_slides(prs, b64_list):
+    """For each base64-encoded image (PNG or JPEG), add a python-pptx slide
+    that fills the slide with that picture. The browser ships JPEG bytes
+    (smaller, no alpha channel — PowerPoint AGL refuses canvas PNG-with-alpha)
+    but we handle both via header magic."""
+    if not b64_list:
         return
     import base64
     blank = prs.slide_layouts[6]
-    for b64 in png_b64_list:
+    for b64 in b64_list:
         try:
-            png_bytes = base64.b64decode(b64)
+            img_bytes = base64.b64decode(b64)
         except Exception:
             continue
+        if not img_bytes:
+            continue
         s = prs.slides.add_slide(blank)
-        s.shapes.add_picture(io.BytesIO(png_bytes), 0, 0,
+        s.shapes.add_picture(io.BytesIO(img_bytes), 0, 0,
                              width=prs.slide_width, height=prs.slide_height)
 
 

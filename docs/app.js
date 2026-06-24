@@ -474,11 +474,16 @@ async function handleImportUpload(slot, file) {
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
       const ctx = canvas.getContext('2d');
+      // Pre-fill white to flatten any alpha — PowerPoint AGL refuses canvas
+      // PNGs that carry an alpha channel / ICC profile, so we ship JPEG bytes
+      // (no alpha, no profile chunk, smaller payload).
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport }).promise;
-      const dataUrl = canvas.toDataURL('image/png');
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
       pages.push(dataUrl.split(',')[1]); // base64 payload only
     }
-    imports[slot] = { name: file.name, pngBase64: pages };
+    imports[slot] = { name: file.name, pngBase64: pages, mime: 'image/jpeg' };
     sourceFiles[slot] = file;
   } catch (e) {
     console.error(e);
