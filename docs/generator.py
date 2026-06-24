@@ -152,12 +152,15 @@ def add_kpi_bar(s, kpis, y=1.2):
 
 def _fit_text(text, max_inches, pt=8.5):
     """Tronque text pour qu'il tienne dans max_inches à la taille pt donnée.
-    Approximation : 1 char ≈ 0.060 * (pt/8.5) inches en Calibri."""
+    Calibri uppercase : ~0.072 in/char à 8.5 pt (estimation pessimiste pour
+    éviter que les noms en CAPS ne débordent visuellement sur la colonne
+    voisine alors que le calcul théorique laisserait passer)."""
     if not text:
         return ''
     text = str(text)
-    char_w = 0.060 * (pt / 8.5)
-    max_chars = max(4, int((max_inches - 0.08) / char_w))
+    has_caps = any(c.isupper() for c in text)
+    char_w = (0.072 if has_caps else 0.060) * (pt / 8.5)
+    max_chars = max(4, int((max_inches - 0.12) / char_w))
     return text if len(text) <= max_chars else text[:max_chars - 1] + '…'
 
 
@@ -230,7 +233,8 @@ def add_segment_bars(s, x, y, segments):
     """Barres horizontales PDM par segment.
     Si seg['pdm_n1'] est fourni : couleur vert si PDM N ≥ PDM N-1 du segment,
     orange si PDM N < PDM N-1. Le delta s'affiche en bout de barre.
-    Fallback (pas de N-1) : palette historique par paliers (50/20/10)."""
+    Fallback (pas de N-1) : palette 2 couleurs — vert si PDM ≥ 10 %,
+    orange sinon (cohérent avec la légende affichée)."""
     max_bar = 2.20
     row_h = 0.42
     for i, seg in enumerate(segments):
@@ -243,9 +247,7 @@ def add_segment_bars(s, x, y, segments):
             pdm_n1_f = float(pdm_n1)
             bar_color = GREEN if pdm >= pdm_n1_f else ORANGE
         else:
-            bar_color = (GREEN if pdm >= 50 else
-                         BLUE2 if pdm >= 20 else
-                         ORANGE if pdm >= 10 else RED)
+            bar_color = GREEN if pdm >= 10 else ORANGE
         _txt(s, _in(x), _in(ry), _in(1.8), _in(0.28),
              str(seg.get('label', '')).upper(), size=8.5, color=DGRAY)
         _txt(s, _in(x + 1.82), _in(ry), _in(0.9), _in(0.28),
@@ -265,14 +267,23 @@ def add_segment_bars(s, x, y, segments):
                  size=7.5, color=MGRAY)
 
 
-def add_segment_legend(s, x, y, w=4.0):
-    """Légende des couleurs des barres segments (vs N-1)."""
+def add_segment_legend(s, x, y, w=4.0, mode='n1'):
+    """Légende des couleurs des barres segments.
+    mode='n1'      → vert si PDM AGL ≥ N-1, orange sinon
+    mode='seuil'   → vert si PDM AGL ≥ 10 %, orange sinon (fallback)
+    """
+    if mode == 'n1':
+        green_lbl = "PDM AGL ≥ N-1"
+        orange_lbl = "PDM AGL < N-1"
+    else:
+        green_lbl = "PDM AGL ≥ 10 % (N-1 indispo)"
+        orange_lbl = "PDM AGL < 10 % (N-1 indispo)"
     _rect(s, _in(x), _in(y), _in(0.14), _in(0.14), fill=GREEN)
-    _txt(s, _in(x + 0.18), _in(y - 0.02), _in(1.45), _in(0.2),
-         "PDM AGL ≥ N-1", size=8, color=DGRAY, wrap=False)
-    _rect(s, _in(x + 1.70), _in(y), _in(0.14), _in(0.14), fill=ORANGE)
-    _txt(s, _in(x + 1.88), _in(y - 0.02), _in(1.45), _in(0.2),
-         "PDM AGL < N-1", size=8, color=DGRAY, wrap=False)
+    _txt(s, _in(x + 0.18), _in(y - 0.02), _in(2.30), _in(0.2),
+         green_lbl, size=8, color=DGRAY, wrap=False)
+    _rect(s, _in(x + 2.55), _in(y), _in(0.14), _in(0.14), fill=ORANGE)
+    _txt(s, _in(x + 2.73), _in(y - 0.02), _in(2.30), _in(0.2),
+         orange_lbl, size=8, color=DGRAY, wrap=False)
 
 
 def add_insight_box(s, x, y, w, h, emoji, lines, bg=EYELLOW):
@@ -347,54 +358,116 @@ def add_mensuel_legend(s, x, y, seuil=None, w=6.0, mode='n1'):
 
 
 def compute_concurrents_insights(live, label, unit='TEU'):
-    """Insight box jaune slide CONCURRENTS : rang AGL N vs N-1, top
-    transitaires qui montent / descendent, segments AGL les plus solides
-    et les plus érodés vs N-1."""
+    """Insight box jaune slide CONCURRENTS — analyse profonde même sans N-1.
+    Toujours produit : rang+PDM AGL, écart #2/#3, concentration TOP4, segments
+    forts/faibles, longue traîne, source. Ajouts si N-1 : rang/PDM Δ, top
+    movers, segment gagné / érodé."""
     lines = []
     if not live:
-        return [f"Uploader STATCOM {label} N + N-1 pour activer l'analyse live."]
+        return [f"📊 Uploader STATCOM {label} N (+ N-1 pour analyse temporelle)."]
     full = live.get('fullRanked') or []
     name_key = 'transitaire' if (full and 'transitaire' in full[0]) else 'nom_entite'
-    # Rang AGL N + N-1
+
+    # ── 1. Rang AGL N (toujours) + Δ vs N-1 si dispo ────────────────────
     agl_row = next((r for r in full if is_agl(str(r.get(name_key) or ''))), None)
+    rang_n = next((i+1 for i, r in enumerate(full)
+                   if is_agl(str(r.get(name_key) or ''))), None) if agl_row else None
     if agl_row:
-        rang_n = next((i+1 for i, r in enumerate(full)
-                       if is_agl(str(r.get(name_key) or ''))), None)
+        pdm = float(agl_row.get('pdm') or 0)
+        vol = float(agl_row.get('volume') or 0)
         rang_n1 = agl_row.get('rang_n1')
-        pdm = agl_row.get('pdm')
         pdm_n1 = agl_row.get('pdm_n1')
         delta = agl_row.get('delta_pdm')
-        if rang_n1 and pdm_n1 is not None:
+        if rang_n1 and pdm_n1 is not None and float(pdm_n1) > 0:
             arrow_rank = '▲' if (rang_n < rang_n1) else ('▼' if rang_n > rang_n1 else '=')
             sign = '+' if (delta or 0) >= 0 else ''
             lines.append(
-                f"🏁 AGL #{rang_n} ({pdm:.1f}".replace('.', ',') + f" %) vs #{rang_n1} ({pdm_n1:.1f}".replace('.', ',') +
-                f" %) en N-1 — {arrow_rank} {sign}{delta:.1f}".replace('.', ',') + " pt de PDM."
+                f"🏁 AGL #{rang_n} ({pdm:.1f}".replace('.', ',') +
+                f" %, {fmt_int(vol)} {unit}) vs #{rang_n1} ({float(pdm_n1):.1f}".replace('.', ',') +
+                f" %) en N-1 — {arrow_rank} {sign}{float(delta or 0):.1f}".replace('.', ',') + " pt."
             )
         else:
-            lines.append(f"🏁 AGL #{rang_n} ({pdm:.1f}".replace('.', ',') +
-                         " %) — N-1 indisponible (uploader STATCOM N-1).")
-    # Top 3 montées / descentes parmi le top 10 concurrents
+            lines.append(
+                f"🏁 AGL #{rang_n} ({pdm:.1f}".replace('.', ',') +
+                f" %, {fmt_int(vol)} {unit}) — comparaison N-1 indispo."
+            )
+
+    # ── 2. Écart vs #2 / leader ─────────────────────────────────────────
+    if agl_row and rang_n and len(full) >= 2:
+        agl_vol = float(agl_row.get('volume') or 0)
+        if rang_n == 1:
+            second = full[1]
+            ecart = agl_vol - float(second.get('volume') or 0)
+            sec_pdm = float(second.get('pdm') or 0)
+            lines.append(
+                f"🥈 #2 = {str(second.get(name_key, ''))[:22]} ({sec_pdm:.1f}".replace('.', ',') +
+                f" %) — avance AGL +{fmt_int(ecart)} {unit}."
+            )
+        else:
+            leader = full[0]
+            ecart = float(leader.get('volume') or 0) - agl_vol
+            ld_pdm = float(leader.get('pdm') or 0)
+            lines.append(
+                f"🏆 Leader = {str(leader.get(name_key, ''))[:22]} ({ld_pdm:.1f}".replace('.', ',') +
+                f" %) — AGL à -{fmt_int(ecart)} {unit}."
+            )
+
+    # ── 3. Concentration TOP 4 / TOP 10 / longue traîne ─────────────────
+    if full:
+        total_vol = sum(float(r.get('volume') or 0) for r in full)
+        if total_vol > 0:
+            top4_vol = sum(float(r.get('volume') or 0) for r in full[:4])
+            top4_pct = (top4_vol / total_vol) * 100
+            n_active = sum(1 for r in full
+                           if (float(r.get('volume') or 0) / total_vol) * 100 >= 1.0)
+            lines.append(
+                f"🎯 Concentration TOP 4 = {top4_pct:.1f}".replace('.', ',') +
+                f" % du marché qualifié · {len(full)} transitaires ({n_active} avec ≥ 1 % PDM)."
+            )
+
+    # ── 4. Segments AGL — forces & zones faibles ────────────────────────
+    segs = live.get('rawSegments') or []
+    if segs:
+        sorted_segs = sorted(segs, key=lambda s: -float(s.get('pdm_agl') or 0))
+        forces = [s for s in sorted_segs[:3] if float(s.get('pdm_agl') or 0) >= 10]
+        if forces:
+            lbls = ', '.join([
+                f"{str(s.get('segment', ''))[:18]} ({int(round(float(s.get('pdm_agl') or 0)))} %)"
+                for s in forces
+            ])
+            lines.append(f"💪 Forces AGL : {lbls}.")
+        # Segments à fort volume marché mais PDM AGL faible (cible conquête)
+        vol_strong = sorted(segs, key=lambda s: -float(s.get('volume_marche') or 0))[:5]
+        weak = [s for s in vol_strong if 0 < float(s.get('pdm_agl') or 0) <= 5]
+        if weak:
+            lbls = ', '.join([
+                f"{str(s.get('segment', ''))[:18]} ({int(round(float(s.get('pdm_agl') or 0)))} %, {fmt_int(s.get('volume_marche') or 0)} {unit})"
+                for s in weak[:2]
+            ])
+            lines.append(f"🎯 Conquête prioritaire (gros volumes, PDM ≤ 5 %) : {lbls}.")
+
+    # ── 5. Mouvements concurrents vs N-1 (si dispo) ─────────────────────
     top = [r for r in full[:10] if r.get('delta_pdm') is not None
            and not is_agl(str(r.get(name_key) or ''))]
     if top:
         movers_up = sorted(top, key=lambda r: -float(r.get('delta_pdm') or 0))[:2]
         movers_dn = sorted(top, key=lambda r: float(r.get('delta_pdm') or 0))[:2]
         up_lbls = ', '.join([
-            f"{r.get(name_key, '')[:18]} (+{r['delta_pdm']:.1f} pt)".replace('.', ',')
-            for r in movers_up if (r.get('delta_pdm') or 0) > 0
+            f"{str(r.get(name_key, ''))[:16]} (+{float(r['delta_pdm']):.1f} pt)".replace('.', ',')
+            for r in movers_up if (r.get('delta_pdm') or 0) > 0.05
         ])
         dn_lbls = ', '.join([
-            f"{r.get(name_key, '')[:18]} ({r['delta_pdm']:.1f} pt)".replace('.', ',')
-            for r in movers_dn if (r.get('delta_pdm') or 0) < 0
+            f"{str(r.get(name_key, ''))[:16]} ({float(r['delta_pdm']):.1f} pt)".replace('.', ',')
+            for r in movers_dn if (r.get('delta_pdm') or 0) < -0.05
         ])
         if up_lbls:
-            lines.append(f"📈 Concurrents en hausse vs N-1 : {up_lbls}.")
+            lines.append(f"📈 En hausse vs N-1 : {up_lbls}.")
         if dn_lbls:
-            lines.append(f"📉 Concurrents en recul vs N-1 : {dn_lbls}.")
-    # Segments AGL : meilleur gain / plus grosse perte vs N-1
-    segs = live.get('rawSegments') or []
-    seg_with_n1 = [s for s in segs if s.get('pdm_agl_n1') is not None]
+            lines.append(f"📉 En recul vs N-1 : {dn_lbls}.")
+
+    # ── 6. Segments gagnés / érodés vs N-1 (si dispo) ───────────────────
+    seg_with_n1 = [s for s in segs if s.get('pdm_agl_n1') is not None
+                   and float(s.get('pdm_agl_n1') or 0) > 0]
     if seg_with_n1:
         gains = sorted(seg_with_n1,
                        key=lambda s: -(float(s.get('pdm_agl') or 0) - float(s.get('pdm_agl_n1') or 0)))
@@ -402,19 +475,84 @@ def compute_concurrents_insights(live, label, unit='TEU'):
         worst = gains[-1]
         d_best = float(best.get('pdm_agl') or 0) - float(best.get('pdm_agl_n1') or 0)
         d_worst = float(worst.get('pdm_agl') or 0) - float(worst.get('pdm_agl_n1') or 0)
-        if d_best > 0:
+        if d_best > 0.5:
             lines.append(
-                f"✅ Segment gagné : {best.get('segment', '')[:25]} "
-                f"({int(round(float(best.get('pdm_agl_n1') or 0)))}% → {int(round(float(best.get('pdm_agl') or 0)))}%, +{d_best:.0f} pt)."
+                f"✅ Segment gagné : {str(best.get('segment', ''))[:22]} "
+                f"({int(round(float(best.get('pdm_agl_n1') or 0)))} % → "
+                f"{int(round(float(best.get('pdm_agl') or 0)))} %, +{d_best:.0f} pt)."
             )
-        if d_worst < 0:
+        if d_worst < -0.5:
             lines.append(
-                f"⚠ Segment érodé : {worst.get('segment', '')[:25]} "
-                f"({int(round(float(worst.get('pdm_agl_n1') or 0)))}% → {int(round(float(worst.get('pdm_agl') or 0)))}%, {d_worst:.0f} pt)."
+                f"⚠ Segment érodé : {str(worst.get('segment', ''))[:22]} "
+                f"({int(round(float(worst.get('pdm_agl_n1') or 0)))} % → "
+                f"{int(round(float(worst.get('pdm_agl') or 0)))} %, {d_worst:.0f} pt)."
             )
-    # Source
+
+    # ── 7. Source ──────────────────────────────────────────────────────
     if live.get('source'):
         lines.append(f"📁 Source : {live['source']}.")
+    return lines
+
+
+def compute_clientele_insights(live, label, unit='TEU'):
+    """Insight box jaune slide CLIENTÈLE — concentration top client, top 3
+    cumul, mix marchandises, cibles cross-sell, profondeur du portefeuille."""
+    lines = []
+    if not live:
+        return [f"📊 Uploader STATCOM {label} pour activer l'analyse clientèle live."]
+
+    rows = live.get('rows') or []
+    mix_lbls = live.get('mixLabels') or []
+    mix_vals = live.get('mixValues') or []
+    top_client = live.get('topClient')
+    top_share = live.get('topClientShare')
+
+    # ── 1. Concentration top client ─────────────────────────────────────
+    if top_client and top_share:
+        lines.append(f"⚠ Concentration #1 : {str(top_client)[:30]} = {top_share} du volume AGL {label}.")
+
+    # ── 2. Top 3 cumul + reste du top 10 ────────────────────────────────
+    if rows:
+        # Format des rows : [client, volume_str, segment, pct_str]
+        def pct_to_num(s):
+            try:
+                return float(str(s).replace('%', '').replace(',', '.').strip())
+            except Exception:
+                return 0.0
+        top3 = sum(pct_to_num(r[3]) for r in rows[:3] if len(r) > 3)
+        top10 = sum(pct_to_num(r[3]) for r in rows[:10] if len(r) > 3)
+        if top3 > 0:
+            lines.append(
+                f"🎯 TOP 3 clients = {top3:.1f}".replace('.', ',') +
+                f" % · TOP 10 = {top10:.1f}".replace('.', ',') +
+                " % du volume AGL (mesure de concentration / risque client)."
+            )
+
+    # ── 3. Mix marchandises (3 segments leaders) ────────────────────────
+    if mix_lbls and mix_vals:
+        pairs = sorted(zip(mix_lbls, mix_vals), key=lambda p: -p[1])
+        top3_mix = pairs[:3]
+        share3 = sum(v for _, v in top3_mix)
+        lbls = ', '.join([f"{str(l)[:18]} ({int(round(v))} %)" for l, v in top3_mix])
+        lines.append(f"📦 Mix AGL — TOP 3 segments = {int(round(share3))} % : {lbls}.")
+        # Si le mix est ≥ 60 % sur 3 segments, c'est un risque de spécialisation
+        if share3 >= 60:
+            lines.append(
+                f"⚠ Portefeuille concentré : 3 segments ≥ 60 % → exposition forte au cycle de ces marchés."
+            )
+        elif share3 <= 35:
+            lines.append("✅ Portefeuille diversifié : mix équilibré, faible exposition à un marché.")
+
+    # ── 4. Cibles cross-sell ────────────────────────────────────────────
+    if len(rows) >= 4:
+        cross = ', '.join([str(r[0])[:18] for r in rows[1:4]])
+        lines.append(f"🤝 Cross-sell prioritaire : {cross} (clients déjà actifs, à pousser sur autres métiers).")
+
+    # ── 5. Profondeur portefeuille ──────────────────────────────────────
+    if rows:
+        lines.append(
+            f"👥 Portefeuille suivi : {len(rows)} clients dans le top — segmenter par marchandise pour cibler la prospection."
+        )
     return lines
 
 
@@ -495,29 +633,34 @@ def add_bar_chart(s, x, y, w, h, series, colors=None):
         pass
 
 
+PIE_PALETTE = [NAVY, GOLD, BLUE2, GREEN, ORANGE, TEAL, RED,
+               RGBColor(0x9C, 0xA3, 0xAF), LINE_DK]
+
+
 def add_pie_chart(s, x, y, w, h, labels, values):
-    # Tronquer les libellés longs (légende compacte, évite débordement sur le tracé).
-    short_labels = [_fit_text(l, 1.6, pt=8) for l in labels]
+    """Camembert avec légende MANUELLE à droite (plus de chevauchement
+    légende ↔ tracé). On découpe la zone (x, y, w, h) en :
+      • pie  → 55 % à gauche
+      • légende → 45 % à droite (puces colorées + libellé tronqué)
+    """
+    n = len(labels)
+    pie_w = w * 0.55
+    leg_x = x + pie_w + 0.10
+    leg_w = w - pie_w - 0.10
+
+    # ── Tracé du camembert (légende interne désactivée) ──────────────────
     cd = CategoryChartData()
-    cd.categories = list(short_labels)
+    cd.categories = list(labels)  # complets pour le data label, même s'il est masqué
     cd.add_series('Mix', list(values))
     chart = s.shapes.add_chart(
-        XL_CHART_TYPE.PIE, _in(x), _in(y), _in(w), _in(h), cd
+        XL_CHART_TYPE.PIE, _in(x), _in(y), _in(pie_w), _in(h), cd
     ).chart
     chart.has_title = False
-    chart.has_legend = True
-    chart.legend.position = XL_LEGEND_POSITION.RIGHT
-    # include_in_layout=True : la légende réserve sa place et ne chevauche plus le pie.
-    chart.legend.include_in_layout = True
-    chart.legend.font.size = Pt(7.5)
-    # Color the slices via theme palette
-    palette = [NAVY, GOLD, BLUE2, GREEN, ORANGE, TEAL, RED,
-               RGBColor(0x9C, 0xA3, 0xAF), LINE_DK]
+    chart.has_legend = False
     for i, pt in enumerate(chart.plots[0].series[0].points):
         fill = pt.format.fill
         fill.solid()
-        fill.fore_color.rgb = palette[i % len(palette)]
-    # Data labels in percent — must enable first
+        fill.fore_color.rgb = PIE_PALETTE[i % len(PIE_PALETTE)]
     chart.plots[0].has_data_labels = True
     dlbls = chart.plots[0].data_labels
     dlbls.show_percentage = True
@@ -525,6 +668,24 @@ def add_pie_chart(s, x, y, w, h, labels, values):
     dlbls.show_category_name = False
     dlbls.font.size = Pt(9)
     dlbls.font.color.rgb = WHITE
+
+    # ── Légende manuelle : 1 ligne par catégorie ────────────────────────
+    # Hauteur de ligne calée pour que tout tienne dans h (max ~12 lignes).
+    line_h = min(0.22, max(0.16, (h - 0.20) / max(n, 1)))
+    chip = 0.13
+    total_v = sum(values) or 1
+    leg_y_start = y + max(0.05, (h - n * line_h) / 2)
+    for i, (lbl, val) in enumerate(zip(labels, values)):
+        ly = leg_y_start + i * line_h
+        # Puce couleur
+        _rect(s, _in(leg_x), _in(ly + 0.02), _in(chip), _in(chip),
+              fill=PIE_PALETTE[i % len(PIE_PALETTE)])
+        # Libellé tronqué pour la largeur disponible
+        pct = (float(val) / total_v) * 100
+        text = f"{_fit_text(lbl, leg_w - chip - 0.65, pt=8)}  {pct:.0f}%"
+        _txt(s, _in(leg_x + chip + 0.06), _in(ly), _in(leg_w - chip - 0.10),
+             _in(line_h - 0.02),
+             text, size=8, color=DGRAY, valign='middle', wrap=False)
 
 
 # ────────────────────────────────────────────────────────────────────────────
