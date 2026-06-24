@@ -1652,7 +1652,7 @@ def build_metier_concurrents(prs, study, code, label, page_no, fallback_rows, fa
 
 
 def build_metier_clientele(prs, study, code, label, page_no, fallback_rows,
-                           fallback_mix_labels, fallback_mix_values):
+                           fallback_mix_labels, fallback_mix_values, unit='TEU'):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_clientele_data(study, code)
     add_header(s, f"{label} – CLIENTÈLE AGL",
@@ -1899,7 +1899,7 @@ def build_mining_overview(prs, study):
 
 def build_mining_concurrents(prs, study):
     build_metier_concurrents(
-        prs, study, 'MINING', 'FOCUS MINIER – CONCURRENTS & MARCHANDISES', 'mining-2',
+        prs, study, 'MINING', 'FOCUS MINIER', 'mining-2',
         fallback_rows=[['#1', 'AFRICA GLOBAL LOGISTICS', '—', '—'],
                        ['#2', '—', '—', '—']],
         fallback_segs=[{'label': 'Mat. Miniers', 'vol': '— TEU', 'pdm': 0}])
@@ -2492,7 +2492,7 @@ def dispatch_block(prs, study, key):
     if key == 'AER_clientele':
         build_metier_clientele(prs, study, 'AER', 'AÉRIEN IMPORT', '23',
                                [['UBIPHARM', '180', 'Médicaments', '15,4%']],
-                               *FALLBACK_MIX); return
+                               *FALLBACK_MIX, unit='T'); return
     if key == 'AER_nouveaux_entrants':
         build_metier_nouveaux(prs, study, 'AER', 'AÉRIEN IMPORT', '24', unit='T'); return
 
