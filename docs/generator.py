@@ -298,9 +298,12 @@ def add_pie_chart(s, x, y, w, h, labels, values):
         fill = pt.format.fill
         fill.solid()
         fill.fore_color.rgb = palette[i % len(palette)]
-    # Data labels in percent
+    # Data labels in percent — must enable first
+    chart.plots[0].has_data_labels = True
     dlbls = chart.plots[0].data_labels
     dlbls.show_percentage = True
+    dlbls.show_value = False
+    dlbls.show_category_name = False
     dlbls.font.size = Pt(9)
     dlbls.font.color.rgb = WHITE
 
