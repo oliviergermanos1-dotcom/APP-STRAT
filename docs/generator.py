@@ -1714,10 +1714,9 @@ def build_metier_nouveaux(prs, study, code, label, page_no, unit='TEU'):
         add_rank_table(s, x3, y2 + 0.27, col_w,
                        ['Client', f'{unit} marché', f'{unit} AGL', 'PDM AGL'],
                        (live.get('topDestinataires') or [])[:5])
-        add_insight_box(s, 0.15, 5.70, 12.9, 1.40, '💡',
-                        [f"📊 Synthèse : {len(live['nouveauxTransitaires'])} transitaires · "
-                         f"{len(live['nouveauxMarchandises'])} marchandises · "
-                         f"{len(live['nouveauxClients'])} clients AGL."])
+        add_insight_box(s, 0.15, 5.70, 12.9, 1.45, '💡',
+                        compute_nouveaux_insights(live, label, unit=unit),
+                        bg=EYELLOW)
     else:
         add_insight_box(s, 0.15, 1.5, 12.9, 5, 'ℹ',
                         [f"Uploader les fichiers STATCOM ({code}) N + N-1 pour activer l'analyse live."])
@@ -1802,24 +1801,45 @@ def build_dsm_acteurs(prs, study):
         _txt(s, _in(x), _in(yT), _in(col_w), _in(0.22),
              title, size=9, bold=True, color=NAVY)
         add_rank_table(s, x, yTab, col_w, hdrs, data or [['—', '—', '—', '—']])
+    # ── Bloc bas : 3 graphes barres au lieu de tables (lisibilité,
+    # plus de débordement de noms longs sur colonnes voisines) ────────────
     yR = 3.95
     _txt(s, _in(x1), _in(yR), _in(col_w), _in(0.22),
-         'Ports de déchargement', size=9, bold=True, color=NAVY)
-    add_rank_table(s, x1, yR + 0.27, col_w, ['Port', 'T', 'PDM'],
-                   dsm['ports'][:4] or [['—', '—', '—']])
+         'Ports de déchargement (tonnage)', size=9, bold=True, color=NAVY)
+    ports_bars = [
+        {'label': str(p.get('name', '')), 'vol': fmt_int(p.get('tonnage', 0)) + ' T',
+         'pdm': int(round(float(p.get('pdm_marche') or 0)))}
+        for p in (dsm['ports'] or [])[:4]
+    ] or [{'label': '—', 'vol': '—', 'pdm': 0}]
+    add_segment_bars(s, x1, yR + 0.30, ports_bars)
+
     _txt(s, _in(x2), _in(yR), _in(col_w), _in(0.22),
          'Range / origines — PDM AGL', size=9, bold=True, color=NAVY)
-    add_rank_table(s, x2, yR + 0.27, col_w, ['Range', 'T', 'PDM AGL'],
-                   dsm['ranges'][:4] or [['—', '—', '—']])
+    ranges_bars = [
+        {'label': str(r.get('name', '')), 'vol': fmt_int(r.get('tonnage', 0)) + ' T',
+         'pdm': int(round(float(r.get('pdm_agl') or 0)))}
+        for r in (dsm['ranges'] or [])[:4]
+    ] or [{'label': '—', 'vol': '—', 'pdm': 0}]
+    add_segment_bars(s, x2, yR + 0.30, ranges_bars)
+
     md = dsm.get('manutDetail')
     title3 = (f"Détail #1 manut. ({(md.get('manutentionnaire') or '')[:22]}) — marchandise"
               if md else 'Détail manutentionnaire')
     _txt(s, _in(x3), _in(yR), _in(col_w), _in(0.22),
          title3, size=9, bold=True, color=NAVY)
-    md_rows = [[r['name'], fmt_int(r['tonnage'])]
-               for r in (md.get('par_marchandise') or [])[:4]] if md else [['—', '—']]
-    add_rank_table(s, x3, yR + 0.27, col_w, ['Marchandise', 'T'],
-                   md_rows or [['—', '—']])
+    if md:
+        merch_rows = (md.get('par_marchandise') or [])[:4]
+        # Normaliser pdm relatif au max pour barre interprétable.
+        max_t = max((float(r.get('tonnage') or 0) for r in merch_rows), default=1) or 1
+        manut_bars = [
+            {'label': str(r.get('name', '')),
+             'vol': fmt_int(r.get('tonnage', 0)) + ' T',
+             'pdm': int(round((float(r.get('tonnage') or 0) / max_t) * 100))}
+            for r in merch_rows
+        ] or [{'label': '—', 'vol': '—', 'pdm': 0}]
+    else:
+        manut_bars = [{'label': '—', 'vol': '—', 'pdm': 0}]
+    add_segment_bars(s, x3, yR + 0.30, manut_bars)
 
 
 def build_dsm_vehicules(prs, study):
@@ -2200,6 +2220,96 @@ def build_prediction_signaux(prs, study):
                         ['Déposer RECAP_AO_ET_AGREMENTS pour la synthèse.'])
 
 
+def build_prediction_newsletters(prs, study):
+    """Slide dédiée aux signaux extraits des newsletters + dynamique
+    AO/agréments — séparée des prospects PND pour clarté de lecture.
+    Reprend les graphes sectoriels + pays + AO type/statut, avec une
+    lecture stratégique enrichie en bas."""
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    pred = study.get('prediction') or {}
+    signals = pred.get('signals') or {}
+    sectors = signals.get('sectors') or []
+    countries = signals.get('countries') or []
+    ao = pred.get('ao')
+
+    pdfn = pred.get('pdfCount', 0)
+    sub = (f"{pdfn} newsletter(s) PDF analysée(s) · "
+           f"AO/agréments {ao['sheet'] if ao else '—'} · "
+           f"Total signaux : {sum(s.get('count', 0) for s in sectors)} citations")
+    add_header(s, 'PRÉDICTION – SIGNAUX DÉTAILLÉS NEWSLETTERS & AO', sub)
+    add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.signaux-2')
+
+    # ── Bloc gauche : secteurs (8 max) en barres horizontales ─────────
+    _txt(s, _in(0.25), _in(1.18), _in(6.4), _in(0.22),
+         'Top secteurs cités (newsletters)', size=10, bold=True, color=NAVY)
+    if sectors:
+        max_c = max((x.get('count', 0) for x in sectors), default=1) or 1
+        bars = [{'label': str(x.get('name', '')),
+                 'vol': f"{x.get('count', 0)} cit.",
+                 'pdm': int(round(x.get('count', 0) / max_c * 100))}
+                for x in sectors[:8]]
+        add_segment_bars(s, 0.15, 1.45, bars)
+    else:
+        add_insight_box(s, 0.15, 1.45, 6.4, 0.8, 'ℹ',
+                        ['Déposer jusqu\'à 6 PDF dans la section Prédiction.'])
+
+    # ── Bloc droite haut : pays / origines cités ──────────────────────
+    _txt(s, _in(7.0), _in(1.18), _in(6.2), _in(0.22),
+         'Pays / origines cités', size=10, bold=True, color=NAVY)
+    if countries:
+        max_c = max((x.get('count', 0) for x in countries), default=1) or 1
+        bars = [{'label': str(x.get('name', '')).upper(),
+                 'vol': f"{x.get('count', 0)} cit.",
+                 'pdm': int(round(x.get('count', 0) / max_c * 100))}
+                for x in countries[:6]]
+        add_segment_bars(s, 7.0, 1.45, bars)
+    else:
+        add_insight_box(s, 7.0, 1.45, 6.2, 0.8, 'ℹ',
+                        ['Aucun pays cité — newsletters non déposées.'])
+
+    # ── Bloc droite milieu : AO par type ──────────────────────────────
+    _txt(s, _in(7.0), _in(4.10), _in(6.2), _in(0.22),
+         'AO/agréments — répartition par type', size=10, bold=True, color=NAVY)
+    if ao:
+        ao_items = list((ao.get('byType') or {}).items())
+        ao_total = sum(int(v) for _, v in ao_items) or 1
+        ao_bars = [{'label': str(k), 'vol': f"{v} AO",
+                    'pdm': int(round(int(v) / ao_total * 100))}
+                   for k, v in sorted(ao_items, key=lambda kv: -int(kv[1]))[:5]]
+        add_segment_bars(s, 7.0, 4.35, ao_bars)
+    else:
+        add_insight_box(s, 7.0, 4.35, 6.2, 0.8, 'ℹ',
+                        ['Déposer RECAP_AO_ET_AGREMENTS pour la synthèse AO.'])
+
+    # ── Insight bas : lecture stratégique enrichie ────────────────────
+    lines = []
+    if sectors:
+        top3 = ', '.join([f"{s.get('name', '')} ({s.get('count', 0)})"
+                          for s in sectors[:3]])
+        total_cit = sum(s.get('count', 0) for s in sectors)
+        lines.append(f"📰 TOP 3 secteurs newsletter : {top3} — sur {total_cit} citations totales.")
+        # Détection alerte : si un secteur > 30% des citations = signal fort
+        dom = sectors[0]
+        if total_cit > 0 and (dom.get('count', 0) / total_cit) >= 0.30:
+            pct = round(dom['count'] / total_cit * 100)
+            lines.append(f"🚨 Signal fort : {dom['name']} concentre {pct} % des citations — secteur en effervescence médiatique.")
+    if countries:
+        top_co = ', '.join([f"{c.get('name', '').upper()} ({c.get('count', 0)})"
+                            for c in countries[:3]])
+        lines.append(f"🌍 Origines en focus : {top_co}.")
+    if ao:
+        total_ao = sum(int(v) for v in (ao.get('byType') or {}).values())
+        stat_top = sorted((ao.get('statuts') or {}).items(),
+                          key=lambda kv: -kv[1])[:2]
+        stat_str = ', '.join([f"{k[:18]} ({v})" for k, v in stat_top])
+        lines.append(f"📋 Pipeline AO : {total_ao} dossiers — statuts dominants : {stat_str}.")
+    lines.append("📌 Méthode : extraction NLP sur newsletters PDF (lexique 10 secteurs CI) + parsing Excel AO. "
+                 "À croiser avec la slide PROSPECTS PND pour cibler les clients à démarcher.")
+    if not lines or len(lines) == 1:
+        lines = ["📊 Déposer newsletters PDF + Excel AO dans la section Prédiction pour activer l'analyse."]
+    add_insight_box(s, 0.15, 6.55, 13.0, 0.85, '💡', lines, bg=EYELLOW)
+
+
 def build_prediction_prospects(prs, study):
     """Slide PRÉDICTION – PROSPECTS PAR SECTEUR : croise les secteurs
     prioritaires du PND Côte d'Ivoire 2026-2030 (+ signaux newsletters)
@@ -2207,16 +2317,12 @@ def build_prediction_prospects(prs, study):
     segments. Surface des prospects concrets à démarcher, ventilés par
     secteur, avec PDM AGL actuelle pour qualifier l'effort commercial."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
-    pred = study.get('prediction') or {}
-    pn_signals = (pred.get('signals') or {}).get('sectors') or []
-    pn_top = ', '.join([f"{x.get('name', '')} ({x.get('count', 0)})"
-                        for x in pn_signals[:3]]) if pn_signals else '—'
 
     ds = find_dataset(study, 'PREDICTION', 'sector_prospects')
     prospects = ds['rows'] if ds and ds.get('rows') else []
 
     add_header(s, "PRÉDICTION – PROSPECTS PAR SECTEUR  |  PND CI 2026-2030 × STATCOM",
-               f"Croisement Plan National × flux STATCOM réels  |  Signaux newsletters : {pn_top}")
+               "Croisement Plan National × flux STATCOM réels  |  Prospects concrets par secteur prioritaire")
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.prospects')
 
     if not prospects:
@@ -2293,30 +2399,82 @@ def build_prediction_preconisations(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     pred = study.get('prediction') or {}
     P = pred.get('preconisations') or {}
-    sub = (f"Horizon {P['horizon']}  |  Lecture stratégique AGL"
+    signals = pred.get('signals') or {}
+    sectors = signals.get('sectors') or []
+    sub = (f"Horizon {P['horizon']}  |  Lecture stratégique AGL — synthèse cross-sources"
            if P.get('horizon') else
-           'Secteurs porteurs  |  Marchandises  |  Clients cibles  |  Recommandations')
+           'Secteurs porteurs  |  Marchandises  |  Clients cibles  |  Recommandations · synthèse cross-sources')
     add_header(s, 'PRÉDICTION – PRÉCONISATIONS DE POSITIONNEMENT', sub)
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.préco')
-    def quad(title, x, y, color, lines):
+
+    def quad(title, x, y, color, body, footer_lines=None):
+        """body = texte principal ; footer_lines = bullets contextuels en bas."""
         _rect(s, _in(x), _in(y), _in(6.35), _in(2.05),
               fill=RGBColor(0xF8, 0xF9, 0xFA), line=LINE_GR, line_width=0.5)
         _rect(s, _in(x), _in(y), _in(6.35), _in(0.32), fill=color)
         _txt(s, _in(x + 0.12), _in(y + 0.03), _in(6.1), _in(0.26),
              title, size=10, bold=True, color=WHITE, valign='middle')
-        _txt(s, _in(x + 0.15), _in(y + 0.42), _in(6.05), _in(1.55),
-             '\n'.join(l for l in lines if l), size=9, color=DGRAY, valign='top', wrap=True)
+        # Texte principal (corps préco)
+        _txt(s, _in(x + 0.15), _in(y + 0.40), _in(6.05), _in(1.00),
+             body, size=9, bold=True, color=DGRAY, valign='top', wrap=True)
+        # Lignes contextuelles enrichies en bas du quadrant
+        if footer_lines:
+            _txt(s, _in(x + 0.15), _in(y + 1.42), _in(6.05), _in(0.60),
+                 '\n'.join(footer_lines), size=8, italic=True, color=MGRAY,
+                 valign='top', wrap=True)
+
+    # Contexte cross-sources pour enrichir les quadrants
+    # Top secteurs newsletter
+    top_news = ', '.join([s['name'] for s in sectors[:3]]) if sectors else 'newsletters non chargées'
+    # Top hausses N vs N-1 toutes bases STATCOM confondues (lecture cross-métier)
+    growth_lines = []
+    for code in ('TIM', 'HIMP', 'HEXP', 'TEM', 'AER'):
+        ds = find_dataset(study, code, 'top_growth')
+        if ds and ds.get('rows'):
+            top = ds['rows'][0]
+            growth_lines.append(f"{code} : {top.get('segment', '')[:20]} ({'+' if (top.get('growth_pct') or 0) >= 0 else ''}{top.get('growth_pct', '—')}%)")
+    growth_str = '; '.join(growth_lines[:3]) if growth_lines else 'pas de hausse STATCOM détectée'
+    # Top prospects PND
+    prospects_ds = find_dataset(study, 'PREDICTION', 'sector_prospects')
+    pnd_top = []
+    if prospects_ds and prospects_ds.get('rows'):
+        pnd_top = [p.get('sector', '')[:25] for p in prospects_ds['rows'][:3] if p.get('pnd')]
+    pnd_str = ', '.join(pnd_top) if pnd_top else 'STATCOM non croisé'
+
     quad('SECTEURS PORTEURS', 0.15, 1.18, NAVY,
-         [P.get('secteurs') or '(à compléter)'])
+         P.get('secteurs') or '(à compléter dans data/preconisations.json)',
+         [f"📰 Newsletters : {top_news}",
+          f"📈 STATCOM hausses : {growth_str}",
+          f"★ PND prioritaires détectés : {pnd_str}"])
+
     quad('MARCHANDISES À SURVEILLER', 6.65, 1.18, GREEN,
-         [P.get('marchandises') or '(à compléter)'])
+         P.get('marchandises') or '(à compléter)',
+         ['🎯 Surveiller les marchandises où PDM AGL ≤ 5 % et volume marché élevé.',
+          '⚡ Croiser top_growth des 5 métiers pour repérer marchandises en accélération.',
+          '🚨 Alerter sur les nouvelles marchandises (absentes N-1) à fort volume.'])
+
     quad('CLIENTS CIBLES', 0.15, 3.40, BLUE2,
-         [P.get('clients') or '(à compléter)'])
+         P.get('clients') or '(à compléter)',
+         ['🔍 Prospects PND : voir slide PROSPECTS PAR SECTEUR (destinataires réels STATCOM).',
+          '🔒 Verrouillage : clients communs AGL ↔ AYIMAN (voir focus AYIMAN).',
+          '🎁 Conquête : nouveaux destinataires AGL absents N-1 (voir slides NOUVEAUX ENTRANTS).'])
+
     quad('RECOMMANDATIONS DE POSITIONNEMENT', 6.65, 3.40, GOLD,
-         [P.get('recommandations') or '(à compléter)'])
-    add_insight_box(s, 0.15, 5.7, 12.9, 1.2, '🧭',
+         P.get('recommandations') or '(à compléter)',
+         ['🏁 Capitaliser sur les segments AGL où PDM ≥ 50 % (forces).',
+          '📊 Lancer offensive sur les métiers où AGL ≤ #5 et marché en hausse.',
+          '🤝 Pipeline AO : prioriser les statuts "EN COURS" et "RECEVABLE".'])
+
+    add_insight_box(s, 0.15, 5.65, 12.9, 1.40, '🧭',
                     [P.get('synthese') or
-                     'SYNTHÈSE PRÉDICTIVE : croiser hausses STATCOM + signaux newsletters + pipeline AO.'])
+                     "🧭 SYNTHÈSE PRÉDICTIVE AGL : trois leviers à actionner sur les 12 prochains mois.",
+                     "1️⃣ DÉFENSIF : verrouiller les segments à PDM ≥ 50 % (Matériels Miniers, Hinterland Export, "
+                     "Aérien) — risque AYIMAN/concurrence sur clients communs.",
+                     "2️⃣ OFFENSIF : prospecter les destinataires PND (mines, BTP, agro-industrie) où AGL ≤ 10 %, "
+                     "soutenus par signaux newsletters (effervescence médiatique).",
+                     "3️⃣ STRUCTUREL : industrialiser le pipeline AO (RECAP_AO_ET_AGREMENTS) pour transformer "
+                     "les agréments en CA, en cohérence avec les marchandises à plus forte hausse STATCOM."],
+                    bg=EYELLOW)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -2332,7 +2490,8 @@ BLOCK_SEQUENCE = [
     'sep_DSM', 'DSM_vue_ensemble', 'DSM_armateurs', 'DSM_manutentionnaires', 'DSM_consignataires_pol',
     'sep_divers', 'sep_mining', 'mining_overview', 'mining_concurrents', 'mining_clientele',
     'sep_ayman', 'ayman_overview', 'ayman_detail',
-    'sep_predictions', 'prediction_signaux', 'prediction_prospects', 'prediction_preconisations',
+    'sep_predictions', 'prediction_signaux', 'prediction_newsletters',
+    'prediction_prospects', 'prediction_preconisations',
     'sep_cx', 'sep_analyse_client',
 ]
 
@@ -2486,6 +2645,7 @@ def dispatch_block(prs, study, key):
     if key == 'ayman_detail':            build_ayman_detail(prs, study); return
 
     if key == 'prediction_signaux':         build_prediction_signaux(prs, study); return
+    if key == 'prediction_newsletters':     build_prediction_newsletters(prs, study); return
     if key == 'prediction_prospects':       build_prediction_prospects(prs, study); return
     if key == 'prediction_preconisations':  build_prediction_preconisations(prs, study); return
 
