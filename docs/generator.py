@@ -265,8 +265,13 @@ def add_segment_bars(s, x, y, segments):
     Si seg['pdm_n1'] est fourni : couleur vert si PDM N ≥ PDM N-1 du segment,
     orange si PDM N < PDM N-1. Le delta s'affiche en bout de barre.
     Fallback (pas de N-1) : palette 2 couleurs — vert si PDM ≥ 10 %,
-    orange sinon (cohérent avec la légende affichée)."""
-    max_bar = 2.20
+    orange sinon (cohérent avec la légende affichée).
+
+    Calibration largeurs (x=7.1, slide 13.33") :
+      label seg (1.80) · vol (0.90) · bar (1.85) · pdm% (0.50) · N-1 (0.90)
+      → 5.95 in à droite de x ; avec x=7.1 → fin 13.05 < 13.33 ✓
+    """
+    max_bar = 1.85
     row_h = 0.42
     for i, seg in enumerate(segments):
         ry = y + i * row_h
@@ -281,21 +286,23 @@ def add_segment_bars(s, x, y, segments):
             bar_color = GREEN if pdm >= 10 else ORANGE
         _txt(s, _in(x), _in(ry), _in(1.8), _in(0.28),
              str(seg.get('label', '')).upper(), size=8.5, color=DGRAY)
-        _txt(s, _in(x + 1.82), _in(ry), _in(0.9), _in(0.28),
+        _txt(s, _in(x + 1.82), _in(ry), _in(0.85), _in(0.28),
              str(seg.get('vol', '')), size=8.5, color=MGRAY, align='right')
-        _rect(s, _in(x + 2.8), _in(ry + 0.04), _in(max_bar), _in(0.18),
+        _rect(s, _in(x + 2.70), _in(ry + 0.04), _in(max_bar), _in(0.18),
               fill=LINE_GR)
-        _rect(s, _in(x + 2.8), _in(ry + 0.04), _in(bar_w), _in(0.18),
+        _rect(s, _in(x + 2.70), _in(ry + 0.04), _in(bar_w), _in(0.18),
               fill=bar_color)
-        _txt(s, _in(x + 2.8 + max_bar + 0.05), _in(ry), _in(0.55), _in(0.28),
+        _txt(s, _in(x + 2.70 + max_bar + 0.03), _in(ry), _in(0.50), _in(0.28),
              f"{int(round(pdm))}%", size=9, bold=True, color=bar_color)
         if has_n1:
             delta = pdm - pdm_n1_f
             sign = '+' if delta >= 0 else ''
-            _txt(s, _in(x + 2.8 + max_bar + 0.62), _in(ry + 0.02),
-                 _in(1.10), _in(0.28),
-                 f"(N-1 {int(round(pdm_n1_f))}% · {sign}{delta:.0f} pt)",
-                 size=7.5, color=MGRAY)
+            # Format compact : "N-1 12% (+5pt)" — sans parenthèses ni · pour
+            # rester sous 0.90 in à 7 pt (~14 caractères max).
+            _txt(s, _in(x + 2.70 + max_bar + 0.55), _in(ry + 0.02),
+                 _in(0.90), _in(0.28),
+                 f"N-1 {int(round(pdm_n1_f))}% ({sign}{int(round(delta))}pt)",
+                 size=7, color=MGRAY, wrap=False)
 
 
 def add_segment_legend(s, x, y, w=4.0, mode='n1'):
@@ -1512,7 +1519,7 @@ def build_tim_clientele(prs, study):
     ]
     add_rank_table(s, 0.15, 1.5, 7.0,
                    ['Client (Destinataire)', 'TEU', 'Segment', '% Vol. AGL'], rows)
-    add_insight_box(s, 0.15, 5.35, 7.0, 1.95, '⚠',
+    add_insight_box(s, 0.15, 5.35, 7.0, 1.70, '⚠',
                     compute_clientele_insights(live, 'TIM', unit='TEU'),
                     bg=EYELLOW)
 
@@ -1663,7 +1670,7 @@ def build_metier_clientele(prs, study, code, label, page_no, fallback_rows,
     rows = live['rows'] if live else fallback_rows
     add_rank_table(s, 0.15, 1.5, 7.0,
                    ['Client', 'Volume', 'Segment', '% AGL'], rows)
-    add_insight_box(s, 0.15, 5.35, 7.0, 1.95, '⚠',
+    add_insight_box(s, 0.15, 5.35, 7.0, 1.70, '⚠',
                     compute_clientele_insights(live, label, unit=unit),
                     bg=EYELLOW)
     _txt(s, _in(7.3), _in(1.2), _in(5.8), _in(0.28),
@@ -1987,7 +1994,7 @@ def build_ayman_detail(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_ayman_focus_data(study)
     add_header(s, 'FOCUS AYIMAN – ÉTUDE COMPLÈTE MULTI-MÉTIERS',
-               'Import (TIM/HIMP) · Export (TEM/HEXP) · Aérien (AER) · Clients communs AGL↔AYIMAN')
+               'Import (TIM/HIMP) · Aérien (AER) · Clients communs AGL↔AYIMAN')
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.ayman-3')
 
     if not live or not live.get('byMetierDetail'):
