@@ -2294,10 +2294,17 @@ def build_prediction_signaux(prs, study):
 
 
 def build_prediction_newsletters(prs, study):
-    """Slide dédiée aux signaux extraits des newsletters + dynamique
-    AO/agréments — séparée des prospects PND pour clarté de lecture.
-    Reprend les graphes sectoriels + pays + AO type/statut, avec une
-    lecture stratégique enrichie en bas."""
+    """Slide PRÉDICTION – FOCUS PRÉDICTIF NEWSLETTERS & AO.
+    Angle distinct de la slide 39 (Signaux de marché — vue d'ensemble) :
+    cette slide pousse l'analyse prédictive en croisant les signaux
+    newsletters avec la réalité STATCOM et en zoomant sur le pipeline AO
+    par statut. Elle ne refait PAS le top sectors qui est déjà sur la 39.
+    Contenu :
+      - Validation des signaux newsletter par la réalité STATCOM (croisement)
+      - Pays / origines cités (zoom géographique pas présent sur la 39)
+      - Pipeline AO détaillé par STATUT (alertes pipeline)
+      - Lecture stratégique enrichie en bas
+    """
     s = prs.slides.add_slide(prs.slide_layouts[6])
     pred = study.get('prediction') or {}
     signals = pred.get('signals') or {}
@@ -2306,29 +2313,69 @@ def build_prediction_newsletters(prs, study):
     ao = pred.get('ao')
 
     pdfn = pred.get('pdfCount', 0)
-    sub = (f"{pdfn} newsletter(s) PDF analysée(s) · "
-           f"AO/agréments {ao['sheet'] if ao else '—'} · "
-           f"Total signaux : {sum(s.get('count', 0) for s in sectors)} citations")
-    add_header(s, 'PRÉDICTION – SIGNAUX DÉTAILLÉS NEWSLETTERS & AO', sub)
+    sub = (f"Croisement signaux newsletters × réalité STATCOM  |  Pipeline AO par statut  |  "
+           f"{pdfn} PDF · AO {ao['sheet'] if ao else '—'}")
+    add_header(s, 'PRÉDICTION – FOCUS PRÉDICTIF NEWSLETTERS & AO', sub)
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.signaux-2')
 
-    # ── Bloc gauche : secteurs (8 max) en barres horizontales ─────────
+    # ── Bloc gauche : VALIDATION secteurs newsletter × marchandises STATCOM ──
+    # Pour chaque top secteur newsletter, on cherche si on a une preuve
+    # de flux STATCOM correspondant (via le dataset sector_prospects).
+    # Permet de distinguer "buzz médiatique" vs "vrai marché en mouvement".
     _txt(s, _in(0.25), _in(1.18), _in(6.4), _in(0.22),
-         'Top secteurs cités (newsletters)', size=10, bold=True, color=NAVY)
-    if sectors:
-        max_c = max((x.get('count', 0) for x in sectors), default=1) or 1
-        bars = [{'label': str(x.get('name', '')),
-                 'vol': f"{x.get('count', 0)} cit.",
-                 'pdm': int(round(x.get('count', 0) / max_c * 100))}
-                for x in sectors[:8]]
-        add_segment_bars(s, 0.15, 1.45, bars)
+         'Validation prédictive : signal newsletter × flux STATCOM réel',
+         size=10, bold=True, color=NAVY)
+    # Mapping approximatif secteur newsletter → mots-clés à chercher dans
+    # sector_prospects (PND keywords sont déjà bien alignés)
+    prospects_ds = find_dataset(study, 'PREDICTION', 'sector_prospects')
+    prospects = prospects_ds['rows'] if prospects_ds and prospects_ds.get('rows') else []
+    # On match les secteurs newsletter (CIMENT & BTP, AGRO & CACAO, etc.)
+    # avec les secteurs PND (BTP & ciment, Agro-industrie, etc.)
+    def _norm(s):
+        import unicodedata
+        return ''.join(c for c in unicodedata.normalize('NFD', str(s).lower())
+                       if not unicodedata.combining(c))
+    val_rows = []
+    for sec in sectors[:6]:
+        sec_n = _norm(sec.get('name', ''))
+        match = None
+        for p in prospects:
+            p_n = _norm(p.get('sector', ''))
+            # Match par mots-clés partagés (2+ caractères communs significatifs)
+            for token in sec_n.split():
+                if len(token) >= 4 and token in p_n:
+                    match = p
+                    break
+            if match:
+                break
+        if match:
+            vol = float(match.get('totalVol') or 0)
+            pdm = float(match.get('aglPdm') or 0)
+            val_status = '✅ Confirmé STATCOM' if vol >= 100 else '⚠ Volume faible'
+            val_rows.append([
+                str(sec.get('name', ''))[:24],
+                f"{sec.get('count', 0)} cit.",
+                fmt_int(vol),
+                f"{pdm:.0f}%",
+                val_status,
+            ])
+        else:
+            val_rows.append([
+                str(sec.get('name', ''))[:24],
+                f"{sec.get('count', 0)} cit.",
+                '—', '—', '🔍 Pas de match',
+            ])
+    if val_rows:
+        add_rank_table(s, 0.15, 1.45, 6.4,
+                       ['Secteur', 'Citations', 'Marché STATCOM', 'PDM AGL', 'Validation'],
+                       val_rows)
     else:
         add_insight_box(s, 0.15, 1.45, 6.4, 0.8, 'ℹ',
-                        ['Déposer jusqu\'à 6 PDF dans la section Prédiction.'])
+                        ['Déposer newsletters PDF + STATCOM pour activer la validation croisée.'])
 
-    # ── Bloc droite haut : pays / origines cités ──────────────────────
+    # ── Bloc droite haut : pays / origines (focus géographique) ──────
     _txt(s, _in(7.0), _in(1.18), _in(6.2), _in(0.22),
-         'Pays / origines cités', size=10, bold=True, color=NAVY)
+         'Pays / origines en focus (newsletters)', size=10, bold=True, color=NAVY)
     if countries:
         max_c = max((x.get('count', 0) for x in countries), default=1) or 1
         bars = [{'label': str(x.get('name', '')).upper(),
@@ -2340,46 +2387,51 @@ def build_prediction_newsletters(prs, study):
         add_insight_box(s, 7.0, 1.45, 6.2, 0.8, 'ℹ',
                         ['Aucun pays cité — newsletters non déposées.'])
 
-    # ── Bloc droite milieu : AO par type ──────────────────────────────
+    # ── Bloc droite milieu : Pipeline AO par STATUT (pas par type — déjà sur 39) ──
     _txt(s, _in(7.0), _in(4.10), _in(6.2), _in(0.22),
-         'AO/agréments — répartition par type', size=10, bold=True, color=NAVY)
-    if ao:
-        ao_items = list((ao.get('byType') or {}).items())
-        ao_total = sum(int(v) for _, v in ao_items) or 1
-        ao_bars = [{'label': str(k), 'vol': f"{v} AO",
-                    'pdm': int(round(int(v) / ao_total * 100))}
-                   for k, v in sorted(ao_items, key=lambda kv: -int(kv[1]))[:5]]
-        add_segment_bars(s, 7.0, 4.35, ao_bars)
+         'Pipeline AO — détail par statut (top 6)', size=10, bold=True, color=NAVY)
+    if ao and ao.get('statuts'):
+        statuts = sorted(ao['statuts'].items(), key=lambda kv: -kv[1])[:6]
+        total = sum(int(v) for _, v in statuts) or 1
+        st_bars = [{'label': str(k), 'vol': f"{v} dossiers",
+                    'pdm': int(round(int(v) / total * 100))}
+                   for k, v in statuts]
+        add_segment_bars(s, 7.0, 4.35, st_bars)
     else:
         add_insight_box(s, 7.0, 4.35, 6.2, 0.8, 'ℹ',
-                        ['Déposer RECAP_AO_ET_AGREMENTS pour la synthèse AO.'])
+                        ['Déposer RECAP_AO_ET_AGREMENTS pour le pipeline.'])
 
-    # ── Insight bas : lecture stratégique enrichie ────────────────────
+    # ── Insight bas : lecture prédictive ──────────────────────────────
     lines = []
-    if sectors:
-        top3 = ', '.join([f"{s.get('name', '')} ({s.get('count', 0)})"
-                          for s in sectors[:3]])
-        total_cit = sum(s.get('count', 0) for s in sectors)
-        lines.append(f"📰 TOP 3 secteurs newsletter : {top3} — sur {total_cit} citations totales.")
-        # Détection alerte : si un secteur > 30% des citations = signal fort
-        dom = sectors[0]
-        if total_cit > 0 and (dom.get('count', 0) / total_cit) >= 0.30:
-            pct = round(dom['count'] / total_cit * 100)
-            lines.append(f"🚨 Signal fort : {dom['name']} concentre {pct} % des citations — secteur en effervescence médiatique.")
+    confirmed = [r for r in val_rows if r[4].startswith('✅')]
+    weak = [r for r in val_rows if r[4].startswith('⚠')]
+    no_match = [r for r in val_rows if r[4].startswith('🔍')]
+    if val_rows:
+        lines.append(
+            f"🔬 Validation prédictive : {len(confirmed)} secteur(s) confirmé(s) par STATCOM, "
+            f"{len(weak)} à faible volume, {len(no_match)} sans match — signaux media "
+            f"vs flux logistiques réels."
+        )
+    if confirmed:
+        lbls = ', '.join([r[0] for r in confirmed[:3]])
+        lines.append(f"✅ Signaux CONFIRMÉS (à investir prioritairement) : {lbls}.")
+    if no_match:
+        lbls = ', '.join([r[0] for r in no_match[:3]])
+        lines.append(f"🔍 Buzz médiatique SANS flux STATCOM ({lbls}) : signaux faibles, à surveiller mais pas (encore) actionnable.")
     if countries:
         top_co = ', '.join([f"{c.get('name', '').upper()} ({c.get('count', 0)})"
                             for c in countries[:3]])
-        lines.append(f"🌍 Origines en focus : {top_co}.")
-    if ao:
-        total_ao = sum(int(v) for v in (ao.get('byType') or {}).values())
-        stat_top = sorted((ao.get('statuts') or {}).items(),
-                          key=lambda kv: -kv[1])[:2]
-        stat_str = ', '.join([f"{k[:18]} ({v})" for k, v in stat_top])
-        lines.append(f"📋 Pipeline AO : {total_ao} dossiers — statuts dominants : {stat_str}.")
-    lines.append("📌 Méthode : extraction NLP sur newsletters PDF (lexique 10 secteurs CI) + parsing Excel AO. "
-                 "À croiser avec la slide PROSPECTS PND pour cibler les clients à démarcher.")
-    if not lines or len(lines) == 1:
-        lines = ["📊 Déposer newsletters PDF + Excel AO dans la section Prédiction pour activer l'analyse."]
+        lines.append(f"🌍 Géographie prédictive : {top_co} — origines à anticiper côté sourcing/routes.")
+    if ao and ao.get('statuts'):
+        total_ao = sum(int(v) for v in ao['statuts'].values())
+        en_cours = sum(v for k, v in ao['statuts'].items()
+                       if any(t in str(k).lower() for t in ('en cours', 'recevable', 'instruction')))
+        if total_ao > 0:
+            pct = round(en_cours / total_ao * 100)
+            lines.append(f"📋 Pipeline AO ACTIF : {en_cours}/{total_ao} dossiers en cours d'instruction ({pct} %) — "
+                         "potentiel de conversion CA dans les 6-12 mois.")
+    if not lines:
+        lines = ["📊 Déposer newsletters PDF + Excel AO + STATCOM pour activer l'analyse prédictive croisée."]
     add_insight_box(s, 0.15, 6.55, 13.0, 0.85, '💡', lines, bg=EYELLOW)
 
 
