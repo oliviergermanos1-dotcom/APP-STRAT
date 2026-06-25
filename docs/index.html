@@ -45,6 +45,12 @@
       </div>
       <div class="text-right">
         <div class="text-[10px] text-white/50">Version HTML autonome — v1.0</div>
+        <div id="cache-version-badge"
+             class="text-[10px] mt-0.5 px-1.5 py-0.5 rounded inline-block bg-aglgreen text-white font-mono"
+             title="Identifiant de la version du code chargée. Si ce numéro ne correspond pas à la dernière version annoncée, fais Ctrl+Shift+R pour vider le cache.">
+          Build : <span id="cache-version-tag">…</span>
+        </div>
+        <br/>
         <a href="https://github.com/oliviergermanos1-dotcom/APP-STRAT" class="text-[10px] text-gold hover:underline" target="_blank">code source</a>
       </div>
     </div>
@@ -270,10 +276,34 @@
   <!-- generator.js (pptxgenjs) is no longer loaded — Python (Pyodide) handles
        the base deck. data-adapter.js is also obsolete (port lives in
        generator.py). blocks.js stays for the JS-side merge logic only. -->
-  <script src="./blocks.js?v=20260625c"></script>
-  <script src="./prediction.js?v=20260625c"></script>
-  <script src="./pptx-merge.js?v=20260625c"></script>
-  <script src="./py-generator.js?v=20260625c"></script>
-  <script src="./app.js?v=20260625c"></script>
+  <script src="./blocks.js?v=20260625d"></script>
+  <script src="./prediction.js?v=20260625d"></script>
+  <script src="./pptx-merge.js?v=20260625d"></script>
+  <script src="./py-generator.js?v=20260625d"></script>
+  <script src="./app.js?v=20260625d"></script>
+
+  <!-- Indicateur de version : extrait le cache-bust de l'URL d'app.js et
+       l'affiche dans le badge du header. Permet à Olivier de vérifier d'un
+       coup d'œil que la dernière version est bien chargée (vs cache navigateur),
+       sans ouvrir DevTools. La version est aussi exposée à `window.APP_VERSION`
+       pour être imprimée dans le PPTX généré (footer cover slide). -->
+  <script>
+    (function () {
+      var srcs = document.querySelectorAll('script[src*="app.js?v="]');
+      var m = srcs.length ? srcs[srcs.length - 1].src.match(/v=([^&]+)/) : null;
+      var v = m ? m[1] : 'unknown';
+      window.APP_VERSION = v;
+      var tag = document.getElementById('cache-version-tag');
+      if (tag) tag.textContent = 'v=' + v;
+      // Affiche aussi un toast 3s au premier chargement pour confirmer
+      var toast = document.createElement('div');
+      toast.textContent = '✓ Version chargée : v=' + v;
+      toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#0D2243;color:#C9A84C;padding:10px 16px;border-radius:6px;font-size:13px;font-family:monospace;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:9999;opacity:0;transition:opacity 0.3s;';
+      document.body.appendChild(toast);
+      setTimeout(function () { toast.style.opacity = '1'; }, 300);
+      setTimeout(function () { toast.style.opacity = '0'; }, 3500);
+      setTimeout(function () { toast.remove(); }, 4000);
+    })();
+  </script>
 </body>
 </html>

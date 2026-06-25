@@ -1311,6 +1311,14 @@ def build_cover(prs, study):
          size=9.5, color=MGRAY, align='center')
     _txt(s, _in(12.0), _in(7.1), _in(1.2), _in(0.35),
          '2026', size=18, bold=True, color=WHITE, align='right')
+    # Tag de version du code générateur — discret en bas à gauche.
+    # Permet à Olivier de vérifier post-download que la dernière version a
+    # bien servi à générer ce deck (sinon = cache navigateur à vider).
+    app_v = study.get('appVersion') or 'unknown'
+    gen_at = (study.get('generatedAt') or '')[:19].replace('T', ' ')
+    _txt(s, _in(0.35), _in(7.25), _in(4.0), _in(0.20),
+         f"Build v={app_v}  ·  généré {gen_at}",
+         size=7, italic=True, color=RGBColor(0x88, 0x95, 0xA8))
 
 
 def build_sommaire(prs, study):

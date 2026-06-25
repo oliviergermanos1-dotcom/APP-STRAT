@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260625c');
+  _worker = new Worker('./parser-worker.js?v=20260625d');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -724,6 +724,11 @@ async function generatePptx() {
       periodEnd: state.study.periodEnd,
       datasets: allDatasets,
       n1Runs: [],
+      // Version du code chargée — imprimée dans la cover du PPTX pour que
+      // l'utilisateur puisse vérifier post-download que la dernière version
+      // a bien servi à générer le deck.
+      appVersion: window.APP_VERSION || 'unknown',
+      generatedAt: new Date().toISOString(),
       prediction: {
         pdfCount: prediction.pdfTexts.length,
         signals: prediction.signals,
