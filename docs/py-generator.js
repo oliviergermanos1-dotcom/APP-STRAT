@@ -18,7 +18,7 @@
 
   async function fetchGeneratorPy() {
     if (_generatorCode) return _generatorCode;
-    const r = await fetch('./generator.py?v=20260625f');
+    const r = await fetch('./generator.py?v=20260625g');
     if (!r.ok) throw new Error('generator.py introuvable (HTTP ' + r.status + ')');
     _generatorCode = await r.text();
     return _generatorCode;

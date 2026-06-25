@@ -2560,8 +2560,17 @@ def build_prediction_newsletter_prospects(prs, study):
     gap_y = 0.12
     x0, y0 = 0.15, 1.18
 
-    shown = sectors[:6]
+    # Filtrer : ne garder QUE les secteurs avec un match STATCOM
+    # (sinon on aurait des cartes "Pas de marchandise STATCOM détectée"
+    # qui ne servent à rien). Top 6 ainsi filtrés.
+    shown = [s for s in sectors if _find_match(s.get('name', ''))][:6]
     total_cit = sum(s.get('count', 0) for s in shown) or 1
+    if not shown:
+        add_insight_box(s, 0.15, 1.6, 12.95, 1.4, 'ℹ',
+                        ["Aucun secteur newsletter avec correspondance STATCOM détectée. "
+                         "Vérifier que les fichiers STATCOM sont déposés (TIM/HIMP/HEXP/TEM/AER) "
+                         "ou que les marchandises citées dans les newsletters apparaissent dans les B/L."])
+        return
 
     for i, sec in enumerate(shown):
         row = i // cols
@@ -2669,7 +2678,15 @@ def build_prediction_prospects(prs, study):
     gap_y = 0.07
     x0, y0 = 0.15, 1.18
 
-    shown = prospects[:12]
+    # Filtrer : ne garder QUE les secteurs PND prioritaires (les autres
+    # sont déjà visibles sur la slide PROSPECTS NEWSLETTERS et n'ont pas
+    # leur place ici, dédiée au Plan National).
+    shown = [p for p in prospects if p.get('pnd')][:12]
+    if not shown:
+        add_insight_box(s, 0.15, 1.6, 12.95, 1.4, 'ℹ',
+                        ["Aucun secteur PND prioritaire détecté avec flux STATCOM. "
+                         "Uploader davantage de bases STATCOM (TIM/HIMP/HEXP/TEM/AER)."])
+        return
     for i, p in enumerate(shown):
         row = i // cols
         c = i % cols
@@ -2852,7 +2869,7 @@ BLOCK_SEQUENCE = [
     'sep_DSM', 'DSM_vue_ensemble', 'DSM_armateurs', 'DSM_manutentionnaires', 'DSM_consignataires_pol',
     'sep_divers', 'sep_mining', 'mining_overview', 'mining_concurrents', 'mining_clientele',
     'sep_ayman', 'ayman_overview', 'ayman_detail',
-    'sep_predictions', 'prediction_signaux', 'prediction_newsletters',
+    'sep_predictions', 'prediction_signaux',
     'prediction_newsletter_prospects', 'prediction_prospects',
     'prediction_preconisations',
     'sep_cx', 'sep_analyse_client',
@@ -3008,7 +3025,6 @@ def dispatch_block(prs, study, key):
     if key == 'ayman_detail':            build_ayman_detail(prs, study); return
 
     if key == 'prediction_signaux':         build_prediction_signaux(prs, study); return
-    if key == 'prediction_newsletters':     build_prediction_newsletters(prs, study); return
     if key == 'prediction_newsletter_prospects':
         build_prediction_newsletter_prospects(prs, study); return
     if key == 'prediction_prospects':       build_prediction_prospects(prs, study); return
