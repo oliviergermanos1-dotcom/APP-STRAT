@@ -2511,6 +2511,30 @@ PND_PHARES = {
 }
 
 
+# Mapping explicite secteur newsletter (extrait via prediction.js
+# SECTOR_LEXICON) → secteur PND (défini dans dataset-builder.js
+# PND_SECTORS). None = pas d'équivalent PND, le secteur n'apparaîtra
+# pas sur la slide PROSPECTS NEWSLETTERS faute de flux STATCOM correspondant.
+# IMPORTANT : ne pas matcher par sous-chaîne — "industrie" est contenu
+# dans "agro-industrie" donc Industrie & Machines pointerait à tort
+# sur les chargeurs cacao. Mapping 1:1 explicite obligatoire.
+NEWSLETTER_TO_PND = {
+    'Mines & Or':           'Mines & métaux (or, manganèse, fer)',
+    'Pétrole & Énergie':    'Pétrole / hydrocarbures / gaz',
+    'Ciment & BTP':         'BTP & ciment',
+    'Agro & Cacao':         'Agro-industrie (cacao, anacarde, hévéa)',
+    'Agro-alimentaire':     'Agro-alimentaire (riz, blé, sucre, lait)',
+    'Automobile':           'Automobile (véhicules, RoRo)',
+    'Pharma & Santé':       'Industrie pharma & santé',
+    # Pas d'équivalent PND : ces secteurs newsletters ne se matchent à
+    # aucun secteur du Plan National. La slide PROSPECTS NEWSLETTERS
+    # les écartera car ils n'auront pas de match STATCOM.
+    'Télécoms & Tech':      None,
+    'Industrie & Machines': None,
+    'Conteneurs & Shipping': None,
+}
+
+
 def build_prediction_newsletter_prospects(prs, study):
     """Slide PRÉDICTION – PROSPECTS PRIORISÉS NEWSLETTERS.
     Pour chaque top secteur cité dans les newsletters PDF, on remonte
@@ -2537,19 +2561,18 @@ def build_prediction_newsletter_prospects(prs, study):
                         ["Déposer jusqu'à 6 newsletters PDF dans la section Prédiction pour activer la priorisation par signaux média."])
         return
 
-    # Match secteur newsletter → prospects PND
-    def _norm(x):
-        import unicodedata
-        return ''.join(c for c in unicodedata.normalize('NFD', str(x).lower())
-                       if not unicodedata.combining(c))
-
+    # Match secteur newsletter → prospects PND via mapping EXPLICITE
+    # (NEWSLETTER_TO_PND défini en haut). On évite le matching par
+    # sous-chaîne qui faisait confondre "Industrie & Machines" avec
+    # "Agro-industrie" (token 'industrie' présent dans les deux).
     def _find_match(sec_name):
-        sec_n = _norm(sec_name)
+        target_pnd = NEWSLETTER_TO_PND.get(sec_name)
+        if not target_pnd:
+            return None
         for p in prospects:
-            p_n = _norm(p.get('sector', ''))
-            for token in sec_n.split():
-                if len(token) >= 4 and token in p_n:
-                    return p
+            if p.get('sector') == target_pnd:
+                return p
+        return None
         return None
 
     # 6 cartes en grille 3 × 2
@@ -2668,20 +2691,19 @@ def build_prediction_prospects(prs, study):
                          "exporte réellement sur chaque segment."])
         return
 
-    # Cartes secteurs en grille 3 × 4 (12 secteurs max affichés).
-    # Hauteur ajustée pour que les 12 cartes + insight bas tiennent
-    # entièrement dans la slide (7.5 in - header - footer ≈ 6.2 in utiles).
-    cols = 3
-    card_w = 4.30
-    card_h = 1.28
-    gap_x = 0.10
-    gap_y = 0.07
-    x0, y0 = 0.15, 1.18
-
     # Filtrer : ne garder QUE les secteurs PND prioritaires (les autres
     # sont déjà visibles sur la slide PROSPECTS NEWSLETTERS et n'ont pas
-    # leur place ici, dédiée au Plan National).
-    shown = [p for p in prospects if p.get('pnd')][:12]
+    # leur place ici, dédiée au Plan National). Limité au top 9 = grille
+    # 3×3, qui permet des cartes plus hautes (1.65 in) pour faire tenir
+    # tous les projets phares sans troncature.
+    cols = 3
+    card_w = 4.30
+    card_h = 1.65
+    gap_x = 0.10
+    gap_y = 0.10
+    x0, y0 = 0.15, 1.18
+
+    shown = [p for p in prospects if p.get('pnd')][:9]
     if not shown:
         add_insight_box(s, 0.15, 1.6, 12.95, 1.4, 'ℹ',
                         ["Aucun secteur PND prioritaire détecté avec flux STATCOM. "
@@ -2713,26 +2735,27 @@ def build_prediction_prospects(prs, study):
                     f"AGL : {fmt_int(p.get('aglVol'))} ({pdm:.1f} %".replace('.', ',') +
                     f")  ·  {p.get('lineCount', 0)} B/L")
         _txt(s, _in(x + 0.10), _in(kpi_y), _in(card_w - 0.20), _in(0.18),
-             kpi_text, size=7.5, color=DGRAY, wrap=False)
+             kpi_text, size=8, color=DGRAY, wrap=False)
         # Métiers actifs
         metiers = ' · '.join(p.get('metiers') or [])
         _txt(s, _in(x + 0.10), _in(kpi_y + 0.18), _in(card_w - 0.20), _in(0.16),
-             f"Métiers actifs : {metiers}", size=7, color=MGRAY, wrap=False)
+             f"Métiers actifs : {metiers}", size=7.5, color=MGRAY, wrap=False)
 
         # Projets phares du PND par secteur (à la place des destinataires
         # STATCOM) — les clients réels sont sur la slide PROSPECTS NEWSLETTERS.
         # Ici on liste les programmes d'investissement à anticiper.
+        # Card_h = 1.65 permet 5 projets à 0.17 in line spacing.
         phares = PND_PHARES.get(p.get('sector', ''), [])
         list_y = kpi_y + 0.40
         if phares:
-            _txt(s, _in(x + 0.10), _in(list_y), _in(card_w - 0.20), _in(0.16),
+            _txt(s, _in(x + 0.10), _in(list_y), _in(card_w - 0.20), _in(0.18),
                  "🏗  Projets phares PND 2026-2030 :",
-                 size=7.5, bold=True, color=NAVY, wrap=False)
-            line_y = list_y + 0.16
-            for j, project in enumerate(phares[:4]):
-                _txt(s, _in(x + 0.14), _in(line_y + j * 0.13), _in(card_w - 0.28), _in(0.13),
-                     f"• {_fit_text(project, card_w - 0.30, pt=7)}",
-                     size=7, color=DGRAY, wrap=False)
+                 size=8, bold=True, color=NAVY, wrap=False)
+            line_y = list_y + 0.20
+            for j, project in enumerate(phares[:5]):
+                _txt(s, _in(x + 0.14), _in(line_y + j * 0.16), _in(card_w - 0.28), _in(0.16),
+                     f"• {_fit_text(project, card_w - 0.30, pt=8)}",
+                     size=7.5, color=DGRAY, wrap=False)
         else:
             _txt(s, _in(x + 0.10), _in(list_y), _in(card_w - 0.20), _in(0.50),
                  "🔍 Projets phares non répertoriés pour ce secteur.",
