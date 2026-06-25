@@ -1804,33 +1804,40 @@ def build_dsm_acteurs(prs, study):
         _txt(s, _in(x), _in(yT), _in(col_w), _in(0.22),
              title, size=9, bold=True, color=NAVY)
         add_rank_table(s, x, yTab, col_w, hdrs, data or [['—', '—', '—', '—']])
-    # ── Bloc bas : 3 graphes barres au lieu de tables (lisibilité,
-    # plus de débordement de noms longs sur colonnes voisines).
-    # On lit les DICTS RAW directement depuis find_dataset car build_dsm_full_data
-    # aplatit en listes [name, t, pdm] (format table) — incompatible avec
-    # add_segment_bars qui attend des dicts {label, vol, pdm}.
+    # ── Bloc bas : 3 HISTOGRAMMES VERTICAUX (column charts natifs).
+    # Les noms (parfois longs : MEDITERRANEE ORIENTALE, CLINKER/GYPSE)
+    # passent en label sous chaque barre verticale → plus de chevauchement
+    # avec la colonne tonnage voisine.
     yR = 3.95
+    chart_h = 2.95
 
     def _raw(ds_name):
         d = find_dataset(study, 'DSM', ds_name)
         return d['rows'] if d and d.get('rows') else []
 
-    def _to_bars(raw_rows, pdm_field):
-        if not raw_rows:
-            return [{'label': '—', 'vol': '—', 'pdm': 0}]
-        return [{
-            'label': str(r.get('name') or ''),
-            'vol': fmt_int(r.get('tonnage') or 0) + ' T',
-            'pdm': int(round(float(r.get(pdm_field) or 0))),
-        } for r in raw_rows[:4]]
+    def _trunc(name, n=14):
+        s = str(name or '')
+        return s if len(s) <= n else s[:n - 1] + '…'
 
     _txt(s, _in(x1), _in(yR), _in(col_w), _in(0.22),
-         'Ports de déchargement (PDM marché)', size=9, bold=True, color=NAVY)
-    add_segment_bars(s, x1, yR + 0.30, _to_bars(_raw('dsm_ports'), 'pdm_marche'))
+         'Ports de déchargement (tonnage)', size=9, bold=True, color=NAVY)
+    ports = _raw('dsm_ports')[:4]
+    if ports:
+        add_bar_chart(s, x1, yR + 0.27, col_w, chart_h,
+                      [{'name': 'Tonnage',
+                        'labels': [_trunc(p.get('name'), 12) for p in ports],
+                        'values': [int(p.get('tonnage') or 0) for p in ports]}],
+                      [NAVY])
 
     _txt(s, _in(x2), _in(yR), _in(col_w), _in(0.22),
-         'Range / origines — PDM AGL', size=9, bold=True, color=NAVY)
-    add_segment_bars(s, x2, yR + 0.30, _to_bars(_raw('dsm_ranges'), 'pdm_agl'))
+         'Range / origines (PDM AGL %)', size=9, bold=True, color=NAVY)
+    ranges = _raw('dsm_ranges')[:4]
+    if ranges:
+        add_bar_chart(s, x2, yR + 0.27, col_w, chart_h,
+                      [{'name': 'PDM AGL %',
+                        'labels': [_trunc(r.get('name'), 12) for r in ranges],
+                        'values': [round(float(r.get('pdm_agl') or 0), 1) for r in ranges]}],
+                      [GREEN])
 
     md = dsm.get('manutDetail')
     title3 = (f"Détail #1 manut. ({(md.get('manutentionnaire') or '')[:22]}) — marchandise"
@@ -1839,15 +1846,11 @@ def build_dsm_acteurs(prs, study):
          title3, size=9, bold=True, color=NAVY)
     if md and md.get('par_marchandise'):
         merch_rows = md['par_marchandise'][:4]
-        max_t = max((float(r.get('tonnage') or 0) for r in merch_rows), default=1) or 1
-        manut_bars = [{
-            'label': str(r.get('name') or ''),
-            'vol': fmt_int(r.get('tonnage') or 0) + ' T',
-            'pdm': int(round((float(r.get('tonnage') or 0) / max_t) * 100)),
-        } for r in merch_rows]
-    else:
-        manut_bars = [{'label': '—', 'vol': '—', 'pdm': 0}]
-    add_segment_bars(s, x3, yR + 0.30, manut_bars)
+        add_bar_chart(s, x3, yR + 0.27, col_w, chart_h,
+                      [{'name': 'Tonnage',
+                        'labels': [_trunc(r.get('name'), 12) for r in merch_rows],
+                        'values': [int(r.get('tonnage') or 0) for r in merch_rows]}],
+                      [GOLD])
 
 
 def build_dsm_vehicules(prs, study):
@@ -1906,9 +1909,63 @@ def build_dsm_nouveaux(prs, study):
     add_rank_table(s, x1, yR + 0.27, col_w * 3 + gap * 2,
                    ['Marchandise', 'T N', 'T N-1', 'Δ', 'Croissance', 'PDM AGL'],
                    dsm['topGrowth'] or [['—', '—', '—', '—', '—', '—']])
-    add_insight_box(s, 0.15, 5.70, 12.9, 1.20, '💡',
-                    [f"📊 {len(dsm['nouveauxArmateurs'])} nouveaux armateurs · "
-                     f"{len(dsm['nouvellesMarch'])} nouvelles marchandises."])
+    # ── Insight enrichi DSM nouveaux entrants (parité avec les autres
+    # slides nouveaux entrants STATCOM) ────────────────────────────────
+    nouv_arm = (find_dataset(study, 'DSM', 'dsm_nouveaux_armateurs') or {'rows': []})['rows']
+    nouv_merch = (find_dataset(study, 'DSM', 'dsm_nouvelles_marchandises') or {'rows': []})['rows']
+    top_growth = (find_dataset(study, 'DSM', 'dsm_top_growth') or {'rows': []})['rows']
+    cons = (find_dataset(study, 'DSM', 'dsm_consignataires') or {'rows': []})['rows']
+    lines = [
+        f"📊 Synthèse DSM : {len(nouv_arm)} nouveaux armateurs · "
+        f"{len(nouv_merch)} nouvelles marchandises (vs N-1) — dynamique du marché maritime au poids."
+    ]
+    if nouv_arm:
+        a = nouv_arm[0]
+        v = float(a.get('tonnage') or 0)
+        pdm = float(a.get('pdm_marche') or 0)
+        alert = '⚠' if pdm >= 1.0 else '🆕'
+        lines.append(
+            f"{alert} Nouvel armateur #1 : {str(a.get('name') or '')[:28]} "
+            f"({fmt_int(v)} T, {pdm:.1f} %".replace('.', ',') + ' PDM marché).'
+            + (' Acteur déjà significatif → surveillance.' if pdm >= 1.0 else '')
+        )
+    if nouv_merch:
+        big = [m for m in nouv_merch if float(m.get('tonnage') or 0) >= 500][:3]
+        if big:
+            lbls = ', '.join([
+                f"{str(m.get('name') or '')[:18]} ({fmt_int(m.get('tonnage'))} T)"
+                for m in big
+            ])
+            lines.append(f"📦 Nouvelles marchandises à fort tonnage : {lbls}.")
+        absent_agl = [m for m in nouv_merch[:5]
+                      if float(m.get('pdm_agl') or 0) == 0 and float(m.get('tonnage') or 0) >= 200]
+        if absent_agl:
+            lbls = ', '.join([str(m.get('name') or '')[:20] for m in absent_agl[:3]])
+            lines.append(f"🎯 AGL ABSENTE (PDM 0 %) sur ces nouvelles marchandises — gisement : {lbls}.")
+    if top_growth:
+        g = top_growth[0]
+        delta = float(g.get('delta') or 0)
+        gp = g.get('growth_pct')
+        pdm_g = float(g.get('pdm_agl') or 0)
+        growth_str = f"+{gp} %" if gp is not None else 'nouveau'
+        emoji = '⚠' if pdm_g <= 5 else '✅'
+        lines.append(
+            f"{emoji} Plus forte hausse marché : {str(g.get('name') or '')[:25]} "
+            f"(+{fmt_int(delta)} T, {growth_str}, PDM AGL {pdm_g:.0f} %) — "
+            + ('AGL sous-représentée, à investir.' if pdm_g <= 5
+               else 'AGL bien positionnée pour capter la hausse.')
+        )
+    if cons:
+        # Rang AGL parmi consignataires
+        agl_idx = next((i for i, c in enumerate(cons)
+                        if 'AGL' in (c.get('name') or '').upper()), None)
+        if agl_idx is not None:
+            agl = cons[agl_idx]
+            lines.append(
+                f"🏢 AGL CI consignataire #{agl_idx + 1} ({fmt_int(agl.get('tonnage'))} T, "
+                f"{agl.get('pdm_marche')} % du marché tonnage)."
+            )
+    add_insight_box(s, 0.15, 5.70, 12.9, 1.45, '💡', lines, bg=EYELLOW)
 
 
 # ────────── Mining (3 slides — uses generic builders with MINING data) ──────────
