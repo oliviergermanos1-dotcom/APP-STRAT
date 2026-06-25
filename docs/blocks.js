@@ -44,6 +44,7 @@ const BLOCK_SEQUENCE = [
   "sep_predictions",
   "prediction_signaux",
   "prediction_newsletters",
+  "prediction_newsletter_prospects",
   "prediction_prospects",
   "prediction_preconisations",
   "sep_cx",

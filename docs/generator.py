@@ -2435,6 +2435,207 @@ def build_prediction_newsletters(prs, study):
     add_insight_box(s, 0.15, 6.55, 13.0, 0.85, '💡', lines, bg=EYELLOW)
 
 
+# ─── PND CI 2026-2030 : projets phares par secteur ──────────────────────────
+# Affichés sur la slide PROSPECTS PND à la place des destinataires STATCOM.
+# Sourcés des annonces publiques (PND-CI, communiqués gouvernementaux,
+# documents bailleurs). À ajuster/compléter par Olivier dans cette constante.
+PND_PHARES = {
+    'Agro-industrie (cacao, anacarde, hévéa)': [
+        'Transformation locale cacao — 2ᵉ transformation (Abidjan, San Pedro)',
+        'Plateforme anacarde — Bondoukou & Korhogo (PRTAA)',
+        'Programme Hévéa CI 2030 (50 000 ha)',
+        'SUCRIVOIRE Ferké & Borotou (sucre)',
+    ],
+    'Coton & textile': [
+        'Relance filière coton-textile (Bouaké, Korhogo)',
+        'Zone industrielle textile (PNIA)',
+        'Usine de filature Bouaké',
+    ],
+    'Mines & métaux (or, manganèse, fer)': [
+        'Mine d\'or Lafigué (Endeavour Mining)',
+        'Mine d\'or Yaouré (Allied Gold)',
+        'Mine de Sissingué (Perseus)',
+        'Projet manganèse Lauzoua (Bondoukou Manganese)',
+        'Projet fer Mt Klahoyo (Tata Steel CI)',
+    ],
+    'Pétrole / hydrocarbures / gaz': [
+        'Champs Baleine (Eni — production 200 kbpd)',
+        'Calao (Eni)',
+        'Murène (Tullow Oil)',
+        'Expansion raffinerie SIR Abidjan',
+        'Gazoduc West African Gas Pipeline (WAGP)',
+    ],
+    'BTP & ciment': [
+        'Programme 100 000 logements sociaux',
+        '4ᵉ pont d\'Abidjan (HKB)',
+        'Métro d\'Abidjan (4 lignes)',
+        'Autoroute Yamoussoukro–Bouaké',
+        'Extension LafargeHolcim Abidjan & Cimaf Bouaké',
+    ],
+    'Industrie pharma & santé': [
+        'Plan National Production Médicaments (PNPM)',
+        'Usine DGH Pharma Abidjan',
+        'CHU de Bouaké (extension)',
+        'Couverture Maladie Universelle (CMU)',
+    ],
+    'Agro-alimentaire (riz, blé, sucre, lait)': [
+        'Programme national autosuffisance riz',
+        'Brassivoire (Bralima/HEINEKEN) — extension Yopougon',
+        'Moulins du Cœur de l\'Afrique (MCEA)',
+        'SCB Côte d\'Ivoire',
+    ],
+    'Automobile (véhicules, RoRo)': [
+        'Assemblage IVECO San Pedro',
+        'Hub RoRo Abidjan (PAA)',
+        'Plateforme Volkswagen CI',
+        'Programme TROTRO national (transport urbain)',
+    ],
+    'Pêche & aquaculture': [
+        'Plan Aquaculture (PNDAP)',
+        'Port de pêche d\'Abidjan (modernisation)',
+        'Filière thon (CI Tuna)',
+    ],
+    'Chimie & engrais': [
+        'YARA West Africa (fertilisants — usine San Pedro)',
+        'LIBYA Oil CI (lubrifiants)',
+        'Programme engrais subventionnés',
+    ],
+    'Emballages & papier': [
+        'VACALU Abidjan',
+        'Africa Packaging',
+    ],
+    'Électroménager / électronique': [
+        'Hub électronique CFAO',
+        'Programme One Laptop Per Child (OLPC)',
+    ],
+}
+
+
+def build_prediction_newsletter_prospects(prs, study):
+    """Slide PRÉDICTION – PROSPECTS PRIORISÉS NEWSLETTERS.
+    Pour chaque top secteur cité dans les newsletters PDF, on remonte
+    les destinataires/chargeurs STATCOM correspondants — angle distinct
+    de la slide PND (qui priorise les 12 secteurs du Plan National).
+    Ici, c'est l'actualité média qui dicte la priorité.
+
+    Layout : grille 3 × 2 cartes (top 6 secteurs newsletters) avec, pour
+    chacune : citations newsletter + prospects STATCOM réels."""
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    pred = study.get('prediction') or {}
+    sectors = (pred.get('signals') or {}).get('sectors') or []
+    prospects_ds = find_dataset(study, 'PREDICTION', 'sector_prospects')
+    prospects = prospects_ds['rows'] if prospects_ds and prospects_ds.get('rows') else []
+
+    pdfn = pred.get('pdfCount', 0)
+    sub = (f"Priorisation des prospects par citation média  |  "
+           f"{pdfn} newsletter(s) PDF analysée(s)  |  {len(sectors)} secteurs détectés")
+    add_header(s, 'PRÉDICTION – PROSPECTS PRIORISÉS NEWSLETTERS', sub)
+    add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.prospects-news')
+
+    if not sectors:
+        add_insight_box(s, 0.15, 1.6, 12.95, 1.4, 'ℹ',
+                        ["Déposer jusqu'à 6 newsletters PDF dans la section Prédiction pour activer la priorisation par signaux média."])
+        return
+
+    # Match secteur newsletter → prospects PND
+    def _norm(x):
+        import unicodedata
+        return ''.join(c for c in unicodedata.normalize('NFD', str(x).lower())
+                       if not unicodedata.combining(c))
+
+    def _find_match(sec_name):
+        sec_n = _norm(sec_name)
+        for p in prospects:
+            p_n = _norm(p.get('sector', ''))
+            for token in sec_n.split():
+                if len(token) >= 4 and token in p_n:
+                    return p
+        return None
+
+    # 6 cartes en grille 3 × 2
+    cols = 3
+    card_w = 4.30
+    card_h = 2.55
+    gap_x = 0.10
+    gap_y = 0.12
+    x0, y0 = 0.15, 1.18
+
+    shown = sectors[:6]
+    total_cit = sum(s.get('count', 0) for s in shown) or 1
+
+    for i, sec in enumerate(shown):
+        row = i // cols
+        c = i % cols
+        x = x0 + c * (card_w + gap_x)
+        y = y0 + row * (card_h + gap_y)
+        match = _find_match(sec.get('name', ''))
+
+        # Couleur bandeau : intensité selon poids du secteur dans le mix newsletter
+        weight = sec.get('count', 0) / total_cit
+        head_color = NAVY if weight >= 0.20 else (BLUE2 if weight >= 0.10 else GOLD)
+
+        _rect(s, _in(x), _in(y), _in(card_w), _in(card_h),
+              fill=RGBColor(0xF9, 0xFA, 0xFC), line=LINE_GR, line_width=0.4)
+        _rect(s, _in(x), _in(y), _in(card_w), _in(0.32), fill=head_color)
+        cit_lbl = f"{sec.get('count', 0)} CITATIONS ({int(round(weight * 100))} %)"
+        _txt(s, _in(x + 0.10), _in(y + 0.04), _in(card_w - 1.50), _in(0.24),
+             _fit_text(sec.get('name', ''), card_w - 1.70, pt=10),
+             size=10, bold=True, color=WHITE, valign='middle', wrap=False)
+        _txt(s, _in(x + card_w - 1.55), _in(y + 0.04), _in(1.45), _in(0.24),
+             cit_lbl, size=8, color=WHITE, align='right', valign='middle', wrap=False)
+
+        if match:
+            # KPIs marché STATCOM
+            vol = float(match.get('totalVol') or 0)
+            pdm = float(match.get('aglPdm') or 0)
+            metiers = ' · '.join(match.get('metiers') or [])
+            kpi_y = y + 0.40
+            _txt(s, _in(x + 0.10), _in(kpi_y), _in(card_w - 0.20), _in(0.20),
+                 f"Marché STATCOM : {fmt_int(vol)}  ·  AGL : {fmt_int(match.get('aglVol'))} "
+                 f"({pdm:.1f} %".replace('.', ',') + ")",
+                 size=8, bold=True, color=DGRAY, wrap=False)
+            _txt(s, _in(x + 0.10), _in(kpi_y + 0.20), _in(card_w - 0.20), _in(0.16),
+                 f"Métiers actifs : {metiers}", size=7.5, color=MGRAY, wrap=False)
+            # Prospects (top 5)
+            dest = match.get('topDestinataires') or []
+            charg = match.get('topChargeurs') or []
+            use_dest = len(dest) >= len(charg)
+            lst = dest if use_dest else charg
+            title_lbl = 'Top destinataires' if use_dest else 'Top chargeurs (export)'
+            list_y = kpi_y + 0.42
+            _txt(s, _in(x + 0.10), _in(list_y), _in(card_w - 0.20), _in(0.16),
+                 f"🎯 {title_lbl} :", size=8, bold=True, color=NAVY, wrap=False)
+            for j, cl in enumerate(lst[:5]):
+                _txt(s, _in(x + 0.14), _in(list_y + 0.18 + j * 0.18),
+                     _in(card_w - 0.28), _in(0.18),
+                     f"• {_fit_text(cl.get('name', ''), card_w - 1.30, pt=8)}  "
+                     f"({fmt_int(cl.get('vol'))})",
+                     size=8, color=DGRAY, wrap=False)
+        else:
+            _txt(s, _in(x + 0.10), _in(y + 0.50), _in(card_w - 0.20), _in(card_h - 0.60),
+                 "🔍 Pas de marchandise STATCOM correspondante détectée. "
+                 "Signal média à surveiller mais non actionnable côté logistique pour le moment.",
+                 size=9, italic=True, color=MGRAY, wrap=True)
+
+    # Insight bas — synthèse priorisation média
+    confirmed = [s for s in shown if _find_match(s.get('name', ''))]
+    no_match = [s for s in shown if not _find_match(s.get('name', ''))]
+    lines = [
+        f"📰 {len(shown)} secteurs prioritaires médias affichés "
+        f"({len(confirmed)} avec flux STATCOM, {len(no_match)} signaux à surveiller).",
+    ]
+    if confirmed:
+        top_conf = ', '.join([f"{c.get('name', '')} ({c.get('count', 0)} cit.)"
+                              for c in confirmed[:3]])
+        lines.append(f"✅ Signaux ACTIONNABLES (média + STATCOM) : {top_conf} — destinataires/chargeurs à démarcher en priorité.")
+    if no_match:
+        no_m = ', '.join([s.get('name', '') for s in no_match[:3]])
+        lines.append(f"🔍 Signaux MÉDIA SEULS (pas de flux STATCOM) : {no_m} — surveiller, pas (encore) actionnable.")
+    lines.append("📌 Différence avec slide PROSPECTS PND : ici la priorité vient de l'actualité média "
+                 "(citations newsletter), pas du Plan National. Les deux slides sont complémentaires.")
+    add_insight_box(s, 0.15, 6.55, 13.0, 0.85, '💡', lines, bg=EYELLOW)
+
+
 def build_prediction_prospects(prs, study):
     """Slide PRÉDICTION – PROSPECTS PAR SECTEUR : croise les secteurs
     prioritaires du PND Côte d'Ivoire 2026-2030 (+ signaux newsletters)
@@ -2501,21 +2702,24 @@ def build_prediction_prospects(prs, study):
         _txt(s, _in(x + 0.10), _in(kpi_y + 0.18), _in(card_w - 0.20), _in(0.16),
              f"Métiers actifs : {metiers}", size=7, color=MGRAY, wrap=False)
 
-        # Top destinataires OU chargeurs (selon ce qui domine)
-        dest = p.get('topDestinataires') or []
-        charg = p.get('topChargeurs') or []
-        use_dest = len(dest) >= len(charg)
-        prospects_list = dest if use_dest else charg
-        title_lbl = 'Destinataires (import/aérien)' if use_dest else 'Chargeurs (export)'
+        # Projets phares du PND par secteur (à la place des destinataires
+        # STATCOM) — les clients réels sont sur la slide PROSPECTS NEWSLETTERS.
+        # Ici on liste les programmes d'investissement à anticiper.
+        phares = PND_PHARES.get(p.get('sector', ''), [])
         list_y = kpi_y + 0.40
-        _txt(s, _in(x + 0.10), _in(list_y), _in(card_w - 0.20), _in(0.16),
-             f"🎯 Top {title_lbl} :", size=7.5, bold=True, color=NAVY, wrap=False)
-        line_y = list_y + 0.16
-        for j, cl in enumerate(prospects_list[:4]):
-            _txt(s, _in(x + 0.14), _in(line_y + j * 0.13), _in(card_w - 0.28), _in(0.13),
-                 f"• {_fit_text(cl.get('name', ''), card_w - 1.20, pt=7)}  "
-                 f"({fmt_int(cl.get('vol'))})",
-                 size=7, color=DGRAY, wrap=False)
+        if phares:
+            _txt(s, _in(x + 0.10), _in(list_y), _in(card_w - 0.20), _in(0.16),
+                 "🏗  Projets phares PND 2026-2030 :",
+                 size=7.5, bold=True, color=NAVY, wrap=False)
+            line_y = list_y + 0.16
+            for j, project in enumerate(phares[:4]):
+                _txt(s, _in(x + 0.14), _in(line_y + j * 0.13), _in(card_w - 0.28), _in(0.13),
+                     f"• {_fit_text(project, card_w - 0.30, pt=7)}",
+                     size=7, color=DGRAY, wrap=False)
+        else:
+            _txt(s, _in(x + 0.10), _in(list_y), _in(card_w - 0.20), _in(0.50),
+                 "🔍 Projets phares non répertoriés pour ce secteur.",
+                 size=8, italic=True, color=MGRAY, wrap=True)
 
     # ── Insight bas : synthèse stratégique des prospects PND ──────────
     # (Re-ajouté après demande utilisateur d'enrichir cette slide.)
@@ -2547,8 +2751,9 @@ def build_prediction_prospects(prs, study):
             for g in gisements
         ])
         lines.append(f"🎯 GISEMENTS PND (PDM ≤ 10%, gros volume) : {g_lbls}.")
-    lines.append("📌 Méthode : 12 secteurs PND CI 2026-2030 croisés avec marchandises STATCOM. "
-                 "Noms = destinataires/chargeurs réels présents — à démarcher en priorité.")
+    lines.append("📌 Cartes = projets phares PND 2026-2030 à anticiper (programmes "
+                 "d'investissement publics & privés). Clients réels à démarcher = "
+                 "voir slide PROSPECTS NEWSLETTERS.")
     add_insight_box(s, 0.15, 6.55, 13.00, 0.60, '🎯', lines, bg=EYELLOW)
 
 
@@ -2648,7 +2853,8 @@ BLOCK_SEQUENCE = [
     'sep_divers', 'sep_mining', 'mining_overview', 'mining_concurrents', 'mining_clientele',
     'sep_ayman', 'ayman_overview', 'ayman_detail',
     'sep_predictions', 'prediction_signaux', 'prediction_newsletters',
-    'prediction_prospects', 'prediction_preconisations',
+    'prediction_newsletter_prospects', 'prediction_prospects',
+    'prediction_preconisations',
     'sep_cx', 'sep_analyse_client',
 ]
 
@@ -2803,6 +3009,8 @@ def dispatch_block(prs, study, key):
 
     if key == 'prediction_signaux':         build_prediction_signaux(prs, study); return
     if key == 'prediction_newsletters':     build_prediction_newsletters(prs, study); return
+    if key == 'prediction_newsletter_prospects':
+        build_prediction_newsletter_prospects(prs, study); return
     if key == 'prediction_prospects':       build_prediction_prospects(prs, study); return
     if key == 'prediction_preconisations':  build_prediction_preconisations(prs, study); return
 
