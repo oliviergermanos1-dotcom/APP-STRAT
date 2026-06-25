@@ -248,8 +248,11 @@ def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=No
             is_agl_row = (ri == 0 and ci == name_col_idx)
             is_last_hl = is_hl and ci == len(row) - 1
             color = GREEN if (is_agl_row or is_last_hl) else DGRAY
-            # Tronquer la colonne nom pour éviter débordement.
-            text = (_fit_text(cell, col_w[ci]) if ci == name_col_idx else str(cell))
+            # Tronquer toute cellule TEXTE (nom + libellés type "Segment")
+            # pour éviter qu'un mot long déborde sur la colonne voisine.
+            # Les cellules numériques (right-align) sont laissées telles quelles.
+            is_numeric_cell = (col_align[ci] == 'right')
+            text = (str(cell) if is_numeric_cell else _fit_text(cell, col_w[ci]))
             _txt(s, _in(cx2 + 0.04), _in(ry + 0.04),
                  _in(col_w[ci] - 0.05), _in(row_h - 0.06),
                  text, size=8.5,
@@ -1802,41 +1805,46 @@ def build_dsm_acteurs(prs, study):
              title, size=9, bold=True, color=NAVY)
         add_rank_table(s, x, yTab, col_w, hdrs, data or [['—', '—', '—', '—']])
     # ── Bloc bas : 3 graphes barres au lieu de tables (lisibilité,
-    # plus de débordement de noms longs sur colonnes voisines) ────────────
+    # plus de débordement de noms longs sur colonnes voisines).
+    # On lit les DICTS RAW directement depuis find_dataset car build_dsm_full_data
+    # aplatit en listes [name, t, pdm] (format table) — incompatible avec
+    # add_segment_bars qui attend des dicts {label, vol, pdm}.
     yR = 3.95
+
+    def _raw(ds_name):
+        d = find_dataset(study, 'DSM', ds_name)
+        return d['rows'] if d and d.get('rows') else []
+
+    def _to_bars(raw_rows, pdm_field):
+        if not raw_rows:
+            return [{'label': '—', 'vol': '—', 'pdm': 0}]
+        return [{
+            'label': str(r.get('name') or ''),
+            'vol': fmt_int(r.get('tonnage') or 0) + ' T',
+            'pdm': int(round(float(r.get(pdm_field) or 0))),
+        } for r in raw_rows[:4]]
+
     _txt(s, _in(x1), _in(yR), _in(col_w), _in(0.22),
-         'Ports de déchargement (tonnage)', size=9, bold=True, color=NAVY)
-    ports_bars = [
-        {'label': str(p.get('name', '')), 'vol': fmt_int(p.get('tonnage', 0)) + ' T',
-         'pdm': int(round(float(p.get('pdm_marche') or 0)))}
-        for p in (dsm['ports'] or [])[:4]
-    ] or [{'label': '—', 'vol': '—', 'pdm': 0}]
-    add_segment_bars(s, x1, yR + 0.30, ports_bars)
+         'Ports de déchargement (PDM marché)', size=9, bold=True, color=NAVY)
+    add_segment_bars(s, x1, yR + 0.30, _to_bars(_raw('dsm_ports'), 'pdm_marche'))
 
     _txt(s, _in(x2), _in(yR), _in(col_w), _in(0.22),
          'Range / origines — PDM AGL', size=9, bold=True, color=NAVY)
-    ranges_bars = [
-        {'label': str(r.get('name', '')), 'vol': fmt_int(r.get('tonnage', 0)) + ' T',
-         'pdm': int(round(float(r.get('pdm_agl') or 0)))}
-        for r in (dsm['ranges'] or [])[:4]
-    ] or [{'label': '—', 'vol': '—', 'pdm': 0}]
-    add_segment_bars(s, x2, yR + 0.30, ranges_bars)
+    add_segment_bars(s, x2, yR + 0.30, _to_bars(_raw('dsm_ranges'), 'pdm_agl'))
 
     md = dsm.get('manutDetail')
     title3 = (f"Détail #1 manut. ({(md.get('manutentionnaire') or '')[:22]}) — marchandise"
               if md else 'Détail manutentionnaire')
     _txt(s, _in(x3), _in(yR), _in(col_w), _in(0.22),
          title3, size=9, bold=True, color=NAVY)
-    if md:
-        merch_rows = (md.get('par_marchandise') or [])[:4]
-        # Normaliser pdm relatif au max pour barre interprétable.
+    if md and md.get('par_marchandise'):
+        merch_rows = md['par_marchandise'][:4]
         max_t = max((float(r.get('tonnage') or 0) for r in merch_rows), default=1) or 1
-        manut_bars = [
-            {'label': str(r.get('name', '')),
-             'vol': fmt_int(r.get('tonnage', 0)) + ' T',
-             'pdm': int(round((float(r.get('tonnage') or 0) / max_t) * 100))}
-            for r in merch_rows
-        ] or [{'label': '—', 'vol': '—', 'pdm': 0}]
+        manut_bars = [{
+            'label': str(r.get('name') or ''),
+            'vol': fmt_int(r.get('tonnage') or 0) + ' T',
+            'pdm': int(round((float(r.get('tonnage') or 0) / max_t) * 100)),
+        } for r in merch_rows]
     else:
         manut_bars = [{'label': '—', 'vol': '—', 'pdm': 0}]
     add_segment_bars(s, x3, yR + 0.30, manut_bars)
@@ -2338,9 +2346,9 @@ def build_prediction_prospects(prs, study):
     # entièrement dans la slide (7.5 in - header - footer ≈ 6.2 in utiles).
     cols = 3
     card_w = 4.30
-    card_h = 1.42
+    card_h = 1.28
     gap_x = 0.10
-    gap_y = 0.08
+    gap_y = 0.07
     x0, y0 = 0.15, 1.18
 
     shown = prospects[:12]
@@ -2392,7 +2400,39 @@ def build_prediction_prospects(prs, study):
                  f"({fmt_int(cl.get('vol'))})",
                  size=7, color=DGRAY, wrap=False)
 
-    # Insight bas retiré sur demande — la grille de cartes suffit.
+    # ── Insight bas : synthèse stratégique des prospects PND ──────────
+    # (Re-ajouté après demande utilisateur d'enrichir cette slide.)
+    pnd_count = sum(1 for p in shown if p.get('pnd'))
+    total_vol_all = sum(float(p.get('totalVol') or 0) for p in shown)
+    total_agl = sum(float(p.get('aglVol') or 0) for p in shown)
+    weighted_pdm = (total_agl / total_vol_all * 100) if total_vol_all > 0 else 0
+    gisements = sorted([p for p in shown if p.get('pnd')
+                        and float(p.get('aglPdm') or 0) <= 10
+                        and float(p.get('totalVol') or 0) >= 1000],
+                       key=lambda x: -float(x.get('totalVol') or 0))[:3]
+    forces_pnd = sorted([p for p in shown if p.get('pnd')
+                         and float(p.get('aglPdm') or 0) >= 30],
+                        key=lambda x: -float(x.get('aglPdm') or 0))[:3]
+    lines = [
+        f"📊 {len(shown)} secteurs détectés ({pnd_count} prioritaires PND, "
+        f"{len(shown) - pnd_count} hors PND) — volume cumulé : {fmt_int(total_vol_all)} "
+        f"toutes unités · PDM AGL pondérée : {weighted_pdm:.1f} %.".replace('.', ','),
+    ]
+    if forces_pnd:
+        f_lbls = ', '.join([
+            f"{str(g.get('sector', ''))[:24]} ({float(g.get('aglPdm') or 0):.0f}%)"
+            for g in forces_pnd
+        ])
+        lines.append(f"💪 Positions FORTES PND (PDM ≥ 30%) : {f_lbls}.")
+    if gisements:
+        g_lbls = ', '.join([
+            f"{str(g.get('sector', ''))[:24]} (PDM {float(g.get('aglPdm') or 0):.0f}%, marché {fmt_int(g.get('totalVol'))})"
+            for g in gisements
+        ])
+        lines.append(f"🎯 GISEMENTS PND (PDM ≤ 10%, gros volume) : {g_lbls}.")
+    lines.append("📌 Méthode : 12 secteurs PND CI 2026-2030 croisés avec marchandises STATCOM. "
+                 "Noms = destinataires/chargeurs réels présents — à démarcher en priorité.")
+    add_insight_box(s, 0.15, 6.55, 13.00, 0.60, '🎯', lines, bg=EYELLOW)
 
 
 def build_prediction_preconisations(prs, study):
