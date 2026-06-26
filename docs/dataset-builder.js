@@ -696,11 +696,18 @@ function buildAymanDatasets(sources, period) {
     .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, aymanTimTotal) }));
 
   const byMonth = aggregateBy(aymanTimRows, (r) => r.mois);
+  // Évolution AYIMAN mensuelle : on garde le même set de mois que N
+  // mais on ajoute la valeur N-1 du mois équivalent pour graphe comparé.
+  const periodN1 = period ? aymanTimN1Rows.filter((r) => inPeriod(r, shiftPeriodToN1(period))) : aymanTimN1Rows;
+  const byMonthN1 = aggregateBy(periodN1, (r) => r.mois);
   const evolution = MONTHS_FR_B.filter((m) => byMonth.has(m))
-    .map((m) => ({ mois: m, vol: round(byMonth.get(m)) }));
+    .map((m) => ({
+      mois: m,
+      vol: round(byMonth.get(m)),
+      vol_n1: round(byMonthN1.get(m) || 0),
+    }));
 
   const totN = aymanTimTotal;
-  const periodN1 = period ? aymanTimN1Rows.filter((r) => inPeriod(r, shiftPeriodToN1(period))) : aymanTimN1Rows;
   const totN1 = periodN1.reduce((s, r) => s + (r.volume || 0), 0);
 
   return {

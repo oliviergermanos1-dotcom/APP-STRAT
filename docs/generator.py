@@ -1124,6 +1124,8 @@ def build_dsm_overview_data(study):
         'monthLabels': month_labels,
         'monthlyMarket': [m.get('volume_marche', 0) for m in mensuel],
         'monthlyAgl': [m.get('volume_agl', 0) for m in mensuel],
+        'monthlyMarketN1': [m.get('volume_marche_n1', 0) for m in mensuel],
+        'monthlyAglN1': [m.get('volume_agl_n1', 0) for m in mensuel],
         'monthlyPdm': [m.get('pdm_agl', 0) for m in mensuel],
         'monthlyPdmN1': [m.get('pdm_agl_n1', 0) for m in mensuel],
         'aglPdm': o.get('aglPdm') or 0,
@@ -1431,17 +1433,27 @@ def build_tim_overview(prs, study):
 
     # Bar chart left
     _txt(s, _in(0.25), _in(2.28), _in(6.5), _in(0.28),
-         'Évolution mensuelle marché TIM & AGL (TEU)', size=11, bold=True, color=DGRAY)
+         'Évolution mensuelle marché TIM & AGL (TEU) — N vs N-1', size=11, bold=True, color=DGRAY)
+    # 4 séries groupées par mois : Marché N + AGL N + Marché N-1 + AGL N-1
+    # (couleurs distinctes pour distinguer N et N-1, palette navy/gold ⇋ light).
     if live and live.get('monthlyMarket'):
         series = [
-            {'name': 'Marché qualifié', 'labels': live['monthLabels'], 'values': live['monthlyMarket']},
-            {'name': 'AGL', 'labels': live['monthLabels'], 'values': live['monthlyAgl']},
+            {'name': 'Marché qualifié N',  'labels': live['monthLabels'], 'values': live['monthlyMarket']},
+            {'name': 'Marché qualifié N-1', 'labels': live['monthLabels'],
+             'values': live.get('monthlyMarketN1') or [0] * len(live['monthLabels'])},
+            {'name': 'AGL N',  'labels': live['monthLabels'], 'values': live['monthlyAgl']},
+            {'name': 'AGL N-1', 'labels': live['monthLabels'],
+             'values': live.get('monthlyAglN1') or [0] * len(live['monthLabels'])},
         ]
     else:
         labels = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai']
-        series = [{'name': 'Marché qualifié', 'labels': labels, 'values': [41800, 36800, 43600, 38500, 33200]},
-                  {'name': 'AGL', 'labels': labels, 'values': [3470, 2544, 3270, 3278, 2571]}]
-    add_bar_chart(s, 0.15, 2.55, 6.8, 4.3, series, [NAVY, GOLD])
+        series = [{'name': 'Marché qualifié N',  'labels': labels, 'values': [41800, 36800, 43600, 38500, 33200]},
+                  {'name': 'Marché qualifié N-1', 'labels': labels, 'values': [38000, 34000, 40500, 35200, 30800]},
+                  {'name': 'AGL N',  'labels': labels, 'values': [3470, 2544, 3270, 3278, 2571]},
+                  {'name': 'AGL N-1', 'labels': labels, 'values': [3100, 2300, 2900, 2980, 2400]}]
+    # Palette : navy + navy clair (marché) ; gold + gold clair (AGL)
+    add_bar_chart(s, 0.15, 2.55, 6.8, 4.3, series,
+                  [NAVY, RGBColor(0x6C, 0x80, 0xA0), GOLD, RGBColor(0xE0, 0xCD, 0x96)])
 
     # Mensuel bars right
     _txt(s, _in(7.1), _in(2.28), _in(5.8), _in(0.28),
@@ -1641,13 +1653,22 @@ def build_metier_overview(prs, study, code, label, page_no, fallback_sub, fallba
     add_kpi_bar(s, kpis)
 
     _txt(s, _in(0.25), _in(2.28), _in(6.5), _in(0.28),
-         f"Évolution mensuelle {label} & AGL ({unit})",
+         f"Évolution mensuelle {label} & AGL ({unit}) — N vs N-1",
          size=11, bold=True, color=DGRAY)
-    series = (
-        [{'name': 'Marché', 'labels': live['monthLabels'], 'values': live['monthlyMarket']},
-         {'name': 'AGL', 'labels': live['monthLabels'], 'values': live['monthlyAgl']}]
-        if live and live.get('monthlyMarket') else fallback_series)
-    add_bar_chart(s, 0.15, 2.55, 6.8, 4.3, series, [NAVY, GOLD])
+    if live and live.get('monthlyMarket'):
+        n_labels = live['monthLabels']
+        series = [
+            {'name': 'Marché N',  'labels': n_labels, 'values': live['monthlyMarket']},
+            {'name': 'Marché N-1', 'labels': n_labels,
+             'values': live.get('monthlyMarketN1') or [0] * len(n_labels)},
+            {'name': 'AGL N',  'labels': n_labels, 'values': live['monthlyAgl']},
+            {'name': 'AGL N-1', 'labels': n_labels,
+             'values': live.get('monthlyAglN1') or [0] * len(n_labels)},
+        ]
+    else:
+        series = fallback_series
+    add_bar_chart(s, 0.15, 2.55, 6.8, 4.3, series,
+                  [NAVY, RGBColor(0x6C, 0x80, 0xA0), GOLD, RGBColor(0xE0, 0xCD, 0x96)])
 
     _txt(s, _in(7.1), _in(2.28), _in(5.8), _in(0.28),
          f'PDM AGL par mois – {label}', size=11, bold=True, color=DGRAY)
@@ -1778,13 +1799,18 @@ def build_dsm_overview(prs, study):
         ]
         add_kpi_bar(s, kpis)
         _txt(s, _in(0.25), _in(2.28), _in(6.5), _in(0.28),
-             'Évolution mensuelle import & AGL (tonnes)',
+             'Évolution mensuelle import & AGL (tonnes) — N vs N-1',
              size=11, bold=True, color=DGRAY)
         if ov['monthLabels']:
+            n_labels = ov['monthLabels']
             add_bar_chart(s, 0.15, 2.55, 6.8, 3.9, [
-                {'name': 'Marché', 'labels': ov['monthLabels'], 'values': ov['monthlyMarket']},
-                {'name': 'AGL', 'labels': ov['monthLabels'], 'values': ov['monthlyAgl']},
-            ], [NAVY, GREEN])
+                {'name': 'Marché N',  'labels': n_labels, 'values': ov['monthlyMarket']},
+                {'name': 'Marché N-1', 'labels': n_labels,
+                 'values': ov.get('monthlyMarketN1') or [0] * len(n_labels)},
+                {'name': 'AGL N',  'labels': n_labels, 'values': ov['monthlyAgl']},
+                {'name': 'AGL N-1', 'labels': n_labels,
+                 'values': ov.get('monthlyAglN1') or [0] * len(n_labels)},
+            ], [NAVY, RGBColor(0x6C, 0x80, 0xA0), GREEN, RGBColor(0x9E, 0xC9, 0xB0)])
         _txt(s, _in(7.1), _in(2.28), _in(5.8), _in(0.28),
              'PDM AGL par mois (%)', size=11, bold=True, color=DGRAY)
         pdm_n1_vals = ov.get('monthlyPdmN1')
@@ -2149,13 +2175,15 @@ def build_ayman_overview(prs, study):
         evol = live.get('evolution') or []
         if evol:
             _txt(s, _in(0.25), _in(2.28), _in(12.9), _in(0.28),
-                 'Évolution mensuelle AYIMAN (TIM, TEU)',
+                 'Évolution mensuelle AYIMAN (TIM, TEU) — N vs N-1',
                  size=11, bold=True, color=DGRAY)
+            labels_e = [e.get('mois', '') for e in evol]
             add_bar_chart(s, 0.15, 2.55, 12.9, 3.0,
-                          [{'name': 'AYIMAN TEU',
-                            'labels': [e.get('mois', '') for e in evol],
-                            'values': [int(round(e.get('vol', 0))) for e in evol]}],
-                          [ORANGE])
+                          [{'name': 'AYIMAN N',  'labels': labels_e,
+                            'values': [int(round(e.get('vol', 0))) for e in evol]},
+                           {'name': 'AYIMAN N-1', 'labels': labels_e,
+                            'values': [int(round(e.get('vol_n1', 0))) for e in evol]}],
+                          [ORANGE, RGBColor(0xF5, 0xC2, 0x9F)])
         add_insight_box(s, 0.15, 5.7, 12.9, 1.2, '⚠',
                         [f"DYNAMIQUE : AYIMAN {('progresse' if (live.get('timGrowthPct') or 0) >= 0 else 'recule')} "
                          f"vs N-1 ({live['timTotalN1']} → {live['timTotalN']} TEU)."])
