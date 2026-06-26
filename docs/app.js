@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260625i');
+  _worker = new Worker('./parser-worker.js?v=20260626a');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -718,6 +718,35 @@ async function generatePptx() {
       btn.textContent = 'Composition du PPTX…';
     }
 
+    // ── Assets visuels embarqués dans le repo (docs/cover.jpg.png +
+    // docs/agl_logo.png) → fetch → base64 → passés à Python via study.assets.
+    // Cover image : remplace la slide 1 plein écran.
+    // Logo AGL : ajouté bas-droite de toutes les slides sauf la cover.
+    async function fetchAsBase64(path) {
+      try {
+        const resp = await fetch(path);
+        if (!resp.ok) return null;
+        const blob = await resp.blob();
+        return await new Promise((resolve) => {
+          const r = new FileReader();
+          r.onloadend = () => {
+            // Strip data URL prefix → keep only base64 payload
+            const idx = String(r.result).indexOf(',');
+            resolve(idx >= 0 ? String(r.result).slice(idx + 1) : r.result);
+          };
+          r.readAsDataURL(blob);
+        });
+      } catch (e) {
+        console.warn('Asset fetch failed for', path, e);
+        return null;
+      }
+    }
+    btn.textContent = 'Chargement assets visuels…';
+    const [coverB64, logoB64] = await Promise.all([
+      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260626a')),
+      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260626a')),
+    ]);
+
     const study = {
       title: state.study.title,
       periodStart: state.study.periodStart,
@@ -729,6 +758,12 @@ async function generatePptx() {
       // a bien servi à générer le deck.
       appVersion: window.APP_VERSION || 'unknown',
       generatedAt: new Date().toISOString(),
+      // Assets visuels (PNG base64) — utilisés par generator.py pour la
+      // cover full-screen et le logo bas-droite sur chaque slide.
+      assets: {
+        coverImage: coverB64,
+        aglLogo: logoB64,
+      },
       prediction: {
         pdfCount: prediction.pdfTexts.length,
         signals: prediction.signals,

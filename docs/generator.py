@@ -13,6 +13,7 @@ Entry point (called by docs/py-generator.js after Pyodide boots):
 # ────────────────────────────────────────────────────────────────────────────
 # Imports & constants
 # ────────────────────────────────────────────────────────────────────────────
+import base64
 import io
 import json
 import re
@@ -124,10 +125,12 @@ def add_header(s, title, subtitle=None):
 
 
 def add_footer(s, text):
+    # Texte centre-gauche uniquement — le logo AGL en image (PNG) est ajouté
+    # à la toute fin de build() sur chaque slide sauf la cover, voir
+    # add_logo_to_slide(). On retire le texte 'AGL' que portait jadis le
+    # coin bas-droite (remplacé par le logo).
     _txt(s, _in(0.2), _in(7.2), _in(10), _in(0.25),
          text, size=9, color=MGRAY)
-    _txt(s, _in(12.5), _in(7.15), _in(0.7), _in(0.3),
-         'AGL', size=10, bold=True, color=GOLD, align='right')
 
 
 def add_kpi_bar(s, kpis, y=1.2):
@@ -1289,7 +1292,27 @@ def inject_agl_label(pptx_bytes: bytes) -> bytes:
 # Slide builders (43 slides, port of docs/generator.js)
 # ────────────────────────────────────────────────────────────────────────────
 def build_cover(prs, study):
+    """Slide 1 = COVER. Si study.assets.coverImage (PNG base64) est fourni,
+    on l'utilise plein écran (1280×718 ≈ ratio 16:9 ≈ 13.33×7.5"). Sinon
+    fallback sur la cover dessinée manuellement (ancienne version)."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
+    cover_b64 = (study.get('assets') or {}).get('coverImage')
+    if cover_b64:
+        try:
+            img_bytes = base64.b64decode(cover_b64)
+            s.shapes.add_picture(
+                io.BytesIO(img_bytes), 0, 0, SLIDE_W, SLIDE_H,
+            )
+            # Tag version discret en bas-gauche par-dessus l'image
+            app_v = study.get('appVersion') or 'unknown'
+            gen_at = (study.get('generatedAt') or '')[:19].replace('T', ' ')
+            _txt(s, _in(0.35), _in(7.30), _in(4.0), _in(0.18),
+                 f"Build v={app_v}  ·  {gen_at}",
+                 size=6, italic=True, color=RGBColor(0xCC, 0xCC, 0xCC))
+            return
+        except Exception:
+            pass  # Fallback ci-dessous si décodage rate
+    # Fallback : cover dessinée à la main (ancienne version)
     _rect(s, 0, 0, SLIDE_W, SLIDE_H, fill=NAVY)
     _rect(s, _in(0.35), _in(3.55), _in(8.5), _in(0.06), fill=GOLD)
     _txt(s, _in(0.35), _in(0.3), _in(2), _in(0.6), 'AGL', size=36, bold=True, color=WHITE)
@@ -1311,9 +1334,6 @@ def build_cover(prs, study):
          size=9.5, color=MGRAY, align='center')
     _txt(s, _in(12.0), _in(7.1), _in(1.2), _in(0.35),
          '2026', size=18, bold=True, color=WHITE, align='right')
-    # Tag de version du code générateur — discret en bas à gauche.
-    # Permet à Olivier de vérifier post-download que la dernière version a
-    # bien servi à générer ce deck (sinon = cache navigateur à vider).
     app_v = study.get('appVersion') or 'unknown'
     gen_at = (study.get('generatedAt') or '')[:19].replace('T', ' ')
     _txt(s, _in(0.35), _in(7.25), _in(4.0), _in(0.20),
@@ -3127,6 +3147,19 @@ def dispatch_block(prs, study, key):
 # ────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ────────────────────────────────────────────────────────────────────────────
+def _add_logo_to_slide(slide, logo_bytes):
+    """Place le logo AGL en bas-droite (petite taille 0.65×0.42 in, ratio
+    74×48 préservé). Appelé sur toutes les slides sauf la cover."""
+    try:
+        slide.shapes.add_picture(
+            io.BytesIO(logo_bytes),
+            _in(12.55), _in(7.02),
+            _in(0.65), _in(0.42),
+        )
+    except Exception:
+        pass  # Si le PNG est corrompu, on n'empêche pas la génération
+
+
 def build(study_json: str) -> bytes:
     study = json.loads(study_json) if study_json else {}
     prs = Presentation()
@@ -3140,6 +3173,18 @@ def build(study_json: str) -> bytes:
             s = prs.slides.add_slide(prs.slide_layouts[6])
             add_header(s, f"[ERREUR : {key}]", str(e)[:200])
             add_footer(s, 'Africa Global Logistics – Étude de Marché 2026')
+
+    # ── Logo AGL bas-droite sur toutes les slides SAUF la cover ──────
+    logo_b64 = (study.get('assets') or {}).get('aglLogo')
+    if logo_b64:
+        try:
+            logo_bytes = base64.b64decode(logo_b64)
+            # On commence à l'index 1 pour skip la cover (slide 1).
+            for slide in list(prs.slides)[1:]:
+                _add_logo_to_slide(slide, logo_bytes)
+        except Exception:
+            pass
+
     buf = io.BytesIO()
     prs.save(buf)
     return inject_agl_label(buf.getvalue())
