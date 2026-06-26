@@ -2028,11 +2028,76 @@ def build_mining_clientele(prs, study):
         else:
             add_insight_box(s, 7.0, 1.55, 6.2, 0.8, 'ℹ',
                             ['Marchandises minières indisponibles.'])
+        # ── Insight box jaune MINING enrichi ─────────────────────────
         lines = []
-        if liveC and liveC.get('topClient'):
-            lines.append(f"🏆 Top client minier AGL = {liveC['topClient']} ({liveC['topClientShare']}).")
-        add_insight_box(s, 0.15, 5.55, 12.9, 1.05, '⛏',
-                        lines or ['Analyse clientèle minière live.'])
+        # 1. Concentration top client minier
+        if liveC and liveC.get('topClient') and liveC.get('topClientShare'):
+            lines.append(f"⚠ Concentration #1 : {liveC['topClient']} = {liveC['topClientShare']} "
+                         "du volume AGL sur le segment minier.")
+        # 2. Cumul TOP 3 / TOP 5 destinataires
+        dest_raw = (liveN.get('_rawDestinataires') if liveN else None) or []
+        if dest_raw:
+            total_dest = sum(float(r.get('volume') or 0) for r in dest_raw) or 1
+            top3 = sum(float(r.get('volume') or 0) for r in dest_raw[:3]) / total_dest * 100
+            top5 = sum(float(r.get('volume') or 0) for r in dest_raw[:5]) / total_dest * 100
+            lines.append(
+                f"🎯 TOP 3 destinataires miniers = {top3:.1f}".replace('.', ',') +
+                f" % du marché minier · TOP 5 = {top5:.1f}".replace('.', ',') +
+                " % (mesure de concentration sectorielle)."
+            )
+        # 3. Position AGL minier (rang + PDM + écart vs #2)
+        full = liveConc.get('fullRanked') if liveConc else None
+        if full:
+            name_key = 'transitaire' if (full and 'transitaire' in full[0]) else 'nom_entite'
+            agl_idx = next((i for i, r in enumerate(full)
+                            if is_agl(str(r.get(name_key) or ''))), None)
+            if agl_idx is not None and agl_idx < len(full):
+                agl = full[agl_idx]
+                pdm = float(agl.get('pdm') or 0)
+                vol = float(agl.get('volume') or 0)
+                line = f"🏁 AGL #{agl_idx + 1} minier ({pdm:.1f}".replace('.', ',') + f" %, {fmt_int(vol)} TEU)"
+                if agl_idx == 0 and len(full) > 1:
+                    sec = full[1]
+                    ecart = vol - float(sec.get('volume') or 0)
+                    line += (f" — avance vs #2 {str(sec.get(name_key, ''))[:18]} : "
+                             f"+{fmt_int(ecart)} TEU.")
+                elif agl_idx > 0:
+                    leader = full[0]
+                    ecart = float(leader.get('volume') or 0) - vol
+                    line += (f" — leader {str(leader.get(name_key, ''))[:18]} à "
+                             f"+{fmt_int(ecart)} TEU.")
+                else:
+                    line += "."
+                lines.append(line)
+        # 4. Marchandises minières : forces (PDM ≥ 50 %)
+        segs = liveConc.get('rawSegments') if liveConc else None
+        if segs:
+            forces = sorted([sg for sg in segs if float(sg.get('pdm_agl') or 0) >= 50],
+                            key=lambda sg: -float(sg.get('pdm_agl') or 0))[:3]
+            if forces:
+                lbls = ', '.join([
+                    f"{str(sg.get('segment', ''))[:22]} ({int(round(float(sg.get('pdm_agl') or 0)))} %)"
+                    for sg in forces
+                ])
+                lines.append(f"💪 Marchandises minières DOMINÉES par AGL (PDM ≥ 50 %) : {lbls}.")
+            # Marchandises minières où AGL faible mais marché significatif
+            weak = sorted([sg for sg in segs
+                           if 0 < float(sg.get('pdm_agl') or 0) <= 20
+                           and float(sg.get('volume_marche') or 0) >= 100],
+                          key=lambda sg: -float(sg.get('volume_marche') or 0))[:3]
+            if weak:
+                lbls = ', '.join([
+                    f"{str(sg.get('segment', ''))[:22]} ({int(round(float(sg.get('pdm_agl') or 0)))} %, "
+                    f"{fmt_int(sg.get('volume_marche'))} TEU)"
+                    for sg in weak
+                ])
+                lines.append(f"🎯 Conquête prioritaire (PDM ≤ 20 %, marché ≥ 100 TEU) : {lbls}.")
+        # 5. Synthèse stratégique
+        lines.append("⛏ ENJEU MINIER : verrouiller les clients miniers historiques "
+                     "(K1 Mining, Lafigué, Yaouré) tout en élargissant aux nouveaux "
+                     "projets PND (Sissingué, Lauzoua, Mt Klahoyo).")
+        add_insight_box(s, 0.15, 5.40, 12.9, 1.95, '⛏',
+                        lines, bg=EYELLOW)
     else:
         add_insight_box(s, 0.15, 1.5, 12.9, 5, 'ℹ',
                         ['Uploader TIM (N + N-1) pour activer l\'analyse minière.'])
@@ -2054,7 +2119,7 @@ def build_ayman_overview(prs, study):
                 ('+' if (live.get('timGrowthPct') or 0) >= 0 else '') +
                 f"{live['timGrowthPct']} %") if live.get('timGrowthPct') is not None else '—',
              'sub': 'TEU N-1',
-             'color': RED if (live.get('timGrowthPct') or 0) >= 0 else GREEN, 'big': True},
+             'color': GREEN if (live.get('timGrowthPct') or 0) >= 0 else RED, 'big': True},
             {'label': 'Rang AYIMAN TIM', 'value': tim[1] if tim else 'NC', 'sub': 'transitaires'},
             {'label': 'PDM AYIMAN TIM', 'value': tim[3] if tim else '—', 'sub': 'du marché'},
             {'label': 'PDM AGL TIM', 'value': tim[4] if tim else '—',
