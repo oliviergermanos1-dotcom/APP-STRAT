@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260626b');
+  _worker = new Worker('./parser-worker.js?v=20260728j');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -415,7 +415,8 @@ async function handlePdfUpload(files) {
 }
 
 async function handleAoUpload(file) {
-  const yr = new Date(document.getElementById('study-start').value || Date.now()).getFullYear();
+  const _p = parsePeriod();
+  const yr = _p ? _p.startYear : new Date().getFullYear();
   try {
     const buf = await file.arrayBuffer();
     prediction.ao = window.PREDICTION.parseAoExcel(buf, yr);
@@ -523,8 +524,7 @@ async function saveSession() {
   try {
     // Capture current settings from the form.
     state.study.title = document.getElementById('study-title').value || state.study.title;
-    state.study.periodStart = document.getElementById('study-start').value || state.study.periodStart;
-    state.study.periodEnd = document.getElementById('study-end').value || state.study.periodEnd;
+    applyPeriodToState();
 
     await idbClear();
 
@@ -605,8 +605,7 @@ async function restoreSession(meta) {
     // Settings + filters first (parsing reads the filter checkboxes).
     if (meta.study) {
       document.getElementById('study-title').value = meta.study.title || '';
-      document.getElementById('study-start').value = meta.study.periodStart || '';
-      document.getElementById('study-end').value = meta.study.periodEnd || '';
+      setPeriodControls(meta.study);
       state.study = { ...state.study, ...meta.study };
     }
     if (meta.filters) {
@@ -654,17 +653,192 @@ async function restoreSession(meta) {
 }
 
 // ─── PERIOD DERIVATION ───────────────────────────────────────────────────────
-function parsePeriod() {
-  const start = document.getElementById('study-start').value;
-  const end = document.getElementById('study-end').value;
-  if (!start || !end) return null;
-  const sd = new Date(start);
-  const ed = new Date(end);
+const MONTHS_UI = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+                   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+
+function _lastDayOfMonth(year, month) {
+  return new Date(year, month, 0).getDate(); // month 1..12
+}
+
+// Initialise les listes déroulantes (mois × 2, années × 2) et branche le
+// récapitulatif live. Remplace les anciens <input type="date">, qui
+// permettaient de saisir des dates inexistantes (31/06) et n'offraient
+// aucun moyen de choisir l'année de comparaison.
+function _sel(id) { return document.getElementById(id); }
+
+function _periodEls() {
   return {
-    startYear: sd.getFullYear(),
-    startMonth: sd.getMonth() + 1,
-    endYear: ed.getFullYear(),
-    endMonth: ed.getMonth() + 1,
+    mode: _sel('study-mode'),
+    y: _sel('study-year'), m1: _sel('study-m1'), m2: _sel('study-m2'),
+    y1: _sel('study-year-n1'), n1m1: _sel('study-n1-m1'), n1m2: _sel('study-n1-m2'),
+  };
+}
+
+// Initialise les listes (mois × 4, années × 2), le mode d'analyse et le
+// récapitulatif. Remplace les anciens <input type="date"> : une date
+// inexistante (31/06) ne peut plus être saisie, et chaque période dispose
+// désormais de sa PROPRE plage de mois.
+function initPeriodControls() {
+  const e = _periodEls();
+  if (!e.mode || !e.y || !e.m1 || !e.m2 || !e.y1 || !e.n1m1 || !e.n1m2) return;
+
+  [e.m1, e.m2, e.n1m1, e.n1m2].forEach((sel) => {
+    MONTHS_UI.forEach((name, i) => sel.add(new Option(name, String(i + 1))));
+  });
+  const nowY = new Date().getFullYear();
+  for (let v = nowY + 1; v >= nowY - 8; v--) {
+    e.y.add(new Option(String(v), String(v)));
+    e.y1.add(new Option(String(v), String(v)));
+  }
+  e.y.value = String(nowY);
+  e.y1.value = String(nowY - 1);
+  e.m1.value = '1'; e.m2.value = '12';
+  e.n1m1.value = '1'; e.n1m2.value = '12';
+
+  const sync = () => {
+    // Une borne de fin ne peut jamais précéder sa borne de début.
+    if (Number(e.m2.value) < Number(e.m1.value)) e.m2.value = e.m1.value;
+    if (Number(e.n1m2.value) < Number(e.n1m1.value)) e.n1m2.value = e.n1m1.value;
+    applyModeVisibility();
+    renderPeriodRecap();
+    saveState();
+  };
+  [e.mode, e.y, e.m1, e.m2, e.y1, e.n1m1, e.n1m2]
+    .forEach((el) => el.addEventListener('change', sync));
+
+  const setN = (a, b) => { e.m1.value = String(a); e.m2.value = String(b); sync(); };
+  const p = (id, a, b) => { const el = _sel(id); if (el) el.addEventListener('click', () => setN(a, b)); };
+  p('preset-full', 1, 12); p('preset-s1', 1, 6); p('preset-s2', 7, 12);
+
+  const mirror = _sel('cmp-mirror');
+  if (mirror) mirror.addEventListener('click', () => {
+    e.n1m1.value = e.m1.value; e.n1m2.value = e.m2.value; sync();
+  });
+
+  applyModeVisibility();
+  renderPeriodRecap();
+}
+
+function applyModeVisibility() {
+  const e = _periodEls();
+  const blk = _sel('cmp-block');
+  if (!e.mode || !blk) return;
+  blk.style.display = (e.mode.value === 'single') ? 'none' : '';
+}
+
+function _rangeLabel(m1, m2, year) {
+  return (m1 === m2)
+    ? `${MONTHS_UI[m1 - 1]} ${year}`
+    : `${MONTHS_UI[m1 - 1]} → ${MONTHS_UI[m2 - 1]} ${year}`;
+}
+
+function renderPeriodRecap() {
+  const box = _sel('period-recap');
+  const p = parsePeriod();
+  if (!box || !p) return;
+  const nbN = p.endMonth - p.startMonth + 1;
+  const base = `<strong>Période étudiée :</strong> ${_rangeLabel(p.startMonth, p.endMonth, p.startYear)} (${nbN} mois)`;
+  if (!p.compare) {
+    box.innerHTML = base +
+      ' &nbsp;·&nbsp; <span style="color:#6B7280">Sans comparatif — les séries et colonnes N-1 seront omises.</span>';
+    return;
+  }
+  const nbN1 = p.n1EndMonth - p.n1StartMonth + 1;
+  let html = base + ' &nbsp;·&nbsp; ' +
+    `<strong>Comparée à :</strong> ${_rangeLabel(p.n1StartMonth, p.n1EndMonth, p.n1StartYear)} (${nbN1} mois)`;
+  const warn = [];
+  if (p.n1StartYear === p.startYear && p.n1StartMonth === p.startMonth && p.n1EndMonth === p.endMonth) {
+    warn.push('les deux périodes sont identiques');
+  }
+  if (nbN !== nbN1) {
+    // L'appariement mensuel se fait par RANG, pas par nom de mois : le 1er
+    // mois de N est comparé au 1er mois de N-1, etc. Des durées inégales
+    // laissent donc des mois sans contrepartie.
+    warn.push(`durées inégales (${nbN} vs ${nbN1} mois) — l'appariement se fait mois à mois par rang, ` +
+              `${Math.abs(nbN - nbN1)} mois resteront sans contrepartie`);
+  }
+  if (warn.length) {
+    html += ` &nbsp;— <span style="color:#B45309">⚠ ${warn.join(' ; ')}</span>`;
+  }
+  box.innerHTML = html;
+}
+
+// Écrit la période courante dans state.study (dates ISO + libellé lisible),
+// pour la sauvegarde de session et pour l'en-tête du PPTX.
+function applyPeriodToState() {
+  const p = parsePeriod();
+  if (!p) return;
+  state.study.periodStart = `${p.startYear}-${String(p.startMonth).padStart(2, '0')}-01`;
+  state.study.periodEnd = `${p.endYear}-${String(p.endMonth).padStart(2, '0')}-` +
+    String(_lastDayOfMonth(p.endYear, p.endMonth)).padStart(2, '0');
+  const lblN = `${MONTHS_UI[p.startMonth - 1]}–${MONTHS_UI[p.endMonth - 1]} ${p.startYear}`;
+  state.study.periodLabel = p.compare
+    ? `${lblN} vs ${MONTHS_UI[p.n1StartMonth - 1]}–${MONTHS_UI[p.n1EndMonth - 1]} ${p.n1StartYear}`
+    : lblN;
+  state.study.comparisonYear = p.compare ? p.n1StartYear : null;
+  state.study.periodMode = p.compare ? 'compare' : 'single';
+  state.study.n1StartMonth = p.compare ? p.n1StartMonth : null;
+  state.study.n1EndMonth = p.compare ? p.n1EndMonth : null;
+}
+
+// Repositionne les sélecteurs depuis un state sauvegardé. Gère les sessions
+// antérieures aux sélecteurs (periodStart/End ISO seuls) : année/mois sont
+// déduits et la comparaison retombe sur année−1, mêmes mois.
+function setPeriodControls(study) {
+  if (!study) return;
+  const e = _periodEls();
+  if (!e.mode || !e.y || !e.m1) return;
+
+  const parse = (iso) => {
+    const mt = /^(\d{4})-(\d{2})/.exec(String(iso || ''));
+    return mt ? { y: Number(mt[1]), m: Number(mt[2]) } : null;
+  };
+  const a = parse(study.periodStart);
+  const b = parse(study.periodEnd);
+  const ensure = (sel, val) => {
+    if (val == null) return;
+    if (![...sel.options].some((o) => o.value === String(val))) {
+      sel.add(new Option(String(val), String(val)));
+    }
+    sel.value = String(val);
+  };
+
+  if (a) { ensure(e.y, a.y); e.m1.value = String(a.m); }
+  if (b) e.m2.value = String(Math.max(b.m, a ? a.m : b.m));
+
+  const single = (study.periodMode === 'single')
+    || (study.periodMode == null && study.comparisonYear === null && !!study.periodLabel);
+  e.mode.value = single ? 'single' : 'compare';
+
+  ensure(e.y1, study.comparisonYear != null ? study.comparisonYear : (a ? a.y - 1 : null));
+  e.n1m1.value = String(study.n1StartMonth != null ? study.n1StartMonth : (a ? a.m : 1));
+  e.n1m2.value = String(study.n1EndMonth != null ? study.n1EndMonth : (b ? b.m : 12));
+
+  applyModeVisibility();
+  renderPeriodRecap();
+}
+
+// Chaque période porte sa PROPRE plage de mois : on peut comparer
+// Janv–Juin 2026 à Juil–Déc 2025. compare:false = étude mono-période
+// (on ne met pas n1 à null : inPeriod(row, null) vaut true pour toutes les
+// lignes, ce qui ferait entrer tout le fichier N-1 dans les agrégats).
+function parsePeriod() {
+  const e = _periodEls();
+  if (!e.mode || !e.y || !e.m1 || !e.m2 || !e.y1 || !e.n1m1 || !e.n1m2) return null;
+  if (!e.y.value || !e.m1.value || !e.m2.value) return null;
+  const sm = Number(e.m1.value);
+  const em = Math.max(Number(e.m2.value), sm);
+  const yr = Number(e.y.value);
+  const cmp = (e.mode.value !== 'single');
+  const n1sm = Number(e.n1m1.value || sm);
+  const n1em = Math.max(Number(e.n1m2.value || em), n1sm);
+  const yr1 = cmp ? Number(e.y1.value) : null;
+  return {
+    startYear: yr, startMonth: sm, endYear: yr, endMonth: em,
+    compare: cmp,
+    n1StartYear: yr1, n1EndYear: yr1,
+    n1StartMonth: cmp ? n1sm : null,
+    n1EndMonth: cmp ? n1em : null,
   };
 }
 
@@ -676,11 +850,15 @@ async function generatePptx() {
   btn.textContent = 'Génération en cours…';
   try {
     state.study.title = document.getElementById('study-title').value || state.study.title;
-    state.study.periodStart = document.getElementById('study-start').value || state.study.periodStart;
-    state.study.periodEnd = document.getElementById('study-end').value || state.study.periodEnd;
-    saveState();
 
     const period = parsePeriod();
+    if (!period) {
+      throw new Error("Période incomplète : sélectionnez les mois et les deux années avant de générer.");
+    }
+    // Dates ISO dérivées des sélecteurs — impossible de produire une date
+    // inexistante (le dernier jour du mois est calculé, pas saisi).
+    applyPeriodToState();
+    saveState();
 
     // Build derived datasets IN the worker (rows never cross the boundary).
     const metierKeys = {};
@@ -715,6 +893,52 @@ async function generatePptx() {
       btn.textContent = 'Agrégation des données…';
       const buildResult = await workerBuild(metierKeys, period, { dsm, mining, ayman });
       allDatasets = buildResult.datasets;
+
+      // ── GARDE-FOU PÉRIODE ↔ DONNÉES ──────────────────────────────────
+      // Sans ce contrôle, un métier sans aucune ligne sur la période
+      // laissait generator.py se rabattre en silence sur ses valeurs de
+      // démonstration (193 989 TEU, Jan–Mai, STRACOTRANS…). Le deck
+      // paraissait crédible mais ne contenait aucune donnée réelle.
+      // Règle : les chiffres du PPTX doivent toujours correspondre aux
+      // dates saisies, sinon on refuse de générer.
+      const reports = buildResult.reports || {};
+      const vides = [];
+      const servis = [];
+      for (const [m, rep] of Object.entries(reports)) {
+        const cov = rep && rep.coverage;
+        if (!cov) continue;
+        if (cov.rowsInPeriodN > 0) { servis.push(m); continue; }
+        vides.push(
+          `• ${m} : 0 B/L retenu sur la période demandée` +
+          (cov.min || cov.max || (cov.n && cov.n.min)
+            ? ` — ce fichier couvre ${(cov.n && cov.n.min) || '?'} → ${(cov.n && cov.n.max) || '?'}`
+            : '')
+        );
+      }
+      if (vides.length > 0) {
+        const pStart = state.study.periodStart;
+        const pEnd = state.study.periodEnd;
+        const entete =
+          `Période demandée : ${pStart} → ${pEnd}\n\n` +
+          `Aucune donnée ne correspond à cette période pour :\n${vides.join('\n')}\n\n`;
+        if (servis.length === 0) {
+          throw new Error(
+            entete +
+            "Génération annulée : le PPTX aurait affiché des valeurs de démonstration " +
+            "au lieu de vos données.\n\n" +
+            "Corrigez les dates ci-dessus, ou chargez des fichiers STATCOM couvrant " +
+            "la période voulue (N = période étudiée, N-1 = année précédente)."
+          );
+        }
+        const suite = window.confirm(
+          entete +
+          `Métiers correctement alimentés : ${servis.join(', ')}.\n\n` +
+          "Les métiers listés ci-dessus afficheront des valeurs de DÉMONSTRATION, " +
+          "pas vos données.\n\nContinuer quand même ?"
+        );
+        if (!suite) throw new Error('Génération annulée — corrigez la période ou les fichiers.');
+      }
+
       btn.textContent = 'Composition du PPTX…';
     }
 
@@ -743,14 +967,16 @@ async function generatePptx() {
     }
     btn.textContent = 'Chargement assets visuels…';
     const [coverB64, logoB64] = await Promise.all([
-      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260626a')),
-      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260626a')),
+      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260728j')),
+      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260728j')),
     ]);
 
     const study = {
       title: state.study.title,
       periodStart: state.study.periodStart,
       periodEnd: state.study.periodEnd,
+      periodLabel: state.study.periodLabel || null,
+      comparisonYear: state.study.comparisonYear || null,
       datasets: allDatasets,
       n1Runs: [],
       // Version du code chargée — imprimée dans la cover du PPTX pour que
@@ -834,8 +1060,8 @@ async function boot() {
   loadState();
 
   document.getElementById('study-title').value = state.study.title;
-  document.getElementById('study-start').value = state.study.periodStart;
-  document.getElementById('study-end').value = state.study.periodEnd;
+  initPeriodControls();
+  setPeriodControls(state.study);
   document.getElementById('generate-btn').addEventListener('click', generatePptx);
   document.getElementById('reset-btn').addEventListener('click', resetAll);
   const saveBtn = document.getElementById('save-btn');
