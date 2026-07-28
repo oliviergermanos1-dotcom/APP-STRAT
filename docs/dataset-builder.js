@@ -9,7 +9,7 @@
 // Outputs a list of datasets ({ datasetType, rows }) compatible with the
 // generator's data-adapter:
 //   - concurrents     (ranked by Transitaire on N period)
-//   - clients         (top 10 destinataire/chargeur AGL on N period)
+//   - clients         (top 20 destinataire/chargeur AGL on N period)
 //   - segments        (top 11 merchandise + AGL PDM on N period)
 //   - mensuel         (per-month market + AGL on N period)
 //   - nouveaux        (rank 11-15 fallback OR true newcomers if N-1 supplied)
@@ -35,11 +35,15 @@ function inPeriod(row, period) {
 
 function shiftPeriodToN1(period) {
   if (!period) return null;
+  // Chaque période porte sa propre plage : année ET mois de comparaison sont
+  // choisis explicitement dans l'interface. Repli sur « année−1, mêmes mois »
+  // pour les sessions enregistrées avant l'ajout des sélecteurs.
   return {
-    startYear: period.startYear - 1,
-    startMonth: period.startMonth,
-    endYear: period.endYear - 1,
-    endMonth: period.endMonth,
+    startYear: period.n1StartYear != null ? period.n1StartYear : period.startYear - 1,
+    startMonth: period.n1StartMonth != null ? period.n1StartMonth : period.startMonth,
+    endYear: period.n1EndYear != null ? period.n1EndYear
+      : (period.n1StartYear != null ? period.n1StartYear : period.endYear - 1),
+    endMonth: period.n1EndMonth != null ? period.n1EndMonth : period.endMonth,
   };
 }
 
@@ -69,10 +73,36 @@ function buildDatasets(args) {
   const { keptN, keptN1, period, metier, filename } = args;
 
   const periodRows = period ? keptN.filter((r) => inPeriod(r, period)) : keptN;
-  const periodN1Rows = keptN1 && period
-    ? keptN1.filter((r) => inPeriod(r, shiftPeriodToN1(period)))
-    : (keptN1 || []);
-  const fullN1Rows = keptN1 || [];
+  // compare === false : étude sur une seule période. On force le jeu N-1 à
+  // vide plutôt que de laisser shiftPeriodToN1() renvoyer null — inPeriod()
+  // vaut true quand period est null, ce qui ferait entrer TOUT le fichier
+  // N-1 dans les agrégats et fausserait les chiffres.
+  const noCompare = !!(period && period.compare === false);
+  const periodN1Rows = noCompare ? []
+    : (keptN1 && period
+      ? keptN1.filter((r) => inPeriod(r, shiftPeriodToN1(period)))
+      : (keptN1 || []));
+  const fullN1Rows = noCompare ? [] : (keptN1 || []);
+
+  // ─── Couverture temporelle réelle des fichiers ──────────────────────────
+  // Sert à garantir que la période saisie dans l'outil correspond bien aux
+  // données : si 0 ligne survit au filtre, l'app doit refuser de générer au
+  // lieu de laisser generator.py se rabattre sur ses valeurs de démo.
+  function coverage(rows) {
+    let min = null, max = null;
+    for (const r of rows || []) {
+      const mi = monthIndex(r.mois);
+      if (!mi || !r.annee) continue;
+      const ym = r.annee * 100 + mi;
+      if (min === null || ym < min) min = ym;
+      if (max === null || ym > max) max = ym;
+    }
+    const fmt = (v) => (v === null ? null
+      : `${Math.floor(v / 100)}-${String(v % 100).padStart(2, '0')}`);
+    return { min: fmt(min), max: fmt(max) };
+  }
+  const covN = coverage(keptN);
+  const covN1 = coverage(fullN1Rows);
 
   const market = periodRows.reduce((s, r) => s + r.volume, 0);
   const marketN1Period = periodN1Rows.reduce((s, r) => s + r.volume, 0);
@@ -102,7 +132,7 @@ function buildDatasets(args) {
       };
     });
 
-  // ─── Clients AGL (top 10 by destinataire/chargeur over N period) ────────
+  // ─── Clients AGL (top 20 by destinataire/chargeur over N period) ────────
   const aglPeriodRows = periodRows.filter((r) => isAglB(r.transitaire));
   const clientKey = (metier === 'TEM' || metier === 'HEXP') ? 'chargeur' : 'destinataire';
   const byClient = aggregateBy(aglPeriodRows, (r) => r[clientKey]);
@@ -152,13 +182,29 @@ function buildDatasets(args) {
   const mAgl = aggregateBy(aglPeriodRows, (r) => r.mois);
   const mMktN1 = aggregateBy(periodN1Rows, (r) => r.mois);
   const mAglN1 = aggregateBy(aglPeriodN1Rows, (r) => r.mois);
-  const mensuel = MONTHS_FR_B
-    .filter((m) => mMkt.has(m))
-    .map((m) => {
-      const mkN1 = mMktN1.get(m) || 0;
-      const agN1 = mAglN1.get(m) || 0;
+
+  // Appariement N ↔ N-1 par RANG dans chaque plage, et non par nom de mois :
+  // les deux périodes peuvent couvrir des mois différents (ex. Janv–Juin 2026
+  // comparé à Juil–Déc 2025). Le 1er mois de N est comparé au 1er mois de
+  // N-1, etc. Quand les plages coïncident, cela revient exactement à
+  // l'appariement par nom de mois d'avant.
+  const _n1p = noCompare ? null : shiftPeriodToN1(period);
+  const _range = (a, b) => {
+    const out = [];
+    for (let mm = a; mm <= b; mm++) out.push(MONTHS_FR_B[mm - 1]);
+    return out;
+  };
+  const nRange = period ? _range(period.startMonth, period.endMonth) : MONTHS_FR_B;
+  const n1Range = _n1p ? _range(_n1p.startMonth, _n1p.endMonth) : [];
+  const mensuel = nRange
+    .map((m, k) => ({ m, m1: n1Range[k] || null }))
+    .filter((o) => mMkt.has(o.m))
+    .map(({ m, m1 }) => {
+      const mkN1 = m1 ? (mMktN1.get(m1) || 0) : 0;
+      const agN1 = m1 ? (mAglN1.get(m1) || 0) : 0;
       return {
         mois: m,
+        mois_n1: m1,
         volume_marche: Math.round(mMkt.get(m) * 100) / 100,
         volume_agl: Math.round((mAgl.get(m) || 0) * 100) / 100,
         pdm_agl: mMkt.get(m) > 0
@@ -295,6 +341,13 @@ function buildDatasets(args) {
     filename,
     metier,
     market,
+    coverage: {
+      n: covN,
+      n1: covN1,
+      rowsTotalN: (keptN || []).length,
+      rowsInPeriodN: periodRows.length,
+      rowsInPeriodN1: periodN1Rows.length,
+    },
     aglVolume: aglPeriodRows.reduce((s, r) => s + r.volume, 0),
     aglPdm: market > 0 ? fmtPdmNum((aglPeriodRows.reduce((s, r) => s + r.volume, 0) / market) * 100) : 0,
     datasets: [
@@ -302,10 +355,10 @@ function buildDatasets(args) {
       { datasetType: 'clients',        filename, rowCount: clients.length,     rows: clients },
       { datasetType: 'segments',       filename, rowCount: segments.length,    rows: segments },
       { datasetType: 'mensuel',        filename, rowCount: mensuel.length,     rows: mensuel },
-      { datasetType: 'nouveaux',       filename, rowCount: newcomerTransitaires.length, rows: newcomerTransitaires },
-      { datasetType: 'nouveaux_marchandises', filename, rowCount: newcomerMerch.length, rows: newcomerMerch },
-      { datasetType: 'nouveaux_clients',      filename, rowCount: newcomerClients.length, rows: newcomerClients },
-      { datasetType: 'top_growth',     filename, rowCount: topGrowth.length, rows: topGrowth },
+      { datasetType: 'nouveaux',       filename, rowCount: noCompare ? 0 : newcomerTransitaires.length, rows: noCompare ? [] : newcomerTransitaires },
+      { datasetType: 'nouveaux_marchandises', filename, rowCount: noCompare ? 0 : newcomerMerch.length, rows: noCompare ? [] : newcomerMerch },
+      { datasetType: 'nouveaux_clients',      filename, rowCount: noCompare ? 0 : newcomerClients.length, rows: noCompare ? [] : newcomerClients },
+      { datasetType: 'top_growth',     filename, rowCount: noCompare ? 0 : topGrowth.length, rows: noCompare ? [] : topGrowth },
       { datasetType: 'top_destinataires_pdm', filename, rowCount: topDestPdm.length, rows: topDestPdm },
       { datasetType: 'repartition_pays', filename, rowCount: repartitionPays.length, rows: repartitionPays },
       { datasetType: 'referentiel_n1', filename, rowCount: referentiel.length, rows: referentiel },
@@ -342,6 +395,10 @@ function aggPoids(rows, keyFn) {
  * @param {string} filename
  */
 function buildDsmDatasets(keptN, keptN1, period, filename) {
+  // Mode « période unique » : aucune donnée N-1 ne doit entrer, ni pour la
+  // comparaison mensuelle, ni pour la détection des nouveaux entrants.
+  const _dsmNoCmp = !!(period && period.compare === false);
+  if (_dsmNoCmp) keptN1 = null;
   const periodRows = period ? keptN.filter((r) => inPeriod(r, period)) : keptN;
   const fullN1Rows = keptN1 || [];
   const market = periodRows.reduce((s, r) => s + (Number(r.poids) || 0), 0);
@@ -528,9 +585,9 @@ function buildDsmDatasets(keptN, keptN1, period, filename) {
       { datasetType: 'dsm_manut_detail',     rows: [manutDetail] },
       { datasetType: 'dsm_vehicules_neufs',  rows: vehNeuf.rows, meta: { total: vehNeuf.total } },
       { datasetType: 'dsm_vehicules_occasion', rows: vehOcc.rows, meta: { total: vehOcc.total } },
-      { datasetType: 'dsm_nouveaux_armateurs', rows: nouveauxArmateurs },
-      { datasetType: 'dsm_nouvelles_marchandises', rows: nouvellesMarch },
-      { datasetType: 'dsm_top_growth',       rows: growth.slice(0, 3) },
+      { datasetType: 'dsm_nouveaux_armateurs', rows: _dsmNoCmp ? [] : nouveauxArmateurs },
+      { datasetType: 'dsm_nouvelles_marchandises', rows: _dsmNoCmp ? [] : nouvellesMarch },
+      { datasetType: 'dsm_top_growth',       rows: _dsmNoCmp ? [] : growth.slice(0, 3) },
     ],
   };
 }
@@ -591,13 +648,14 @@ function buildAymanDatasets(sources, period) {
   const parMetier = [];
   const byMetierDetail = {};
   let aymanTimRows = [];
+  const _noCmp = !!(period && period.compare === false);
   let aymanTimN1Rows = [];
 
   for (const src of sources) {
     const pRows = period ? src.keptN.filter((r) => inPeriod(r, period)) : src.keptN;
     const market = pRows.reduce((s, r) => s + (r.volume || 0), 0);
     const aymanRows = pRows.filter((r) => isAyman(r.transitaire));
-    const aymanN1Rows = (src.keptN1 || []).filter((r) => isAyman(r.transitaire));
+    const aymanN1Rows = _noCmp ? [] : (src.keptN1 || []).filter((r) => isAyman(r.transitaire));
     // rank AYMAN among transitaires
     const byTransit = aggregateBy(pRows, (r) => r.transitaire);
     const ranked = [...byTransit.entries()].sort((a, b) => b[1] - a[1]);
