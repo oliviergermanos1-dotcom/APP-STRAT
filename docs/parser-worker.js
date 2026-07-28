@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260626b');
-importScripts('./dataset-builder.js?v=20260626b');
+importScripts('./statcom-parser.js?v=20260728j');
+importScripts('./dataset-builder.js?v=20260728j');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
@@ -83,6 +83,7 @@ self.onmessage = (event) => {
           market: built.market,
           aglVolume: built.aglVolume,
           aglPdm: built.aglPdm,
+          coverage: built.coverage,
         };
         for (const ds of built.datasets) {
           allDatasets.push({
