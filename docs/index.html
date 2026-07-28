@@ -74,7 +74,7 @@
     <!-- Section 1: Étude -->
     <section class="bg-white rounded-lg border border-gray-200 p-6">
       <h2 class="text-lg font-bold text-navy mb-4">① Paramètres de l'étude</h2>
-      <div class="grid grid-cols-3 gap-4">
+      <div class="grid grid-cols-2 gap-4 mb-4">
         <div>
           <label class="block text-xs font-semibold uppercase tracking-wide text-gray-700 mb-1">
             Titre
@@ -83,17 +83,68 @@
         </div>
         <div>
           <label class="block text-xs font-semibold uppercase tracking-wide text-gray-700 mb-1">
-            Période — début
+            Type d'analyse
           </label>
-          <input id="study-start" type="date" class="w-full px-3 py-2 border border-gray-300 rounded text-sm" />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold uppercase tracking-wide text-gray-700 mb-1">
-            Période — fin
-          </label>
-          <input id="study-end" type="date" class="w-full px-3 py-2 border border-gray-300 rounded text-sm" />
+          <select id="study-mode" class="w-full px-3 py-2 border border-gray-300 rounded text-sm font-semibold">
+            <option value="compare">Analyse comparative — 2 périodes</option>
+            <option value="single">Période unique — sans comparatif</option>
+          </select>
         </div>
       </div>
+
+      <div class="border border-gray-200 rounded p-3 mb-3 bg-gray-50">
+        <div class="text-xs font-semibold uppercase tracking-wide text-navy mb-2">
+          Période étudiée (N)
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-[11px] text-gray-600 mb-1">Année</label>
+            <select id="study-year" class="w-full px-2 py-2 border border-gray-300 rounded text-sm font-semibold"></select>
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-600 mb-1">De</label>
+            <select id="study-m1" class="w-full px-2 py-2 border border-gray-300 rounded text-sm"></select>
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-600 mb-1">À</label>
+            <select id="study-m2" class="w-full px-2 py-2 border border-gray-300 rounded text-sm"></select>
+          </div>
+        </div>
+        <div class="mt-2 flex gap-2 text-[11px]">
+          <button type="button" id="preset-full" class="text-gold hover:underline">Année complète</button>
+          <span class="text-gray-300">|</span>
+          <button type="button" id="preset-s1" class="text-gold hover:underline">S1</button>
+          <span class="text-gray-300">|</span>
+          <button type="button" id="preset-s2" class="text-gold hover:underline">S2</button>
+        </div>
+      </div>
+
+      <div id="cmp-block" class="border border-gray-200 rounded p-3 mb-3 bg-gray-50">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-xs font-semibold uppercase tracking-wide text-navy">
+            Période de comparaison (N-1)
+          </div>
+          <button type="button" id="cmp-mirror" class="text-[11px] text-gold hover:underline">
+            Mêmes mois que la période N
+          </button>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-[11px] text-gray-600 mb-1">Année</label>
+            <select id="study-year-n1" class="w-full px-2 py-2 border border-gray-300 rounded text-sm font-semibold"></select>
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-600 mb-1">De</label>
+            <select id="study-n1-m1" class="w-full px-2 py-2 border border-gray-300 rounded text-sm"></select>
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-600 mb-1">À</label>
+            <select id="study-n1-m2" class="w-full px-2 py-2 border border-gray-300 rounded text-sm"></select>
+          </div>
+        </div>
+      </div>
+
+      <div id="period-recap" class="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2"></div>
     </section>
 
     <!-- Section 2: STATCOM uploads -->
@@ -276,11 +327,11 @@
   <!-- generator.js (pptxgenjs) is no longer loaded — Python (Pyodide) handles
        the base deck. data-adapter.js is also obsolete (port lives in
        generator.py). blocks.js stays for the JS-side merge logic only. -->
-  <script src="./blocks.js?v=20260626b"></script>
-  <script src="./prediction.js?v=20260626b"></script>
-  <script src="./pptx-merge.js?v=20260626b"></script>
-  <script src="./py-generator.js?v=20260626b"></script>
-  <script src="./app.js?v=20260626b"></script>
+  <script src="./blocks.js?v=20260728j"></script>
+  <script src="./prediction.js?v=20260728j"></script>
+  <script src="./pptx-merge.js?v=20260728j"></script>
+  <script src="./py-generator.js?v=20260728j"></script>
+  <script src="./app.js?v=20260728j"></script>
 
   <!-- Indicateur de version : extrait le cache-bust de l'URL d'app.js et
        l'affiche dans le badge du header. Permet à Olivier de vérifier d'un

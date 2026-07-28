@@ -554,9 +554,14 @@ def compute_concurrents_insights(live, label, unit='TEU'):
             f"{str(r.get(name_key, ''))[:16]} ({float(r['delta_pdm']):.1f} pt)".replace('.', ',')
             for r in movers_dn if (r.get('delta_pdm') or 0) < -0.05
         ])
-        if up_lbls:
+        # Sans periode de comparaison, volume_n1 vaut 0 partout : delta_pdm
+        # devient egal a la PDM courante et l'app conclurait a une "hausse"
+        # generalisee inexistante. On n'emet ces lignes que si un N-1 reel
+        # est present.
+        _has_n1 = any(float(r.get('volume_n1') or 0) > 0 for r in top)
+        if _has_n1 and up_lbls:
             lines.append(f"📈 En hausse vs N-1 : {up_lbls}.")
-        if dn_lbls:
+        if _has_n1 and dn_lbls:
             lines.append(f"📉 En recul vs N-1 : {dn_lbls}.")
 
     # ── 6. Segments gagnés / érodés vs N-1 (si dispo) ───────────────────
@@ -838,6 +843,34 @@ def fmt_pdm(v):
         return '— %'
 
 
+
+def _pct_var(n, n1):
+    """Variation en % entre N et N-1. None si pas de N-1 (mode periode
+    unique ou fichier N-1 absent) : on n'affiche alors aucune variation
+    plutot qu'un -100% trompeur."""
+    try:
+        n, n1 = float(n or 0), float(n1 or 0)
+    except Exception:
+        return None
+    if n1 <= 0:
+        return None
+    return round((n - n1) / n1 * 100, 1)
+
+
+def _var_txt(pct, suffixe=' % vs N-1'):
+    """Texte de variation pretr a afficher, ou None."""
+    if pct is None:
+        return None
+    signe = '+' if pct >= 0 else ''
+    return (signe + f"{pct:.1f}".replace('.', ',') + suffixe)
+
+
+def _var_color(pct):
+    if pct is None:
+        return MGRAY
+    return GREEN if pct >= 0 else RED
+
+
 def find_dataset(study, metier, dataset_type):
     if not study or not isinstance(study.get('datasets'), list):
         return None
@@ -904,6 +937,12 @@ def build_overview_data(study, metier):
         'monthlyMarketN1': monthly_market_n1, 'monthlyAglN1': monthly_agl_n1,
         'monthlyPdmN1': monthly_pdm_n1,
         'marketN1': market_n1, 'aglVolumeN1': agl_vol_n1, 'aglPdmN1': agl_pdm_n1,
+        # Variations N vs N-1. Regle de lecture du deck : la valeur affichee
+        # est TOUJOURS celle de l'annee N ; le N-1 n'apparait que sous forme
+        # de variation. Aucune addition entre annees.
+        'deltaMarchePct': _pct_var(market, market_n1),
+        'deltaAglPct': _pct_var(agl_vol, agl_vol_n1),
+        'deltaPdmPts': (round(agl_pdm - agl_pdm_n1, 1) if market_n1 > 0 else None),
         'kpis': {
             'marche': fmt_int(market), 'agl': fmt_int(agl_vol),
             'pdm': fmt_pdm(agl_pdm),
@@ -1364,7 +1403,9 @@ def build_cover(prs, study):
     _txt(s, _in(0.35), _in(1.5), _in(8), _in(1.8), title,
          size=44, bold=True, color=WHITE)
     period = 'Reporting 2026'
-    if study.get('periodStart') and study.get('periodEnd'):
+    if study.get('periodLabel'):
+        period = f"Reporting {study['periodLabel']}"
+    elif study.get('periodStart') and study.get('periodEnd'):
         period = f"Reporting {study['periodStart']} → {study['periodEnd']}"
     _txt(s, _in(0.35), _in(3.75), _in(6), _in(0.65), period,
          size=24, bold=True, color=GOLD)
@@ -1437,20 +1478,34 @@ def build_sommaire(prs, study):
 def build_tim_overview(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_overview_data(study, 'TIM')
-    period_label = (f"{study.get('periodStart')} → {study.get('periodEnd')}"
-                    if study.get('periodStart') and study.get('periodEnd') else 'Jan–Mai 2026')
-    sub = (f"Marché qualifié : {live['kpis']['marche']} TEU  |  AGL : {live['kpis']['agl']} TEU  |  "
-           f"PDM AGL : {live['kpis']['pdm']}") if live else \
-          'Marché qualifié : 193 989 TEU  |  AGL : 15 133 TEU  |  PDM AGL : 7,8% (Leader #1)'
+    period_label = (study.get('periodLabel')
+                    or (f"{study.get('periodStart')} → {study.get('periodEnd')}"
+                        if study.get('periodStart') and study.get('periodEnd')
+                        else 'periode non definie'))
+    # Regle de lecture : la valeur affichee est celle de l'annee N ; le N-1
+    # apparait uniquement en variation. Jamais d'addition entre annees.
+    _dm = _var_txt(live.get('deltaMarchePct')) if live else None
+    _da = _var_txt(live.get('deltaAglPct')) if live else None
+    sub = (f"Marché qualifié : {live['kpis']['marche']} TEU"
+           + (f" ({_dm})" if _dm else '')
+           + f"  |  AGL : {live['kpis']['agl']} TEU"
+           + (f" ({_da})" if _da else '')
+           + f"  |  PDM AGL : {live['kpis']['pdm']}") if live else \
+          'Aucune donnée sur la période sélectionnée'
     add_header(s, f"TIM – VUE D'ENSEMBLE  |  {period_label}", sub)
     add_footer(s, f"Africa Global Logistics – Étude de Marché {period_label}  |  p.4")
     if live:
         ecart_color = GREEN if live['ecart'] >= 0 else RED
         kpis = [
-            {'label': 'Marché qualifié', 'value': live['kpis']['marche'], 'sub': f"TEU {period_label}"},
-            {'label': 'Volume AGL', 'value': live['kpis']['agl'], 'sub': f"TEU {period_label}"},
-            {'label': 'PDM AGL', 'value': live['kpis']['pdm'],
-             'sub': '#1 – Leader' if live['aglRank'] == 1 else f"Rang #{live['aglRank'] or '—'}",
+            {'label': 'Marché qualifié (N)', 'value': live['kpis']['marche'],
+             'sub': _dm or f"TEU — {period_label}",
+             'color': _var_color(live.get('deltaMarchePct')) if _dm else None},
+            {'label': 'Volume AGL (N)', 'value': live['kpis']['agl'],
+             'sub': _da or f"TEU — {period_label}",
+             'color': _var_color(live.get('deltaAglPct')) if _da else None},
+            {'label': 'PDM AGL (N)', 'value': live['kpis']['pdm'],
+             'sub': (_var_txt(live.get('deltaPdmPts'), ' pt vs N-1')
+                     or ('#1 – Leader' if live['aglRank'] == 1 else f"Rang #{live['aglRank'] or '—'}")),
              'color': GREEN, 'big': True},
             {'label': (f"Écart vs #2 {(live['secondName'] or '')[:18]}"
                        if live.get('secondName') else "Écart vs #2"),
@@ -1473,18 +1528,31 @@ def build_tim_overview(prs, study):
 
     # Bar chart left
     _txt(s, _in(0.25), _in(2.28), _in(6.5), _in(0.28),
-         'Évolution mensuelle marché TIM & AGL (TEU) — N vs N-1', size=11, bold=True, color=DGRAY)
+         ('Évolution mensuelle marché TIM & AGL (TEU) — N vs N-1'
+          if study.get('comparisonYear') else 'Évolution mensuelle marché TIM & AGL (TEU)'),
+         size=11, bold=True, color=DGRAY)
     # 4 séries groupées par mois : Marché N + AGL N + Marché N-1 + AGL N-1
     # (couleurs distinctes pour distinguer N et N-1, palette navy/gold ⇋ light).
     if live and live.get('monthlyMarket'):
-        series = [
-            {'name': 'Marché qualifié N',  'labels': live['monthLabels'], 'values': live['monthlyMarket']},
-            {'name': 'Marché qualifié N-1', 'labels': live['monthLabels'],
-             'values': live.get('monthlyMarketN1') or [0] * len(live['monthLabels'])},
-            {'name': 'AGL N',  'labels': live['monthLabels'], 'values': live['monthlyAgl']},
-            {'name': 'AGL N-1', 'labels': live['monthLabels'],
-             'values': live.get('monthlyAglN1') or [0] * len(live['monthLabels'])},
-        ]
+        _mN1 = live.get('monthlyMarketN1') or []
+        _aN1 = live.get('monthlyAglN1') or []
+        # Etude sans comparatif : on omet les series N-1 plutot que de tracer
+        # des barres plates a zero, qui laisseraient croire a un effondrement.
+        _has_n1 = any(v for v in _mN1) or any(v for v in _aN1)
+        if _has_n1:
+            series = [
+                {'name': 'Marché qualifié N',  'labels': live['monthLabels'], 'values': live['monthlyMarket']},
+                {'name': 'Marché qualifié N-1', 'labels': live['monthLabels'],
+                 'values': _mN1 or [0] * len(live['monthLabels'])},
+                {'name': 'AGL N',  'labels': live['monthLabels'], 'values': live['monthlyAgl']},
+                {'name': 'AGL N-1', 'labels': live['monthLabels'],
+                 'values': _aN1 or [0] * len(live['monthLabels'])},
+            ]
+        else:
+            series = [
+                {'name': 'Marché qualifié',  'labels': live['monthLabels'], 'values': live['monthlyMarket']},
+                {'name': 'AGL',  'labels': live['monthLabels'], 'values': live['monthlyAgl']},
+            ]
     else:
         labels = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai']
         series = [{'name': 'Marché qualifié N',  'labels': labels, 'values': [41800, 36800, 43600, 38500, 33200]},
@@ -1492,8 +1560,9 @@ def build_tim_overview(prs, study):
                   {'name': 'AGL N',  'labels': labels, 'values': [3470, 2544, 3270, 3278, 2571]},
                   {'name': 'AGL N-1', 'labels': labels, 'values': [3100, 2300, 2900, 2980, 2400]}]
     # Palette : navy + navy clair (marché) ; gold + gold clair (AGL)
-    add_bar_chart(s, 0.15, 2.55, 6.8, 4.3, series,
-                  [NAVY, RGBColor(0x6C, 0x80, 0xA0), GOLD, RGBColor(0xE0, 0xCD, 0x96)])
+    _pal = ([NAVY, GOLD] if len(series) == 2
+            else [NAVY, RGBColor(0x6C, 0x80, 0xA0), GOLD, RGBColor(0xE0, 0xCD, 0x96)])
+    add_bar_chart(s, 0.15, 2.55, 6.8, 4.3, series, _pal)
 
     # Mensuel bars right
     _txt(s, _in(7.1), _in(2.28), _in(5.8), _in(0.28),
@@ -1674,15 +1743,25 @@ def build_metier_overview(prs, study, code, label, page_no, fallback_sub, fallba
                           fallback_series, fallback_pdm, unit='TEU'):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_overview_data(study, code)
-    sub = (f"Marché : {live['kpis']['marche']} {unit}  |  AGL : {live['kpis']['agl']} {unit}  |  "
-           f"PDM : {live['kpis']['pdm']}") if live else fallback_sub
-    add_header(s, f"{label} – VUE D'ENSEMBLE", sub)
-    add_footer(s, f"Africa Global Logistics – Étude de Marché 2026  |  p.{page_no}")
+    # Regle de lecture : valeur = annee N ; le N-1 n'apparait qu'en variation.
+    _dm = _var_txt(live.get('deltaMarchePct')) if live else None
+    _da = _var_txt(live.get('deltaAglPct')) if live else None
+    _plabel = study.get('periodLabel') or 'période'
+    sub = (f"Marché : {live['kpis']['marche']} {unit}" + (f" ({_dm})" if _dm else '')
+           + f"  |  AGL : {live['kpis']['agl']} {unit}" + (f" ({_da})" if _da else '')
+           + f"  |  PDM : {live['kpis']['pdm']}") if live \
+          else 'Aucune donnée sur la période sélectionnée'
+    add_header(s, f"{label} – VUE D'ENSEMBLE  |  {_plabel}", sub)
+    add_footer(s, f"Africa Global Logistics – Étude de Marché {_plabel}  |  p.{page_no}")
     if live:
         ecart_color = GREEN if live['ecart'] >= 0 else RED
         kpis = [
-            {'label': f'Marché ({unit})', 'value': live['kpis']['marche'], 'sub': 'période'},
-            {'label': f'AGL ({unit})', 'value': live['kpis']['agl'], 'sub': 'période'},
+            {'label': f'Marché {unit} (N)', 'value': live['kpis']['marche'],
+             'sub': _dm or _plabel,
+             'color': _var_color(live.get('deltaMarchePct')) if _dm else None},
+            {'label': f'AGL {unit} (N)', 'value': live['kpis']['agl'],
+             'sub': _da or _plabel,
+             'color': _var_color(live.get('deltaAglPct')) if _da else None},
             {'label': 'PDM AGL', 'value': live['kpis']['pdm'],
              'sub': f"Rang #{live['aglRank'] or '—'}", 'color': GREEN, 'big': True},
             {'label': f"vs #2 {((live.get('secondName') or '')[:14])}",
@@ -1695,22 +1774,32 @@ def build_metier_overview(prs, study, code, label, page_no, fallback_sub, fallba
     add_kpi_bar(s, kpis)
 
     _txt(s, _in(0.25), _in(2.28), _in(6.5), _in(0.28),
-         f"Évolution mensuelle {label} & AGL ({unit}) — N vs N-1",
+         (f"Évolution mensuelle {label} & AGL ({unit}) — N vs N-1"
+          if study.get('comparisonYear') else f"Évolution mensuelle {label} & AGL ({unit})"),
          size=11, bold=True, color=DGRAY)
     if live and live.get('monthlyMarket'):
         n_labels = live['monthLabels']
-        series = [
-            {'name': 'Marché N',  'labels': n_labels, 'values': live['monthlyMarket']},
-            {'name': 'Marché N-1', 'labels': n_labels,
-             'values': live.get('monthlyMarketN1') or [0] * len(n_labels)},
-            {'name': 'AGL N',  'labels': n_labels, 'values': live['monthlyAgl']},
-            {'name': 'AGL N-1', 'labels': n_labels,
-             'values': live.get('monthlyAglN1') or [0] * len(n_labels)},
-        ]
+        _mN1 = live.get('monthlyMarketN1') or []
+        _aN1 = live.get('monthlyAglN1') or []
+        if any(v for v in _mN1) or any(v for v in _aN1):
+            series = [
+                {'name': 'Marché N',  'labels': n_labels, 'values': live['monthlyMarket']},
+                {'name': 'Marché N-1', 'labels': n_labels,
+                 'values': _mN1 or [0] * len(n_labels)},
+                {'name': 'AGL N',  'labels': n_labels, 'values': live['monthlyAgl']},
+                {'name': 'AGL N-1', 'labels': n_labels,
+                 'values': _aN1 or [0] * len(n_labels)},
+            ]
+        else:
+            series = [
+                {'name': 'Marché',  'labels': n_labels, 'values': live['monthlyMarket']},
+                {'name': 'AGL',  'labels': n_labels, 'values': live['monthlyAgl']},
+            ]
     else:
         series = fallback_series
-    add_bar_chart(s, 0.15, 2.55, 6.8, 4.3, series,
-                  [NAVY, RGBColor(0x6C, 0x80, 0xA0), GOLD, RGBColor(0xE0, 0xCD, 0x96)])
+    _pal = ([NAVY, GOLD] if len(series) == 2
+            else [NAVY, RGBColor(0x6C, 0x80, 0xA0), GOLD, RGBColor(0xE0, 0xCD, 0x96)])
+    add_bar_chart(s, 0.15, 2.55, 6.8, 4.3, series, _pal)
 
     _txt(s, _in(7.1), _in(2.28), _in(5.8), _in(0.28),
          f'PDM AGL par mois – {label}', size=11, bold=True, color=DGRAY)
@@ -1843,7 +1932,8 @@ def build_dsm_overview(prs, study):
         ]
         add_kpi_bar(s, kpis)
         _txt(s, _in(0.25), _in(2.28), _in(6.5), _in(0.28),
-             'Évolution mensuelle import & AGL (tonnes) — N vs N-1',
+             ('Évolution mensuelle import & AGL (tonnes) — N vs N-1'
+              if study.get('comparisonYear') else 'Évolution mensuelle import & AGL (tonnes)'),
              size=11, bold=True, color=DGRAY)
         if ov['monthLabels']:
             n_labels = ov['monthLabels']
@@ -2187,7 +2277,7 @@ def build_mining_clientele(prs, study):
         lines.append("⛏ ENJEU MINIER : verrouiller les clients miniers historiques "
                      "(K1 Mining, Lafigué, Yaouré) tout en élargissant aux nouveaux "
                      "projets PND (Sissingué, Lauzoua, Mt Klahoyo).")
-        add_insight_box(s, 0.15, 5.40, 12.9, 1.95, '⛏',
+        add_insight_box(s, 0.15, 5.40, 12.9, 1.72, '⛏',
                         lines, bg=EYELLOW)
     else:
         add_insight_box(s, 0.15, 1.5, 12.9, 5, 'ℹ',
@@ -2220,18 +2310,32 @@ def build_ayman_overview(prs, study):
         evol = live.get('evolution') or []
         if evol:
             _txt(s, _in(0.25), _in(2.28), _in(12.9), _in(0.28),
-                 'Évolution mensuelle AYIMAN (TIM, TEU) — N vs N-1',
+                 ('Évolution mensuelle AYIMAN (TIM, TEU) — N vs N-1'
+                  if study.get('comparisonYear') else 'Évolution mensuelle AYIMAN (TIM, TEU)'),
                  size=11, bold=True, color=DGRAY)
             labels_e = [e.get('mois', '') for e in evol]
             add_bar_chart(s, 0.15, 2.55, 12.9, 3.0,
                           [{'name': 'AYIMAN N',  'labels': labels_e,
                             'values': [int(round(e.get('vol', 0))) for e in evol]},
                            {'name': 'AYIMAN N-1', 'labels': labels_e,
-                            'values': [int(round(e.get('vol_n1', 0))) for e in evol]}],
+                            'values': [int(round(e.get('vol_n1', 0))) for e in evol]}]
+                          if any(e.get('vol_n1') for e in evol) else
+                          [{'name': 'AYIMAN', 'labels': labels_e,
+                            'values': [int(round(e.get('vol', 0))) for e in evol]}],
                           [ORANGE, RGBColor(0xF5, 0xC2, 0x9F)])
-        add_insight_box(s, 0.15, 5.7, 12.9, 1.2, '⚠',
-                        [f"DYNAMIQUE : AYIMAN {('progresse' if (live.get('timGrowthPct') or 0) >= 0 else 'recule')} "
-                         f"vs N-1 ({live['timTotalN1']} → {live['timTotalN']} TEU)."])
+        # Sans comparatif, timTotalN1 vaut 0 : annoncer une progression
+        # "0 -> 1 245 TEU" serait faux. On se limite au volume de l'annee N.
+        try:
+            _n1val = float(str(live.get('timTotalN1') or 0).replace(' ', '').replace(',', '.'))
+        except Exception:
+            _n1val = 0.0
+        if study.get('comparisonYear') and _n1val > 0:
+            _ay_line = (f"DYNAMIQUE : AYIMAN "
+                        f"{('progresse' if (live.get('timGrowthPct') or 0) >= 0 else 'recule')} "
+                        f"vs N-1 ({live['timTotalN1']} → {live['timTotalN']} TEU).")
+        else:
+            _ay_line = f"VOLUME AYIMAN sur la période : {live['timTotalN']} TEU (aucun comparatif N-1)."
+        add_insight_box(s, 0.15, 5.7, 12.9, 1.2, '⚠', [_ay_line])
     else:
         add_insight_box(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
                         ['Uploader STATCOM (TIM + AER) pour activer l\'analyse AYIMAN.'])
@@ -2411,7 +2515,8 @@ def build_ayman_detail(prs, study):
     lines.append("📌 Recommandation : verrouiller les destinataires/chargeurs communs, "
                  "ouvrir prospection multi-métiers sur les clients AYIMAN exclusifs (gisement conquête).")
 
-    add_insight_box(s, 0.15, 6.55, 12.95, 0.85, '🎯', lines, bg=EYELLOW)
+    # 6.55 + 0.85 = 7.40 > pied de page a 7.20 : hauteur ramenee a 0.62.
+    add_insight_box(s, 0.15, 6.52, 12.95, 0.62, '🎯', lines, bg=EYELLOW)
 
 
 # ────────── Prediction (3 slides) ──────────
@@ -3011,13 +3116,24 @@ def build_prediction_preconisations(prs, study):
          P.get('marchandises') or '(à compléter)',
          ['🎯 Surveiller les marchandises où PDM AGL ≤ 5 % et volume marché élevé.',
           '⚡ Croiser top_growth des 5 métiers pour repérer marchandises en accélération.',
-          '🚨 Alerter sur les nouvelles marchandises (absentes N-1) à fort volume.'])
+          ('🚨 Alerter sur les nouvelles marchandises (absentes N-1) à fort volume.'
+           if study.get('comparisonYear')
+           else '🚨 Comparer à une période N-1 pour détecter les marchandises nouvelles.')])
 
+    # Renvoi conditionnel : en mode « période unique » les slides NOUVEAUX
+    # ENTRANTS ne sont pas produites — on ne renvoie pas vers des slides
+    # inexistantes.
+    _clients_notes = ['🔍 Prospects PND : voir slide PROSPECTS PAR SECTEUR (destinataires réels STATCOM).',
+                      '🔒 Verrouillage : clients communs AGL ↔ AYIMAN (voir focus AYIMAN).']
+    if study.get('comparisonYear'):
+        _clients_notes.append(
+            '🎁 Conquête : nouveaux destinataires AGL absents N-1 (voir slides NOUVEAUX ENTRANTS).')
+    else:
+        _clients_notes.append(
+            '🎁 Conquête : activer une période de comparaison pour identifier les nouveaux destinataires.')
     quad('CLIENTS CIBLES', 0.15, 3.40, BLUE2,
          P.get('clients') or '(à compléter)',
-         ['🔍 Prospects PND : voir slide PROSPECTS PAR SECTEUR (destinataires réels STATCOM).',
-          '🔒 Verrouillage : clients communs AGL ↔ AYIMAN (voir focus AYIMAN).',
-          '🎁 Conquête : nouveaux destinataires AGL absents N-1 (voir slides NOUVEAUX ENTRANTS).'])
+         _clients_notes)
 
     quad('RECOMMANDATIONS DE POSITIONNEMENT', 6.65, 3.40, GOLD,
          P.get('recommandations') or '(à compléter)',
@@ -3122,11 +3238,39 @@ def _add_import_image_slides(prs, b64_list):
                              width=prs.slide_width, height=prs.slide_height)
 
 
+def _live_sep_subtitle(study, key, fallback):
+    """Sous-titre de slide séparateur calculé sur les données réelles.
+
+    Avant, ces valeurs étaient codées en dur (193 989 TEU / PDM 7,8% pour
+    TIM…) : le séparateur annonçait donc un chiffre sans rapport avec la
+    vue d'ensemble qui suivait immédiatement — 193 989 contre 459 374 sur
+    un deck réel. On recalcule à partir du même dataset que la vue
+    d'ensemble, pour que les deux slides disent la même chose.
+    """
+    code = {'sep_TIM': ('TIM', 'TEU'), 'sep_TEM': ('TEM', 'TEU'),
+            'sep_HIMP': ('HIMP', 'TEU'), 'sep_HEXP': ('HEXP', 'TEU'),
+            'sep_AER': ('AER', 'T')}.get(key)
+    if not code:
+        return fallback
+    metier, unit = code
+    live = build_overview_data(study, metier)
+    if not live or not live.get('kpis'):
+        # Pas de données sur la période : on n'affiche aucun chiffre plutôt
+        # qu'un chiffre de démonstration trompeur.
+        return 'Aucune donnée sur la période sélectionnée'
+    k = live['kpis']
+    txt = f"{k['marche']} {unit}  |  PDM AGL {k['pdm']}"
+    d = live.get('deltaMarchePct')
+    if d is not None:
+        txt += f"  |  {'+' if d >= 0 else ''}{d:.1f}".replace('.', ',') + ' % vs N-1'
+    return txt
+
+
 def dispatch_block(prs, study, key):
     """Map a BLOCK_SEQUENCE key to its slide builder."""
     if key in SEPARATORS:
         num, title, sub = SEPARATORS[key]
-        add_separator(prs, num, title, sub)
+        add_separator(prs, num, title, _live_sep_subtitle(study, key, sub))
         # Right after the section separator, inject its imported PDF pages.
         imports = (study or {}).get('imports') or {}
         if key == 'sep_cx':
@@ -3238,7 +3382,19 @@ def build(study_json: str) -> bytes:
     prs = Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
-    for key in BLOCK_SEQUENCE:
+    # ── Mode « période unique » : on retire les slides « nouveaux entrants »
+    # Un nouvel entrant se définit par ABSENCE du référentiel N-1. Sans
+    # période de comparaison, ce référentiel est vide : toutes les slides
+    # concernées sortiraient vides (ou, pire, présenteraient l'intégralité
+    # des acteurs comme nouveaux). On les omet plutôt que de les publier.
+    _no_cmp = not study.get('comparisonYear')
+    # 'DSM_consignataires_pol' est listé explicitement : sa clé ne contient
+    # aucun des mots-clés, alors qu'elle rend bien « DSM – NOUVEAUX ENTRANTS ».
+    _cmp_only = {'DSM_consignataires_pol'}
+    _sequence = [k for k in BLOCK_SEQUENCE
+                 if not (_no_cmp and ('nouveaux' in k or 'chargeurs' in k or k in _cmp_only))]
+
+    for key in _sequence:
         try:
             dispatch_block(prs, study, key)
         except Exception as e:
@@ -3257,6 +3413,24 @@ def build(study_json: str) -> bytes:
                 _add_logo_to_slide(slide, logo_bytes)
         except Exception:
             pass
+
+    # ── Renumérotation des pieds de page ────────────────────────────────
+    # Les numéros de page sont écrits en dur dans chaque builder (p.4, p.5…).
+    # Dès qu'un bloc est omis — cas du mode « période unique », qui retire
+    # les slides « nouveaux entrants » — cette numérotation se décale. On
+    # réécrit donc « p.N » d'après la position réelle de la slide.
+    try:
+        _pnum = re.compile(r'(\|\s*p\.)\s*\d+')
+        for _i, _sl in enumerate(prs.slides, start=1):
+            for _sh in _sl.shapes:
+                if not _sh.has_text_frame:
+                    continue
+                for _pa in _sh.text_frame.paragraphs:
+                    for _run in _pa.runs:
+                        if '| p.' in _run.text or '|  p.' in _run.text:
+                            _run.text = _pnum.sub(r'\g<1>' + str(_i), _run.text)
+    except Exception:
+        pass
 
     buf = io.BytesIO()
     prs.save(buf)
