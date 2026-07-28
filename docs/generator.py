@@ -360,11 +360,39 @@ def add_insight_box(s, x, y, w, h, emoji, lines, bg=EYELLOW):
          text, size=size, color=DGRAY, wrap=True)
 
 
-def add_mensuel_bars(s, x, y, mois, valeurs, seuil=7.5, valeurs_n1=None):
+def mensuel_layout(n_months, y0=2.62, y_max=7.12, legend_h=0.30, ins_min=0.85):
+    """Calcule la géométrie du bloc « PDM AGL par mois » en fonction du
+    NOMBRE RÉEL de mois de la période (5, 6, 12…).
+
+    Avant, row_h / légende / encart étaient figés pour 5 mois : dès qu'on
+    passait à 6 mois, les barres débordaient sous la légende (placée à
+    5,50") et l'encart insight (5,80") recouvrait le dernier mois.
+
+    Retourne (row_h, legend_y, ins_y, ins_h) :
+      - row_h    : hauteur d'une ligne mois, plafonnée à 0.58 (rendu
+                   historique conservé à l'identique pour 5 mois)
+      - legend_y : juste sous la dernière barre
+      - ins_y/h  : encart insight sous la légende, jusqu'à y_max
+    """
+    n = max(int(n_months or 1), 1)
+    bars_h = max(0.9, (y_max - y0) - legend_h - ins_min - 0.04)
+    row_h = min(0.58, bars_h / n)
+    bars_end = y0 + n * row_h
+    legend_y = bars_end + 0.04
+    ins_y = legend_y + legend_h
+    return row_h, legend_y, ins_y, max(ins_min, y_max - ins_y)
+
+
+def add_mensuel_bars(s, x, y, mois, valeurs, seuil=7.5, valeurs_n1=None, row_h=0.58):
     """Barres mensuelles PDM. Si valeurs_n1 fourni : couleur = comparaison
     PDM N vs PDM N-1 du même mois (vert si N≥N-1, orange sinon). Sinon
-    fallback : comparaison à la moyenne période (seuil)."""
-    row_h = 0.58
+    fallback : comparaison à la moyenne période (seuil).
+
+    row_h : hauteur d'une ligne. Quand la période compte plus de 5 mois,
+    l'appelant réduit row_h via mensuel_layout() ; tous les offsets et
+    tailles de police internes sont alors mis à l'échelle par k pour que
+    barre, libellé et valeur restent dans leur ligne."""
+    k = max(0.45, min(1.0, row_h / 0.58))
     max_bar = 2.55
     clean = [round(float(v or 0), 1) for v in valeurs]
     clean_n1 = [round(float(v or 0), 1) for v in (valeurs_n1 or [])]
@@ -379,26 +407,26 @@ def add_mensuel_bars(s, x, y, mois, valeurs, seuil=7.5, valeurs_n1=None):
             bc = GREEN if v >= v_n1 else ORANGE
         else:
             bc = GREEN if v >= seuil else ORANGE
-        _rect(s, _in(x), _in(ry), _in(6.0), _in(row_h - 0.06),
+        _rect(s, _in(x), _in(ry), _in(6.0), _in(row_h - 0.06 * k),
               fill=RGBColor(0xF8, 0xFA, 0xFC), line=LINE_GR, line_width=0.3)
-        _txt(s, _in(x + 0.12), _in(ry + 0.14), _in(0.85), _in(0.3),
-             str(m)[:8], size=11, color=DGRAY, wrap=False)
-        _rect(s, _in(x + 1.0), _in(ry + 0.14), _in(max_bar), _in(0.22),
+        _txt(s, _in(x + 0.12), _in(ry + 0.14 * k), _in(0.85), _in(0.3 * k),
+             str(m)[:8], size=max(6.5, 11 * k), color=DGRAY, wrap=False)
+        _rect(s, _in(x + 1.0), _in(ry + 0.14 * k), _in(max_bar), _in(0.22 * k),
               fill=LINE_DK)
-        _rect(s, _in(x + 1.0), _in(ry + 0.14), _in(bw), _in(0.22), fill=bc)
+        _rect(s, _in(x + 1.0), _in(ry + 0.14 * k), _in(bw), _in(0.22 * k), fill=bc)
         label = f"{v:.1f}".replace('.', ',') + ' %'
-        _txt(s, _in(x + 1.0 + max_bar + 0.06), _in(ry + 0.1),
-             _in(0.78), _in(0.3),
-             label, size=10, bold=True, color=bc, valign='middle', wrap=False)
+        _txt(s, _in(x + 1.0 + max_bar + 0.06), _in(ry + 0.1 * k),
+             _in(0.78), _in(0.3 * k),
+             label, size=max(6.5, 10 * k), bold=True, color=bc, valign='middle', wrap=False)
         # Référence N-1 + delta à droite si dispo
         if has_n1:
             n1_lbl = f"N-1 {v_n1:.1f}".replace('.', ',') + ' %'
             delta = v - v_n1
             sign = '+' if delta >= 0 else ''
             d_lbl = f"({sign}{delta:.1f}".replace('.', ',') + ' pt)'
-            _txt(s, _in(x + 1.0 + max_bar + 0.85), _in(ry + 0.1),
-                 _in(1.30), _in(0.3),
-                 n1_lbl + ' ' + d_lbl, size=8, color=MGRAY,
+            _txt(s, _in(x + 1.0 + max_bar + 0.85), _in(ry + 0.1 * k),
+                 _in(1.30), _in(0.3 * k),
+                 n1_lbl + ' ' + d_lbl, size=max(6.0, 8 * k), color=MGRAY,
                  valign='middle', wrap=False)
 
 
@@ -1481,10 +1509,12 @@ def build_tim_overview(prs, study):
         pdm_values = [8.3, 6.9, 7.5, 8.5, 7.8]
         pdm_values_n1 = None
         seuil = 7.5
-    add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil, pdm_values_n1)
+    _m_row_h, _m_leg_y, _m_ins_y, _m_ins_h = mensuel_layout(len(pdm_labels))
+    add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil, pdm_values_n1,
+                     row_h=_m_row_h)
     # Légende : vert si PDM N ≥ même mois N-1, orange sinon
     legend_mode = 'n1' if (pdm_values_n1 and any(v > 0 for v in pdm_values_n1)) else 'moyenne'
-    add_mensuel_legend(s, 7.1, 5.50, seuil=seuil, mode=legend_mode)
+    add_mensuel_legend(s, 7.1, _m_leg_y, seuil=seuil, mode=legend_mode)
 
     # Insight enrichi (live) ou fallback statique
     if live:
@@ -1497,7 +1527,7 @@ def build_tim_overview(prs, study):
             "📈 Meilleur mois : Avril (8,5 %) · ⚠ Plus faible : Février (6,9 %).",
             "→ Tendance période : stabilité (+0,1 pt entre 1ʳᵉ et 2ᵈᵉ moitié).",
         ]
-    add_insight_box(s, 7.1, 5.80, 6.0, 1.30, '✓', lines, bg=EGREEN)
+    add_insight_box(s, 7.1, _m_ins_y, 6.0, _m_ins_h, '✓', lines, bg=EGREEN)
 
 
 def build_tim_concurrents(prs, study):
@@ -1690,14 +1720,16 @@ def build_metier_overview(prs, study, code, label, page_no, fallback_sub, fallba
     pdm_values = live['monthlyPdm'] if live and live.get('monthlyPdm') else fallback_pdm[1]
     pdm_values_n1 = live.get('monthlyPdmN1') if live else None
     seuil = live['aglPdm'] if live else fallback_pdm[2]
-    add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil, pdm_values_n1)
+    _m_row_h, _m_leg_y, _m_ins_y, _m_ins_h = mensuel_layout(len(pdm_labels))
+    add_mensuel_bars(s, 7.1, 2.62, pdm_labels, pdm_values, seuil, pdm_values_n1,
+                     row_h=_m_row_h)
     legend_mode = 'n1' if (pdm_values_n1 and any(v > 0 for v in pdm_values_n1)) else 'moyenne'
-    add_mensuel_legend(s, 7.1, 5.50, seuil=seuil, mode=legend_mode)
+    add_mensuel_legend(s, 7.1, _m_leg_y, seuil=seuil, mode=legend_mode)
     if live:
         lines = compute_metier_insights(live, unit=unit)
     else:
         lines = [f"📊 Référence {label} — uploader STATCOM N + N-1 pour activer l'analyse live."]
-    add_insight_box(s, 7.1, 5.80, 6.0, 1.30, '✓', lines, bg=EGREEN)
+    add_insight_box(s, 7.1, _m_ins_y, 6.0, _m_ins_h, '✓', lines, bg=EGREEN)
 
 
 def build_metier_concurrents(prs, study, code, label, page_no, fallback_rows, fallback_segs, unit='TEU'):
@@ -1826,10 +1858,11 @@ def build_dsm_overview(prs, study):
         _txt(s, _in(7.1), _in(2.28), _in(5.8), _in(0.28),
              'PDM AGL par mois (%)', size=11, bold=True, color=DGRAY)
         pdm_n1_vals = ov.get('monthlyPdmN1')
+        _m_row_h, _m_leg_y, _m_ins_y, _m_ins_h = mensuel_layout(len(ov['monthLabels']))
         add_mensuel_bars(s, 7.1, 2.62, ov['monthLabels'], ov['monthlyPdm'],
-                         ov['aglPdm'], pdm_n1_vals)
+                         ov['aglPdm'], pdm_n1_vals, row_h=_m_row_h)
         legend_mode = 'n1' if (pdm_n1_vals and any(v > 0 for v in pdm_n1_vals)) else 'moyenne'
-        add_mensuel_legend(s, 7.1, 5.50, seuil=ov['aglPdm'], mode=legend_mode)
+        add_mensuel_legend(s, 7.1, _m_leg_y, seuil=ov['aglPdm'], mode=legend_mode)
         # Insight enrichi DSM
         lines = [f"🚢 AGL consignataire {ov['kpis']['rang']} avec {ov['kpis']['pdm']} du tonnage marché."]
         if ov.get('aglGrowthPct') is not None:
@@ -1840,7 +1873,7 @@ def build_dsm_overview(prs, study):
             lines.append(f"🌊 Marché global vs N-1 : {sign}{ov['marketGrowthPct']} % (était {ov['marketN1']} T).")
         if ov.get('secondName'):
             lines.append(f"🥈 Concurrent #2 : {ov['secondName']}.")
-        add_insight_box(s, 7.1, 5.80, 6.0, 1.30, '🚢', lines, bg=EGREEN)
+        add_insight_box(s, 7.1, _m_ins_y, 6.0, _m_ins_h, '🚢', lines, bg=EGREEN)
     else:
         add_insight_box(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
                         ["Uploader la base TIM (import maritime) pour activer la vue d'ensemble DSM."])
