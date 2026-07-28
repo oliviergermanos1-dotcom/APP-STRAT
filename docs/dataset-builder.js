@@ -114,7 +114,7 @@ function buildDatasets(args) {
   const aglTotal = [...byClient.values()].reduce((s, v) => s + v, 0);
   const clients = [...byClient.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
+    .slice(0, 20)
     .map(([name, vol]) => ({
       client: name,
       volume: Math.round(vol * 100) / 100,
@@ -263,7 +263,7 @@ function buildDatasets(args) {
   const aglByDest = aggregateBy(aglPeriodRows, (r) => r.destinataire);
   const topDestPdm = [...byDestAll.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
+    .slice(0, 20)
     .map(([name, vol]) => ({
       client: name,
       volume: Math.round(vol * 100) / 100,
