@@ -186,12 +186,24 @@ def _is_numeric_header(h):
     )) or s == 't' or s == 'n' or s == '#'
 
 
-def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=None):
+def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=None, max_h=None):
     """Tableau classement. firstColMode: 'rank' or 'wide' (auto-detected from header[0]).
     La colonne 'nom' (Transitaire/Client/Marchandise) reçoit ~2× la largeur
     des autres colonnes pour éviter que les noms longs débordent sur les
-    colonnes numériques voisines."""
+    colonnes numériques voisines.
+
+    max_h : hauteur totale disponible (pouces), header + lignes. Si fourni,
+    row_h et la taille de police sont réduits proportionnellement pour que
+    (len(rows)+1) lignes tiennent dans max_h sans déborder sur l'élément
+    suivant (ex. encart insight). Sert notamment aux tableaux Top 20
+    (10→20 lignes dans le même espace qu'un ancien Top 10)."""
     row_h = 0.28
+    font_size = 8.5
+    if max_h is not None and rows:
+        n_lines = len(rows) + 1  # + header
+        fitted = max_h / n_lines
+        row_h = max(0.15, min(0.28, fitted))
+        font_size = max(6.5, round(8.5 * (row_h / 0.28), 1))
     h0 = str(headers[0]).strip()
     auto_rank = bool(re.match(r'^(rang|#|n[°o]\b|num)', h0, re.I))
     mode = first_col_mode or ('rank' if auto_rank else 'wide')
@@ -235,7 +247,7 @@ def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=No
     cx = x
     for i, h in enumerate(headers):
         _txt(s, _in(cx + 0.04), _in(y + 0.04), _in(col_w[i] - 0.05), _in(row_h - 0.06),
-             str(h), size=8.5, bold=True, color=WHITE,
+             str(h), size=font_size, bold=True, color=WHITE,
              align=col_align[i], valign='middle', wrap=False)
         cx += col_w[i]
 
@@ -255,10 +267,10 @@ def add_rank_table(s, x, y, w, headers, rows, highlight_row=0, first_col_mode=No
             # pour éviter qu'un mot long déborde sur la colonne voisine.
             # Les cellules numériques (right-align) sont laissées telles quelles.
             is_numeric_cell = (col_align[ci] == 'right')
-            text = (str(cell) if is_numeric_cell else _fit_text(cell, col_w[ci]))
+            text = (str(cell) if is_numeric_cell else _fit_text(cell, col_w[ci], pt=font_size))
             _txt(s, _in(cx2 + 0.04), _in(ry + 0.04),
                  _in(col_w[ci] - 0.05), _in(row_h - 0.06),
-                 text, size=8.5,
+                 text, size=font_size,
                  bold=(is_hl and ci == name_col_idx),
                  color=color,
                  align=col_align[ci],
@@ -883,11 +895,11 @@ def build_concurrents_data(study, metier):
     ranked = sorted(rows, key=lambda r: -float(r.get('volume') or 0))
     market = sum(float(r.get('volume') or 0) for r in ranked)
     unit = unit_of(metier)
-    top10 = [
+    top20 = [
         [f"#{i+1}", str(r.get(name_key) or ''),
          fmt_int(r.get('volume') or 0),
          fmt_pdm((float(r.get('volume') or 0) / market) * 100 if market > 0 else 0)]
-        for i, r in enumerate(ranked[:10])
+        for i, r in enumerate(ranked[:20])
     ]
     segment_bars = None
     if segments and segments.get('rows'):
@@ -902,7 +914,7 @@ def build_concurrents_data(study, metier):
     # Full ranking enriched with N-1 (volume_n1, pdm_n1, rang_n1, delta_pdm).
     full_ranked = sorted(rows, key=lambda r: -float(r.get('volume') or 0))
     return {'source': concurrents.get('filename', ''), 'unit': unit,
-            'rows': top10, 'aglRowIdx': agl_row_idx, 'segmentBars': segment_bars,
+            'rows': top20, 'aglRowIdx': agl_row_idx, 'segmentBars': segment_bars,
             'fullRanked': full_ranked, 'rawSegments': segments['rows'] if segments and segments.get('rows') else None}
 
 
@@ -919,7 +931,7 @@ def build_clientele_data(study, metier):
          (f"{((float(r.get('volume') or 0) / agl_total) * 100):.1f}".replace('.', ',') + '%')
          if agl_total > 0 else
          (f"{float(r.get('pct_vol_agl') or 0):.1f}".replace('.', ',') + '%')]
-        for r in sorted_rows[:10]
+        for r in sorted_rows[:20]
     ]
     seg_mix = {}
     for r in sorted_rows:
@@ -1510,8 +1522,8 @@ def build_tim_concurrents(prs, study):
         ['#9', 'SDMA', '5 680', '2,9 %'],
         ['#10', 'SAS TRANSIT', '5 274', '2,7 %'],
     ]
-    hl = live['aglRowIdx'] if live and 0 <= live['aglRowIdx'] < 10 else 0
-    add_rank_table(s, 0.15, 1.5, 6.8, ['Rang', 'Transitaire', 'TEU', 'PDM'], rows, hl)
+    hl = live['aglRowIdx'] if live and 0 <= live['aglRowIdx'] < 20 else 0
+    add_rank_table(s, 0.15, 1.5, 6.8, ['Rang', 'Transitaire', 'TEU', 'PDM'], rows, hl, max_h=3.95)
     # Insight enrichi (rang AGL N vs N-1, mouvements concurrents, segments gagnés/érodés)
     if live:
         ins_lines = compute_concurrents_insights(live, 'TIM', unit='TEU')
@@ -1543,10 +1555,10 @@ def build_tim_concurrents(prs, study):
 def build_tim_clientele(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_clientele_data(study, 'TIM')
-    add_header(s, 'TIM – CLIENTÈLE AGL', 'Top 10 destinataires  |  Mix marchandises')
+    add_header(s, 'TIM – CLIENTÈLE AGL', 'Top 20 destinataires  |  Mix marchandises')
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.6')
     _txt(s, _in(0.25), _in(1.2), _in(6.5), _in(0.28),
-         'Top 10 clients AGL – TIM (Destinataires, TEU)',
+         'Top 20 clients AGL – TIM (Destinataires, TEU)',
          size=11, bold=True, color=DGRAY)
     rows = live['rows'] if live else [
         ['K1 MINING SA CI', '1 531', 'Matériels Miniers', '10,1%'],
@@ -1561,7 +1573,7 @@ def build_tim_clientele(prs, study):
         ['STE TRANSFO INDUS CI', '363', 'Emballages', '2,4%'],
     ]
     add_rank_table(s, 0.15, 1.5, 7.0,
-                   ['Client (Destinataire)', 'TEU', 'Segment', '% Vol. AGL'], rows)
+                   ['Client (Destinataire)', 'TEU', 'Segment', '% Vol. AGL'], rows, max_h=3.85)
     add_insight_box(s, 0.15, 5.35, 7.0, 1.70, '⚠',
                     compute_clientele_insights(live, 'TIM', unit='TEU'),
                     bg=EYELLOW)
@@ -1697,8 +1709,8 @@ def build_metier_concurrents(prs, study, code, label, page_no, fallback_rows, fa
     _txt(s, _in(0.25), _in(1.2), _in(6.5), _in(0.28),
          f'Classement Transitaires – {label}', size=11, bold=True, color=DGRAY)
     rows = live['rows'] if live else fallback_rows
-    hl = live['aglRowIdx'] if live and 0 <= live['aglRowIdx'] < 10 else 0
-    add_rank_table(s, 0.15, 1.5, 6.8, ['Rang', 'Transitaire', unit, 'PDM'], rows, hl)
+    hl = live['aglRowIdx'] if live and 0 <= live['aglRowIdx'] < 20 else 0
+    add_rank_table(s, 0.15, 1.5, 6.8, ['Rang', 'Transitaire', unit, 'PDM'], rows, hl, max_h=3.95)
     _txt(s, _in(7.1), _in(1.2), _in(6.0), _in(0.28),
          f"PDM AGL par segment – {label}", size=11, bold=True, color=DGRAY)
     segs = live.get('segmentBars') if live else None
@@ -1715,13 +1727,13 @@ def build_metier_clientele(prs, study, code, label, page_no, fallback_rows,
     s = prs.slides.add_slide(prs.slide_layouts[6])
     live = build_clientele_data(study, code)
     add_header(s, f"{label} – CLIENTÈLE AGL",
-               'Top 10 clients  |  Mix marchandises')
+               'Top 20 clients  |  Mix marchandises')
     add_footer(s, f"Africa Global Logistics – Étude de Marché 2026  |  p.{page_no}")
     _txt(s, _in(0.25), _in(1.2), _in(6.5), _in(0.28),
-         f'Top 10 clients AGL – {label}', size=11, bold=True, color=DGRAY)
+         f'Top 20 clients AGL – {label}', size=11, bold=True, color=DGRAY)
     rows = live['rows'] if live else fallback_rows
     add_rank_table(s, 0.15, 1.5, 7.0,
-                   ['Client', 'Volume', 'Segment', '% AGL'], rows)
+                   ['Client', 'Volume', 'Segment', '% AGL'], rows, max_h=3.85)
     add_insight_box(s, 0.15, 5.35, 7.0, 1.70, '⚠',
                     compute_clientele_insights(live, label, unit=unit),
                     bg=EYELLOW)
@@ -2061,12 +2073,12 @@ def build_mining_clientele(prs, study):
     add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.mining-3')
     if liveC or liveN:
         _txt(s, _in(0.25), _in(1.2), _in(6.5), _in(0.28),
-             'Top 10 clients miniers (marché) — part AGL',
+             'Top 20 clients miniers (marché) — part AGL',
              size=11, bold=True, color=DGRAY)
         dest_rows = (liveN.get('topDestinataires') if liveN and liveN.get('topDestinataires')
                      else (liveC['rows'] if liveC else [['—', '—', '—', '—']]))
         add_rank_table(s, 0.15, 1.5, 6.6,
-                       ['Client minier', 'TEU marché', 'TEU AGL', 'PDM AGL'], dest_rows)
+                       ['Client minier', 'TEU marché', 'TEU AGL', 'PDM AGL'], dest_rows, max_h=3.90)
         _txt(s, _in(7.0), _in(1.2), _in(6.2), _in(0.28),
              'Top marchandises minières — PDM AGL', size=11, bold=True, color=DGRAY)
         if liveConc and liveConc.get('segmentBars'):
