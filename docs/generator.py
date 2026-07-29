@@ -3168,6 +3168,182 @@ def build_prediction_preconisations(prs, study):
 # ────────────────────────────────────────────────────────────────────────────
 # BLOCK_SEQUENCE — same order as docs/blocks.js
 # ────────────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════
+# REPORTING DSM — format Direction Maritime
+# 2 vues d'ensemble (import / export) + 6 slides tableaux.
+# Chaque slide tableau porte DEUX classements : conteneurs (TEU) à gauche,
+# conventionnel (tonnes) à droite. Top 20 + ligne « Autres acteurs » pour
+# que le total reste juste, puis TOTAL MARCHÉ.
+# ══════════════════════════════════════════════════════════════════════════
+
+DSM_TOP_N = 20
+
+
+def _dsm_rep(study):
+    d = find_dataset(study, 'DSMREP', 'dsm_report')
+    if not d or not d.get('rows'):
+        return None
+    return d['rows'][0]
+
+
+def _fmt_pct_signed(v):
+    if v is None:
+        return '—'
+    return ('+' if v >= 0 else '') + f"{v:.0f}".replace('-', '−') + ' %'
+
+
+def _fmt_delta(v):
+    if v is None:
+        return '—'
+    s = fmt_int(abs(v))
+    return ('+' if v >= 0 else '−') + s
+
+
+def add_dsm_table(s, x, y, w, h, titre, bloc, unite):
+    """Tableau de classement DSM : rang, acteur, N, PDM N, N-1, PDM N-1,
+    variation, variation %. Top 20 + regroupement du reste + total."""
+    rows = list(bloc.get('rows') or [])
+    total = bloc.get('total') or {}
+    top = rows[:DSM_TOP_N]
+    reste = rows[DSM_TOP_N:]
+
+    _txt(s, _in(x), _in(y - 0.24), _in(w), _in(0.22), titre,
+         size=9.5, bold=True, color=NAVY, wrap=False)
+
+    heads = ['#', 'Acteur', f'N ({unite})', 'PDM', f'N-1 ({unite})', 'PDM', 'Var.', '%']
+    nlig = len(top) + (1 if reste else 0) + 1  # + total
+    row_h = max(0.13, min(0.24, (h - 0.22) / (nlig + 1)))
+    fs = max(5.5, round(8.0 * (row_h / 0.24), 1))
+    # largeurs : rang étroit, acteur large, colonnes chiffrées régulières
+    props = [0.05, 0.30, 0.13, 0.08, 0.13, 0.08, 0.13, 0.10]
+    colw = [w * p for p in props]
+    aligns = ['center', 'left', 'right', 'right', 'right', 'right', 'right', 'right']
+
+    _rect(s, _in(x), _in(y), _in(w), _in(row_h), fill=NAVY)
+    cx = x
+    for i, hd in enumerate(heads):
+        _txt(s, _in(cx + 0.03), _in(y + 0.02), _in(colw[i] - 0.05), _in(row_h - 0.04),
+             hd, size=fs, bold=True, color=WHITE, align=aligns[i],
+             valign='middle', wrap=False)
+        cx += colw[i]
+
+    def ligne(idx, cells, bg, bold=False, color=DGRAY):
+        ry = y + row_h * (idx + 1)
+        _rect(s, _in(x), _in(ry), _in(w), _in(row_h), fill=bg,
+              line=LINE_GR, line_width=0.25)
+        cx2 = x
+        for i, c in enumerate(cells):
+            col = color
+            if i == 7 and isinstance(c, str) and c not in ('—',):
+                col = GREEN if not c.startswith('−') else RED
+            _txt(s, _in(cx2 + 0.03), _in(ry + 0.02), _in(colw[i] - 0.05),
+                 _in(row_h - 0.04), str(c), size=fs, bold=bold, color=col,
+                 align=aligns[i], valign='middle', wrap=False)
+            cx2 += colw[i]
+
+    i = 0
+    for r in top:
+        est_agl = is_agl(r.get('name'))
+        ligne(i, [
+            r.get('rang', i + 1),
+            _fit_text(r.get('name', ''), colw[1], pt=fs),
+            fmt_int(r.get('valN') or 0), f"{r.get('pdmN', 0):.0f}%",
+            fmt_int(r.get('valN1') or 0), f"{r.get('pdmN1', 0):.0f}%",
+            _fmt_delta(r.get('delta')), _fmt_pct_signed(r.get('deltaPct')),
+        ], EHL if est_agl else (WHITE if i % 2 == 0 else EROW), bold=est_agl,
+           color=NAVY if est_agl else DGRAY)
+        i += 1
+
+    if reste:
+        sN = sum(float(r.get('valN') or 0) for r in reste)
+        sN1 = sum(float(r.get('valN1') or 0) for r in reste)
+        tN = float(total.get('valN') or 0) or 1
+        tN1 = float(total.get('valN1') or 0) or 1
+        d = sN - sN1
+        ligne(i, [
+            '', f"Autres acteurs ({len(reste)})",
+            fmt_int(sN), f"{sN / tN * 100:.0f}%",
+            fmt_int(sN1), f"{sN1 / tN1 * 100:.0f}%",
+            _fmt_delta(d),
+            _fmt_pct_signed((d / sN1 * 100) if sN1 > 0 else None),
+        ], EROW, color=MGRAY)
+        i += 1
+
+    ligne(i, [
+        '', 'TOTAL MARCHÉ',
+        fmt_int(total.get('valN') or 0), '100%',
+        fmt_int(total.get('valN1') or 0), '100%',
+        _fmt_delta(total.get('delta')), _fmt_pct_signed(total.get('deltaPct')),
+    ], EYELLOW, bold=True, color=NAVY)
+
+
+def build_dsm_rep_tables(prs, study, sens, dim, titre, page):
+    rep = _dsm_rep(study)
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    lbl = study.get('periodLabel') or ''
+    add_header(s, f"DSM – {titre}",
+               f"{'Import' if sens == 'import' else 'Export'} maritime  |  {lbl}")
+    add_footer(s, f"Africa Global Logistics – Étude de Marché {lbl}  |  p.{page}")
+    if not rep:
+        add_insight_box(s, 0.15, 2.0, 12.9, 1.2, 'ℹ',
+                        ['Charger les exports STATCOM pour activer le reporting DSM : '
+                         'TIM + Hinterland Import (import), TEM + Hinterland Export (export).'])
+        return
+    add_dsm_table(s, 0.15, 1.75, 6.45, 5.25,
+                  'CONTENEURS — en TEU', rep.get(f'{sens}_{dim}_teu') or {}, 'TEU')
+    add_dsm_table(s, 6.85, 1.75, 6.30, 5.25,
+                  'CONVENTIONNEL — en tonnes (vrac, sacs, break-bulk)',
+                  rep.get(f'{sens}_{dim}_conv') or {}, 'T')
+
+
+def build_dsm_rep_overview(prs, study, sens, page):
+    """Vue d'ensemble : KPI TEU et conventionnel + évolution mensuelle."""
+    rep = _dsm_rep(study)
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    lbl = study.get('periodLabel') or ''
+    mot = 'IMPORT' if sens == 'import' else 'EXPORT'
+    add_header(s, f"DSM – VUE D'ENSEMBLE  |  {mot} MARITIME", lbl)
+    add_footer(s, f"Africa Global Logistics – Étude de Marché {lbl}  |  p.{page}")
+    if not rep:
+        add_insight_box(s, 0.15, 2.0, 12.9, 1.2, 'ℹ',
+                        ['Charger les exports STATCOM pour activer le reporting DSM.'])
+        return
+    tot = rep.get(f'{sens}_totaux') or {}
+    teu, conv = tot.get('teu') or {}, tot.get('conv') or {}
+    kpis = [
+        {'label': f'{mot} CONTENEURS (N)', 'value': fmt_int(teu.get('valN') or 0),
+         'sub': _var_txt(teu.get('deltaPct')) or 'TEU', 'color': _var_color(teu.get('deltaPct')),
+         'big': True},
+        {'label': f'{mot} CONVENTIONNEL (N)', 'value': fmt_int(conv.get('valN') or 0),
+         'sub': _var_txt(conv.get('deltaPct')) or 'tonnes', 'color': _var_color(conv.get('deltaPct')),
+         'big': True},
+        {'label': 'CONTENEURS N-1', 'value': fmt_int(teu.get('valN1') or 0), 'sub': 'TEU'},
+        {'label': 'CONVENTIONNEL N-1', 'value': fmt_int(conv.get('valN1') or 0), 'sub': 'tonnes'},
+    ]
+    add_kpi_bar(s, kpis, y=1.45)
+
+    mens = rep.get(f'{sens}_mensuel') or []
+    if mens:
+        labels = [str(m.get('mois', ''))[:4] for m in mens]
+        has_n1 = any(m.get('teu_n1') or m.get('conv_n1') for m in mens)
+        _txt(s, _in(0.25), _in(2.75), _in(6.3), _in(0.26),
+             'Évolution mensuelle — conteneurs (TEU)', size=10.5, bold=True, color=DGRAY)
+        sTeu = [{'name': 'TEU N', 'labels': labels, 'values': [m.get('teu', 0) for m in mens]}]
+        if has_n1:
+            sTeu.append({'name': 'TEU N-1', 'labels': labels,
+                         'values': [m.get('teu_n1', 0) for m in mens]})
+        add_bar_chart(s, 0.15, 3.02, 6.45, 3.95, sTeu,
+                      [NAVY, RGBColor(0x6C, 0x80, 0xA0)])
+        _txt(s, _in(6.95), _in(2.75), _in(6.2), _in(0.26),
+             'Évolution mensuelle — conventionnel (tonnes)', size=10.5, bold=True, color=DGRAY)
+        sConv = [{'name': 'Conv. N', 'labels': labels, 'values': [m.get('conv', 0) for m in mens]}]
+        if has_n1:
+            sConv.append({'name': 'Conv. N-1', 'labels': labels,
+                          'values': [m.get('conv_n1', 0) for m in mens]})
+        add_bar_chart(s, 6.85, 3.02, 6.30, 3.95, sConv,
+                      [GOLD, RGBColor(0xE0, 0xCD, 0x96)])
+
 BLOCK_SEQUENCE = [
     'cover', 'sommaire',
     'sep_TIM', 'TIM_vue_ensemble', 'TIM_concurrents', 'TIM_clientele', 'TIM_nouveaux_entrants',
@@ -3175,7 +3351,12 @@ BLOCK_SEQUENCE = [
     'sep_HIMP', 'HIMP_vue_ensemble', 'HIMP_concurrents', 'HIMP_nouveaux_entrants',
     'sep_HEXP', 'HEXP_vue_ensemble', 'HEXP_nouveaux_chargeurs',
     'sep_AER', 'AER_vue_ensemble', 'AER_segments_concurrents', 'AER_clientele', 'AER_nouveaux_entrants',
-    'sep_DSM', 'DSM_vue_ensemble', 'DSM_armateurs', 'DSM_manutentionnaires', 'DSM_consignataires_pol',
+    # Reporting DSM — format Direction Maritime : 2 vues d'ensemble
+    # (import / export) puis 6 slides tableaux TEU + conventionnel.
+    'sep_DSM',
+    'DSMREP_import_overview', 'DSMREP_export_overview',
+    'DSMREP_import_armateurs', 'DSMREP_import_manutentionnaires', 'DSMREP_import_consignataires',
+    'DSMREP_export_armateurs', 'DSMREP_export_manutentionnaires', 'DSMREP_export_consignataires',
     'sep_divers', 'sep_mining', 'mining_overview', 'mining_concurrents', 'mining_clientele',
     'sep_ayman', 'ayman_overview', 'ayman_detail',
     'sep_predictions', 'prediction_signaux',
@@ -3353,6 +3534,22 @@ def dispatch_block(prs, study, key):
     if key == 'DSM_armateurs':           build_dsm_acteurs(prs, study); return
     if key == 'DSM_manutentionnaires':   build_dsm_vehicules(prs, study); return
     if key == 'DSM_consignataires_pol':  build_dsm_nouveaux(prs, study); return
+    # ── Reporting DSM (format Direction Maritime) ────────────────────────
+    if key == 'DSMREP_import_overview':
+        build_dsm_rep_overview(prs, study, 'import', 'dsm-1'); return
+    if key == 'DSMREP_export_overview':
+        build_dsm_rep_overview(prs, study, 'export', 'dsm-2'); return
+    _DSMREP = {
+        'DSMREP_import_armateurs':        ('import', 'armateurs',         'ARMATEURS AU BL',   'dsm-3'),
+        'DSMREP_import_manutentionnaires':('import', 'manutentionnaires', 'MANUTENTIONNAIRES', 'dsm-4'),
+        'DSMREP_import_consignataires':   ('import', 'consignataires',    'CONSIGNATAIRES',    'dsm-5'),
+        'DSMREP_export_armateurs':        ('export', 'armateurs',         'ARMATEURS AU BL',   'dsm-6'),
+        'DSMREP_export_manutentionnaires':('export', 'manutentionnaires', 'MANUTENTIONNAIRES', 'dsm-7'),
+        'DSMREP_export_consignataires':   ('export', 'consignataires',    'CONSIGNATAIRES',    'dsm-8'),
+    }
+    if key in _DSMREP:
+        sens, dim, titre, pg = _DSMREP[key]
+        build_dsm_rep_tables(prs, study, sens, dim, titre, pg); return
 
     if key == 'mining_overview':         build_mining_overview(prs, study); return
     if key == 'mining_concurrents':      build_mining_concurrents(prs, study); return
