@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260728n');
+  _worker = new Worker('./parser-worker.js?v=20260729a');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -185,6 +185,7 @@ function workerBuild(metierKeys, period, extras) {
   return callWorker({
     kind: 'build', metierKeys, period,
     dsm: e.dsm || null, mining: e.mining || null, ayman: e.ayman || null,
+    dsmReport: e.dsmReport || null,
   });
 }
 
@@ -991,6 +992,17 @@ async function generatePptx() {
       extraN1Keys: workerKeys.has('HIMP|n1') ? ['HIMP|n1'] : [],
     } : null;
 
+    // ── REPORTING DSM : import ET export ─────────────────────────────────
+    // Format Direction Maritime : 2 vues d'ensemble + 6 tableaux
+    // (armateurs / manutentionnaires / consignataires × TEU / conventionnel).
+    // Import = TIM + Hinterland Import, Export = TEM + Hinterland Export.
+    const dsmReport = {
+      importN:  ['TIM|n',  'HIMP|n' ].filter((k) => workerKeys.has(k)),
+      importN1: ['TIM|n1', 'HIMP|n1'].filter((k) => workerKeys.has(k)),
+      exportN:  ['TEM|n',  'HEXP|n' ].filter((k) => workerKeys.has(k)),
+      exportN1: ['TEM|n1', 'HEXP|n1'].filter((k) => workerKeys.has(k)),
+    };
+
     // AYMAN focus — across every uploaded métier (current period source).
     const ayman = METIERS
       .filter((m) => m.code !== 'DSM' && workerKeys.has(`${m.code}|n`))
@@ -1003,7 +1015,7 @@ async function generatePptx() {
     let allDatasets = [];
     if (Object.keys(metierKeys).length > 0 || dsm) {
       btn.textContent = 'Agrégation des données…';
-      const buildResult = await workerBuild(metierKeys, period, { dsm, mining, ayman });
+      const buildResult = await workerBuild(metierKeys, period, { dsm, mining, ayman, dsmReport });
       allDatasets = buildResult.datasets;
 
       // ── GARDE-FOU PÉRIODE ↔ DONNÉES ──────────────────────────────────
@@ -1109,8 +1121,8 @@ async function generatePptx() {
     }
     btn.textContent = 'Chargement assets visuels…';
     const [coverB64, logoB64] = await Promise.all([
-      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260728n')),
-      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260728n')),
+      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260729a')),
+      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260729a')),
     ]);
 
     const study = {
