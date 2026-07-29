@@ -177,8 +177,8 @@
           </label>
           <label class="inline-flex items-start gap-2 cursor-pointer">
             <input type="checkbox" id="filter-petroleum" checked class="h-4 w-4 mt-0.5" />
-            <span><strong>Pétroliers brut + raffinés</strong> (marchandise)<br>
-              <span class="text-gray-400 text-[10px]">pétrole, gazole, diesel, fuel, kérosène, GPL...</span>
+            <span><strong>Poste pétrolier</strong> (marchandise)<br>
+              <span class="text-gray-400 text-[10px]">brut, raffiné, gazole, diesel, fuel, kérosène, bitume</span>
             </span>
           </label>
           <label class="inline-flex items-start gap-2 cursor-pointer">
@@ -193,9 +193,28 @@
               <span class="text-gray-400 text-[10px]">drop si Destinataire = SIR CI / Sté Iv. Raffinage / SMB</span>
             </span>
           </label>
+          <label class="inline-flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" id="filter-gas" class="h-4 w-4 mt-0.5" />
+            <span><strong>Gaz — GPL, butane, propane</strong><br>
+              <span class="text-gray-400 text-[10px]">trafic gazier distinct du poste pétrolier — conservé par défaut</span>
+            </span>
+          </label>
         </div>
         <div class="text-[10px] text-gray-500 mt-2 italic">
-          Les filtres s'appliquent au parsing. Pour modifier après upload : "remplacer" sur la tuile.
+          Les filtres s'appliquent au parsing des fichiers.
+        </div>
+        <div id="filter-dirty-banner" class="hidden mt-3 rounded border-2 border-orange-400 bg-orange-50 p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="text-xs text-orange-900">
+              <strong>⚠ Filtres modifiés après le chargement des fichiers.</strong><br>
+              <span id="filter-dirty-detail">Les données en mémoire ont été analysées avec les anciens filtres.
+              Vos chiffres ne changeront pas tant que les fichiers n'auront pas été ré-analysés.</span>
+            </div>
+            <button type="button" id="filter-reparse-btn"
+              class="shrink-0 px-3 py-2 rounded bg-orange-600 text-white text-xs font-semibold hover:bg-orange-700">
+              Tout ré-analyser
+            </button>
+          </div>
         </div>
       </div>
 
@@ -327,11 +346,11 @@
   <!-- generator.js (pptxgenjs) is no longer loaded — Python (Pyodide) handles
        the base deck. data-adapter.js is also obsolete (port lives in
        generator.py). blocks.js stays for the JS-side merge logic only. -->
-  <script src="./blocks.js?v=20260728j"></script>
-  <script src="./prediction.js?v=20260728j"></script>
-  <script src="./pptx-merge.js?v=20260728j"></script>
-  <script src="./py-generator.js?v=20260728j"></script>
-  <script src="./app.js?v=20260728j"></script>
+  <script src="./blocks.js?v=20260728n"></script>
+  <script src="./prediction.js?v=20260728n"></script>
+  <script src="./pptx-merge.js?v=20260728n"></script>
+  <script src="./py-generator.js?v=20260728n"></script>
+  <script src="./app.js?v=20260728n"></script>
 
   <!-- Indicateur de version : extrait le cache-bust de l'URL d'app.js et
        l'affiche dans le badge du header. Permet à Olivier de vérifier d'un

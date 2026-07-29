@@ -844,6 +844,18 @@ def fmt_pdm(v):
 
 
 
+
+def _plabel_n(study):
+    """Libelle de la SEULE periode N (sans le ' vs AAAA').
+
+    Les cartes KPI portaient 'TEU — Janvier-Decembre 2025 vs Janvier-
+    Decembre 2024', ce qui tenait sur deux lignes et laissait croire que
+    la valeur couvrait les deux annees. La carte affiche une valeur de
+    l'annee N : son sous-titre ne doit mentionner que N."""
+    lbl = study.get('periodLabel') or ''
+    return lbl.split(' vs ')[0] if lbl else 'période'
+
+
 def _pct_var(n, n1):
     """Variation en % entre N et N-1. None si pas de N-1 (mode periode
     unique ou fichier N-1 absent) : on n'affiche alors aucune variation
@@ -1498,10 +1510,10 @@ def build_tim_overview(prs, study):
         ecart_color = GREEN if live['ecart'] >= 0 else RED
         kpis = [
             {'label': 'Marché qualifié (N)', 'value': live['kpis']['marche'],
-             'sub': _dm or f"TEU — {period_label}",
+             'sub': _dm or f"TEU — {_plabel_n(study)}",
              'color': _var_color(live.get('deltaMarchePct')) if _dm else None},
             {'label': 'Volume AGL (N)', 'value': live['kpis']['agl'],
-             'sub': _da or f"TEU — {period_label}",
+             'sub': _da or f"TEU — {_plabel_n(study)}",
              'color': _var_color(live.get('deltaAglPct')) if _da else None},
             {'label': 'PDM AGL (N)', 'value': live['kpis']['pdm'],
              'sub': (_var_txt(live.get('deltaPdmPts'), ' pt vs N-1')
@@ -1757,10 +1769,10 @@ def build_metier_overview(prs, study, code, label, page_no, fallback_sub, fallba
         ecart_color = GREEN if live['ecart'] >= 0 else RED
         kpis = [
             {'label': f'Marché {unit} (N)', 'value': live['kpis']['marche'],
-             'sub': _dm or _plabel,
+             'sub': _dm or f"{unit} — {_plabel_n(study)}",
              'color': _var_color(live.get('deltaMarchePct')) if _dm else None},
             {'label': f'AGL {unit} (N)', 'value': live['kpis']['agl'],
-             'sub': _da or _plabel,
+             'sub': _da or f"{unit} — {_plabel_n(study)}",
              'color': _var_color(live.get('deltaAglPct')) if _da else None},
             {'label': 'PDM AGL', 'value': live['kpis']['pdm'],
              'sub': f"Rang #{live['aglRank'] or '—'}", 'color': GREEN, 'big': True},
