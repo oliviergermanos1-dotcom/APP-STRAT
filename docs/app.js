@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260728j');
+  _worker = new Worker('./parser-worker.js?v=20260728n');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -188,6 +188,102 @@ function workerBuild(metierKeys, period, extras) {
   });
 }
 
+// ─── FILTRES : DÉTECTION DE MODIFICATION APRÈS CHARGEMENT ────────────────
+// Les filtres d'exclusion sont appliqués AU PARSING (statcom-parser.js les
+// lit une seule fois, au moment où le fichier est lu). Les décocher après
+// coup ne changeait donc rien aux lignes déjà en mémoire — sans le moindre
+// signal. Cas vécu : SIR/SMB décoché, total DSM inchangé à 17,3 M T.
+// On compare désormais les filtres courants à ceux utilisés au parsing, et
+// on propose de tout ré-analyser à partir des fichiers gardés en mémoire
+// (sourceFiles.statcom), sans redemander de re-déposer quoi que ce soit.
+
+function currentFilterOpts() {
+  return {
+    excludeNonApure:           document.getElementById('filter-non-apure').checked,
+    excludePetroleum:          document.getElementById('filter-petroleum').checked,
+    excludeSirSmbTransitaire:  document.getElementById('filter-sir-transit').checked,
+    excludeSirSmbDestinataire: document.getElementById('filter-sir-dest').checked,
+    excludeGas:                (document.getElementById('filter-gas') || {}).checked === true,
+  };
+}
+
+const FILTER_LABELS = {
+  excludeNonApure: 'Non Apuré',
+  excludePetroleum: 'Pétroliers',
+  excludeSirSmbTransitaire: 'SIR/SMB transitaire',
+  excludeSirSmbDestinataire: 'SIR/SMB destinataire',
+  excludeGas: 'Gaz (GPL/butane)',
+};
+
+function refreshFilterDirtyBanner() {
+  const banner = document.getElementById('filter-dirty-banner');
+  const detail = document.getElementById('filter-dirty-detail');
+  if (!banner) return;
+  const cur = currentFilterOpts();
+  const diffs = new Set();
+  let nbFichiers = 0;
+  for (const [key, meta] of Object.entries(state.statcomMeta || {})) {
+    if (!meta || !meta.filters) continue;
+    nbFichiers++;
+    for (const k of Object.keys(cur)) {
+      if (!!meta.filters[k] !== !!cur[k]) diffs.add(FILTER_LABELS[k] || k);
+    }
+  }
+  if (diffs.size === 0 || nbFichiers === 0) {
+    banner.classList.add('hidden');
+    return;
+  }
+  banner.classList.remove('hidden');
+  if (detail) {
+    detail.innerHTML =
+      `Filtre(s) modifié(s) : <strong>${[...diffs].join(', ')}</strong>. ` +
+      `${nbFichiers} fichier(s) ont été analysés avec les anciens réglages — ` +
+      `vos chiffres ne changeront pas tant qu'ils n'auront pas été ré-analysés.`;
+  }
+}
+
+async function reparseAllStatcom() {
+  const btn = document.getElementById('filter-reparse-btn');
+  const keys = Object.keys(sourceFiles.statcom || {});
+  if (keys.length === 0) {
+    alert("Aucun fichier en mémoire. Re-déposez les fichiers STATCOM : ils seront analysés avec les filtres actuels.");
+    return;
+  }
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; }
+  let ok = 0, ko = 0;
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const [metier, scope] = key.split('|');
+    const file = sourceFiles.statcom[key];
+    if (!file) { ko++; continue; }
+    if (btn) btn.textContent = `Ré-analyse ${i + 1}/${keys.length}…`;
+    try {
+      await handleStatcomUpload(metier, scope, file);
+      ok++;
+    } catch (e) {
+      console.error('Re-parse échoué pour', key, e);
+      ko++;
+    }
+  }
+  if (btn) { btn.disabled = false; btn.textContent = label || 'Tout ré-analyser'; }
+  refreshFilterDirtyBanner();
+  alert(`Ré-analyse terminée : ${ok} fichier(s) traité(s)` +
+        (ko ? `, ${ko} en échec (re-déposez-les manuellement).` : '.') +
+        `\n\nLes chiffres reflètent maintenant les filtres actuels.`);
+}
+
+function initFilterWatch() {
+  ['filter-non-apure', 'filter-petroleum', 'filter-sir-transit', 'filter-sir-dest', 'filter-gas']
+    .forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', () => { refreshFilterDirtyBanner(); saveState(); });
+    });
+  const btn = document.getElementById('filter-reparse-btn');
+  if (btn) btn.addEventListener('click', reparseAllStatcom);
+  refreshFilterDirtyBanner();
+}
+
 async function handleStatcomUpload(metier, scope, file) {
   const key = `${metier}|${scope}`;
   const tile = document.querySelector(`[data-tile="${key}"]`);
@@ -195,12 +291,7 @@ async function handleStatcomUpload(metier, scope, file) {
 
   try {
     const buffer = await file.arrayBuffer();
-    const filterOpts = {
-      excludeNonApure:           document.getElementById('filter-non-apure').checked,
-      excludePetroleum:          document.getElementById('filter-petroleum').checked,
-      excludeSirSmbTransitaire:  document.getElementById('filter-sir-transit').checked,
-      excludeSirSmbDestinataire: document.getElementById('filter-sir-dest').checked,
-    };
+    const filterOpts = currentFilterOpts();
 
     const reply = await workerParse(key, buffer, metier, file.name, filterOpts, (phase) => {
       const t = document.querySelector(`[data-tile="${key}"]`);
@@ -226,6 +317,7 @@ async function handleStatcomUpload(metier, scope, file) {
     saveState();
     renderDatasets();
     renderStatus();
+    refreshFilterDirtyBanner();
   } catch (err) {
     alert(`Erreur parsing ${file.name} : ${err.message}`);
     console.error(err);
@@ -546,6 +638,7 @@ async function saveSession() {
       study: state.study,
       statcomMeta: state.statcomMeta,
       filters: {
+        gas: (document.getElementById('filter-gas') || {}).checked === true,
         nonApure: document.getElementById('filter-non-apure').checked,
         petroleum: document.getElementById('filter-petroleum').checked,
         sirTransit: document.getElementById('filter-sir-transit').checked,
@@ -613,7 +706,12 @@ async function restoreSession(meta) {
       document.getElementById('filter-petroleum').checked = !!meta.filters.petroleum;
       document.getElementById('filter-sir-transit').checked = !!meta.filters.sirTransit;
       document.getElementById('filter-sir-dest').checked = !!meta.filters.sirDest;
+      const _g = document.getElementById('filter-gas');
+      if (_g) _g.checked = !!meta.filters.gas;
     }
+    // La restauration re-parse les fichiers avec ces filtres : la bannière
+    // sera réévaluée en fin de restauration (voir refreshFilterDirtyBanner
+    // appelé par handleStatcomUpload).
 
     const k = meta.keys || {};
     // STATCOM (re-parsed in the worker, sequentially).
@@ -871,13 +969,27 @@ async function generatePptx() {
       };
     }
 
-    // DSM (Direction Maritime) + MINING focus are derived from the import
-    // maritime base (TIM).
+    // MINING focus reste dérivé de la base import maritime (TIM).
     const timRef = workerKeys.has('TIM|n')
       ? { nKey: 'TIM|n', n1Key: workerKeys.has('TIM|n1') ? 'TIM|n1' : null }
       : null;
-    const dsm = timRef;
     const mining = timRef;
+
+    // ── PÉRIMÈTRE DSM : TIM + HINTERLAND IMPORT ──────────────────────────
+    // Le DSM couvre l'ensemble de l'import maritime débarqué à Abidjan et
+    // San Pedro. Or TIM ne retient que les marchandises livrées en Côte
+    // d'Ivoire (filtre géographique du parseur) : tout le transit vers le
+    // Mali et le Burkina part dans HIMP. Alimenter le DSM par TIM seul
+    // amputait donc le marché d'environ 5 M T/an.
+    // Validé face au rapport DSM de référence : sur les 10 premiers
+    // armateurs, 8 tombent à moins de 0,1 % une fois TIM et HIMP cumulés
+    // (MSC, CMA CGM, MAERSK, AFFRETES BLE, ARMATEURS DIVERS RIZ…).
+    const dsm = timRef ? {
+      nKey: timRef.nKey,
+      n1Key: timRef.n1Key,
+      extraNKeys:  workerKeys.has('HIMP|n')  ? ['HIMP|n']  : [],
+      extraN1Keys: workerKeys.has('HIMP|n1') ? ['HIMP|n1'] : [],
+    } : null;
 
     // AYMAN focus — across every uploaded métier (current period source).
     const ayman = METIERS
@@ -915,7 +1027,37 @@ async function generatePptx() {
             : '')
         );
       }
+      // ── ALERTE N-1 ABSENT ────────────────────────────────────────────
+      // Comparatif demandé mais aucune ligne N-1 retenue : le deck
+      // sortirait sans aucune variation ni série N-1, sans que rien ne
+      // l'explique. Causes usuelles : fichier N-1 non chargé, ou fichier
+      // N-1 ne couvrant pas l'année de comparaison choisie.
+      if (period && period.compare) {
+        const sansN1 = [];
+        for (const [m, rep] of Object.entries(reports)) {
+          const cov = rep && rep.coverage;
+          if (!cov || cov.rowsInPeriodN === 0) continue;
+          if (cov.rowsInPeriodN1 === 0) {
+            sansN1.push(`• ${m} — fichier N-1 couvre ` +
+              `${(cov.n1 && cov.n1.min) || 'aucune donnée'}` +
+              `${cov.n1 && cov.n1.max ? ' → ' + cov.n1.max : ''}`);
+          }
+        }
+        if (sansN1.length > 0) {
+          const cy = state.study.comparisonYear;
+          const ok = window.confirm(
+            `Comparaison demandée sur ${cy}, mais aucune donnée N-1 n'a été trouvée pour :\n` +
+            `${sansN1.join('\n')}\n\n` +
+            "Le PPTX sortira sans variation ni série N-1 sur ces métiers.\n\n" +
+            "Vérifiez que les fichiers STATCOM N-1 sont bien chargés et qu'ils " +
+            `couvrent l'année ${cy}.\n\nGénérer quand même ?`
+          );
+          if (!ok) throw new Error('Génération annulée — vérifiez les fichiers N-1.');
+        }
+      }
+
       if (vides.length > 0) {
+
         const pStart = state.study.periodStart;
         const pEnd = state.study.periodEnd;
         const entete =
@@ -967,8 +1109,8 @@ async function generatePptx() {
     }
     btn.textContent = 'Chargement assets visuels…';
     const [coverB64, logoB64] = await Promise.all([
-      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260728j')),
-      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260728j')),
+      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260728n')),
+      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260728n')),
     ]);
 
     const study = {
@@ -1061,6 +1203,7 @@ async function boot() {
 
   document.getElementById('study-title').value = state.study.title;
   initPeriodControls();
+  initFilterWatch();
   setPeriodControls(state.study);
   document.getElementById('generate-btn').addEventListener('click', generatePptx);
   document.getElementById('reset-btn').addEventListener('click', resetAll);
