@@ -16,10 +16,13 @@
 // the full set of kept rows (after exclusion filters). The caller derives
 // "current period" and "N-1 full year" views from the same row set.
 
+// ── HYDROCARBURES LIQUIDES = « POSTE PÉTROLIER » ───────────────────────────
+// Trafic capté d'office par la raffinerie, traité à un poste à quai dédié.
+// C'est ce périmètre que le rapport DSM désigne par « HORS PP ».
 const PETROLEUM_KEYWORDS = [
   // Bruts
   'petrole brut', 'crude oil', 'pet brut', 'brut petrol',
-  // Raffinés et produits dérivés
+  // Raffinés et produits dérivés liquides
   'petrole', 'petroleum', 'petrol',
   'gazole', 'gas oil', 'gasoil', 'diesel',
   'jet a1', 'jet-a1', 'jet a-1', 'kerosen', 'kerosene',
@@ -27,9 +30,16 @@ const PETROLEUM_KEYWORDS = [
   'hydrocarbure', 'hydrocarbon',
   'bitume', 'asphalt',
   'naphta', 'naphtha',
-  'gpl', 'lpg', 'butane', 'propane',
   'raffine', 'raffines',
 ];
+
+// ── GAZ (GPL) — TRAFIC DISTINCT, CONSERVÉ PAR DÉFAUT ──────────────────────
+// Le butane est chimiquement issu du raffinage, mais PORTUAIREMENT c'est un
+// autre métier : gaziers spécialisés, terminal dédié, consignation propre.
+// Le confondre avec le brut retirait 812 500 T/an du marché adressable DSM
+// et faussait le classement des acteurs. Liste séparée, exclusion optionnelle
+// et DÉSACTIVÉE par défaut.
+const GAS_KEYWORDS = ['gpl', 'lpg', 'butane', 'propane'];
 
 const MONTHS_FR = [
   'Janvier','Février','Mars','Avril','Mai','Juin',
@@ -72,7 +82,16 @@ function isSirSmbDestinataire(name) {
 function isPetroleum(merchLabel) {
   const n = norm(merchLabel);
   if (!n) return false;
+  // Un libellé gazier ne doit jamais tomber dans le poste pétrolier, même
+  // s'il contient un mot générique (ex. « GPL PETROLIER »).
+  if (GAS_KEYWORDS.some((kw) => n.includes(kw))) return false;
   return PETROLEUM_KEYWORDS.some((kw) => n.includes(kw));
+}
+
+function isGas(merchLabel) {
+  const n = norm(merchLabel);
+  if (!n) return false;
+  return GAS_KEYWORDS.some((kw) => n.includes(kw));
 }
 
 function isCotedIvoire(country) {
@@ -139,6 +158,8 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
     excludePetroleum: opts.excludePetroleum !== false,
     excludeSirSmbTransitaire: opts.excludeSirSmbTransitaire !== false,
     excludeSirSmbDestinataire: opts.excludeSirSmbDestinataire !== false,
+    // Gaz : opt-in explicite (défaut = conservé), contrairement aux autres.
+    excludeGas: opts.excludeGas === true,
   };
 
   const wb = XLSX.read(buffer, { type: 'array', cellDates: false, cellHTML: false });
@@ -149,7 +170,7 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
   const sch = detectSchema(headerRow, metier);
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: true });
 
-  const dropped = { nonQualified: 0, nonApure: 0, sirSmbTransit: 0, sirSmbDest: 0, petroleum: 0, geo: 0 };
+  const dropped = { nonQualified: 0, nonApure: 0, sirSmbTransit: 0, sirSmbDest: 0, petroleum: 0, gas: 0, geo: 0 };
   const kept = [];
 
   // Métier-specific geographic scope:
@@ -185,6 +206,9 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
     }
     if (o.excludePetroleum && isPetroleum(r[sch.merchKey])) {
       dropped.petroleum += 1; continue;
+    }
+    if (o.excludeGas && isGas(r[sch.merchKey])) {
+      dropped.gas = (dropped.gas || 0) + 1; continue;
     }
     // Métier-specific geographic scope
     if (geoMode === 'livraison' && !isCotedIvoire(r['Pays de livraison'])) {
