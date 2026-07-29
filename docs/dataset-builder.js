@@ -913,3 +913,127 @@ function buildSectorProspects(sources, period) {
 }
 
 _ctx.buildSectorProspects = buildSectorProspects;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REPORTING DSM — format Direction Maritime
+// ═══════════════════════════════════════════════════════════════════════════
+// Spécification établie à partir du modèle fourni par la DSM et validée au
+// tonne près sur les exports 2025 :
+//
+//   Périmètre   IMPORT = TIM + Hinterland Import   (534 476 TEU / 16 635 874 T)
+//               EXPORT = TEM + Hinterland Export   (336 540 TEU /  4 385 383 T)
+//
+//   TEU         somme de NOMBRE_TEU, tous conditionnements confondus
+//   CONV        CODE_CONDIT ∈ {VRAC, SACS, BRBK} uniquement — RORO et CARS
+//               exclus — et hors poste pétrolier (brut + raffiné)
+//
+//   Le filtre « Non Apuré » n'est PAS appliqué : un B/L non apuré a bien été
+//   manutentionné, même si sa procédure douanière reste ouverte. L'activer
+//   creusait l'écart au modèle de 12 449 T à 1 154 047 T.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const DSM_CONV_CONDIT = new Set(['VRAC', 'SACS', 'BRBK']);
+
+function dsmIsConv(row) {
+  return DSM_CONV_CONDIT.has(String(row.conditionnement || '').toUpperCase());
+}
+
+// Classement d'une dimension (armateur / manutentionnaire / consignataire)
+// sur une unité d'œuvre donnée, avec comparaison N-1 et ligne de total.
+function dsmRank(rowsN, rowsN1, keyFn, valFn) {
+  const aggN = new Map(); const aggN1 = new Map();
+  const cumul = (rows, map) => {
+    for (const r of rows || []) {
+      const k = String(keyFn(r) || '').trim();
+      if (!k) continue;
+      const v = valFn(r);
+      if (!v) continue;
+      map.set(k, (map.get(k) || 0) + v);
+    }
+  };
+  cumul(rowsN, aggN); cumul(rowsN1, aggN1);
+  const totN  = [...aggN.values()].reduce((s, v) => s + v, 0);
+  const totN1 = [...aggN1.values()].reduce((s, v) => s + v, 0);
+
+  // Union des deux périodes : un acteur présent seulement en N-1 doit
+  // apparaître avec 0 en N (sortie de marché), et non disparaître.
+  const noms = new Set([...aggN.keys(), ...aggN1.keys()]);
+  const rows = [...noms].map((nom) => {
+    const vN = aggN.get(nom) || 0;
+    const vN1 = aggN1.get(nom) || 0;
+    return {
+      name: nom,
+      valN: Math.round(vN * 100) / 100,
+      pdmN: totN > 0 ? Math.round((vN / totN) * 1000) / 10 : 0,
+      valN1: Math.round(vN1 * 100) / 100,
+      pdmN1: totN1 > 0 ? Math.round((vN1 / totN1) * 1000) / 10 : 0,
+      delta: Math.round((vN - vN1) * 100) / 100,
+      deltaPct: vN1 > 0 ? Math.round(((vN - vN1) / vN1) * 1000) / 10 : null,
+    };
+  }).sort((a, b) => b.valN - a.valN || b.valN1 - a.valN1);
+  rows.forEach((r, i) => { r.rang = i + 1; });
+
+  return {
+    rows,
+    total: {
+      valN: Math.round(totN * 100) / 100,
+      valN1: Math.round(totN1 * 100) / 100,
+      delta: Math.round((totN - totN1) * 100) / 100,
+      deltaPct: totN1 > 0 ? Math.round(((totN - totN1) / totN1) * 1000) / 10 : null,
+    },
+  };
+}
+
+/**
+ * Construit les 12 tableaux du reporting DSM.
+ * @param {Object} src { importN, importN1, exportN, exportN1 } — lignes déjà
+ *   filtrées sur la période (N) et sur la période de comparaison (N-1).
+ */
+function buildDsmReport(src) {
+  const DIMS = [
+    ['armateurs',        (r) => r.armateur],
+    ['manutentionnaires',(r) => r.manutentionnaire],
+    ['consignataires',   (r) => r.consignataire],
+  ];
+  const out = {};
+  for (const [sens, kN, kN1] of [['import', 'importN', 'importN1'],
+                                 ['export', 'exportN', 'exportN1']]) {
+    const rN  = src[kN]  || [];
+    const rN1 = src[kN1] || [];
+    const convN  = rN.filter(dsmIsConv);
+    const convN1 = rN1.filter(dsmIsConv);
+    for (const [dim, keyFn] of DIMS) {
+      out[`${sens}_${dim}_teu`]  = dsmRank(rN, rN1, keyFn, (r) => r.teu || 0);
+      out[`${sens}_${dim}_conv`] = dsmRank(convN, convN1, keyFn, (r) => r.poids || 0);
+    }
+    out[`${sens}_totaux`] = {
+      teu:  out[`${sens}_armateurs_teu`].total,
+      conv: out[`${sens}_armateurs_conv`].total,
+    };
+    // Séries mensuelles pour les graphes d'évolution des vues d'ensemble.
+    // Appariement N ↔ N-1 par RANG dans la plage (cohérent avec le reste de
+    // l'app) : les deux périodes peuvent couvrir des mois différents.
+    const moisN  = MONTHS_FR_B.filter((m) => rN.some((r) => r.mois === m));
+    const moisN1 = MONTHS_FR_B.filter((m) => rN1.some((r) => r.mois === m));
+    const somme = (rows, mois, f) => rows.reduce(
+      (s, r) => (r.mois === mois ? s + (f(r) || 0) : s), 0);
+    out[`${sens}_mensuel`] = moisN.map((m, k) => {
+      const m1 = moisN1[k] || null;
+      return {
+        mois: m, mois_n1: m1,
+        teu:      Math.round(somme(rN, m, (r) => r.teu)),
+        teu_n1:   m1 ? Math.round(somme(rN1, m1, (r) => r.teu)) : 0,
+        conv:     Math.round(somme(convN, m, (r) => r.poids)),
+        conv_n1:  m1 ? Math.round(somme(convN1, m1, (r) => r.poids)) : 0,
+      };
+    });
+  }
+  return out;
+}
+
+_ctx.buildDsmReport = buildDsmReport;
+
+// Helpers exposés au worker pour filtrer les lignes DSM sur la période.
+_ctx.inPeriodDsm   = (r, period) => inPeriod(r, period);
+_ctx.inPeriodDsmN1 = (r, period) => (period && period.compare === false)
+  ? false : inPeriod(r, shiftPeriodToN1(period));
