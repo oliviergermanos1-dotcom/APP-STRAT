@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260728j');
-importScripts('./dataset-builder.js?v=20260728j');
+importScripts('./statcom-parser.js?v=20260728n');
+importScripts('./dataset-builder.js?v=20260728n');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
@@ -100,8 +100,22 @@ self.onmessage = (event) => {
         const cN = cache.get(msg.dsm.nKey);
         const cN1 = msg.dsm.n1Key ? cache.get(msg.dsm.n1Key) : null;
         if (cN) {
+          // Périmètre DSM = import maritime + import hinterland. On concatène
+          // les lignes retenues des deux bases avant agrégation ; sans cela
+          // tout le transit Mali/Burkina (≈ 5 M T/an) manquait au marché.
+          const merge = (base, keys) => {
+            let rows = base ? base.kept : [];
+            for (const k of (keys || [])) {
+              const c = cache.get(k);
+              if (c && c.kept) rows = rows.concat(c.kept);
+            }
+            return rows;
+          };
+          const rowsN  = merge(cN,  msg.dsm.extraNKeys);
+          const rowsN1 = cN1 || (msg.dsm.extraN1Keys || []).length
+            ? merge(cN1, msg.dsm.extraN1Keys) : null;
           const dsm = self.buildDsmDatasets(
-            cN.kept, cN1 ? cN1.kept : null, period, cN.filename,
+            rowsN, (rowsN1 && rowsN1.length) ? rowsN1 : null, period, cN.filename,
           );
           reports.DSM = { market: dsm.market, aglVolume: dsm.aglTonnage, aglPdm: dsm.aglPdm };
           for (const ds of dsm.datasets) {
