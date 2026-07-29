@@ -19,18 +19,18 @@
 // ── HYDROCARBURES LIQUIDES = « POSTE PÉTROLIER » ───────────────────────────
 // Trafic capté d'office par la raffinerie, traité à un poste à quai dédié.
 // C'est ce périmètre que le rapport DSM désigne par « HORS PP ».
+// Périmètre volontairement ÉTROIT, calé sur le reporting DSM de référence :
+// seuls le brut et le raffiné transitent par le poste pétrolier. Vérifié
+// sur les 4 exports 2025 — la règle reproduit les totaux du modèle au
+// tonne près (import 16 635 874 T, export 4 385 383 T).
+// À NE PAS élargir : bitume (117 927 T), matériaux pétroliers, diesel
+// generator set sont des vracs et équipements manutentionnés à quai
+// normal, comptés dans le conventionnel. Un mot-clé large comme 'gaz'
+// attraperait par ailleurs GAZON SYNTHETIQUE et SEMENCE DE GAZON.
 const PETROLEUM_KEYWORDS = [
-  // Bruts
-  'petrole brut', 'crude oil', 'pet brut', 'brut petrol',
-  // Raffinés et produits dérivés liquides
-  'petrole', 'petroleum', 'petrol',
-  'gazole', 'gas oil', 'gasoil', 'diesel',
-  'jet a1', 'jet-a1', 'jet a-1', 'kerosen', 'kerosene',
-  'essence', 'fuel', 'fuel-oil', 'fuel oil',
-  'hydrocarbure', 'hydrocarbon',
-  'bitume', 'asphalt',
-  'naphta', 'naphtha',
-  'raffine', 'raffines',
+  'produit petrolier brut', 'petrolier brut', 'petrole brut',
+  'crude oil', 'pet brut', 'brut petrol',
+  'petrole raffine', 'petroles raffines',
 ];
 
 // ── GAZ (GPL) — TRAFIC DISTINCT, CONSERVÉ PAR DÉFAUT ──────────────────────
@@ -243,6 +243,11 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
       row.poids = Number(r['POIDS_MARCHANDISE']) || 0;
       row.armateur = String(r['Armateur BL'] || '').trim();
       row.manutentionnaire = String(r['Manutentionaire'] || '').trim();
+      // Conditionnement + TEU : le reporting DSM ventile chaque dimension
+      // en DEUX tableaux — conteneurs (TEU) et conventionnel (tonnes,
+      // limité à VRAC/SACS/BRBK). RORO et CARS en sont exclus.
+      row.conditionnement = String(r['CODE_CONDIT'] || '').trim().toUpperCase();
+      row.teu = Number(r['NOMBRE_TEU']) || 0;
       row.consignataire = String(r['Consignataire'] || '').trim();
       row.port_dechargement = String(r['Port de déchargement'] || '').trim();
       row.navire = String(r['Navire'] || '').trim();
@@ -271,4 +276,5 @@ _globalRef.STATCOM = {
   MONTHS_FR,
   isAgl,
   isPetroleum,
+  isGas,
 };
