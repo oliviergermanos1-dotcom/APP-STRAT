@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260728n');
-importScripts('./dataset-builder.js?v=20260728n');
+importScripts('./statcom-parser.js?v=20260729a');
+importScripts('./dataset-builder.js?v=20260729a');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
@@ -157,6 +157,34 @@ self.onmessage = (event) => {
         if (sources.length) {
           const ay = self.buildAymanDatasets(sources, period);
           allDatasets.push({ metier: 'AYIMAN', datasetType: 'ayiman_focus', rows: [ay] });
+        }
+      }
+
+      // ── REPORTING DSM (import + export, TEU + conventionnel) ─────────
+      if (msg.dsmReport && self.buildDsmReport) {
+        const cat = (keys) => {
+          let out = [];
+          for (const k of (keys || [])) {
+            const c = cache.get(k);
+            if (c && c.kept) out = out.concat(c.kept);
+          }
+          return out;
+        };
+        const src = {
+          importN:  cat(msg.dsmReport.importN),
+          importN1: cat(msg.dsmReport.importN1),
+          exportN:  cat(msg.dsmReport.exportN),
+          exportN1: cat(msg.dsmReport.exportN1),
+        };
+        const inPer  = (r) => !period || self.inPeriodDsm(r, period);
+        if (src.importN.length || src.exportN.length) {
+          const rep = self.buildDsmReport({
+            importN:  src.importN.filter((r) => inPer(r)),
+            importN1: src.importN1.filter((r) => self.inPeriodDsmN1(r, period)),
+            exportN:  src.exportN.filter((r) => inPer(r)),
+            exportN1: src.exportN1.filter((r) => self.inPeriodDsmN1(r, period)),
+          });
+          allDatasets.push({ metier: 'DSMREP', datasetType: 'dsm_report', rows: [rep] });
         }
       }
 
