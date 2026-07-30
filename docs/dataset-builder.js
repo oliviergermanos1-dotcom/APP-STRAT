@@ -650,6 +650,8 @@ function buildAymanDatasets(sources, period) {
   let aymanTimRows = [];
   const _noCmp = !!(period && period.compare === false);
   let aymanTimN1Rows = [];
+  let aymanAerRows = [];
+  let aymanAerN1Rows = [];
 
   for (const src of sources) {
     const pRows = period ? src.keptN.filter((r) => inPeriod(r, period)) : src.keptN;
@@ -741,6 +743,13 @@ function buildAymanDatasets(sources, period) {
       aymanTimRows = aymanRows;
       aymanTimN1Rows = aymanN1Rows;
     }
+    // Aérien Import : étude STRICTEMENT séparée du maritime. Les volumes
+    // sont en tonnes (kg convertis) quand TIM est en TEU — on ne cumule
+    // jamais les deux, on produit deux jeux de chiffres distincts.
+    if (src.metier === 'AER') {
+      aymanAerRows = aymanRows;
+      aymanAerN1Rows = aymanN1Rows;
+    }
   }
 
   // AYMAN clients TIM (compat existant)
@@ -765,6 +774,21 @@ function buildAymanDatasets(sources, period) {
       vol_n1: round(byMonthN1.get(m) || 0),
     }));
 
+  // ── Agrégats aériens (miroir du volet TIM, unité tonnes) ───────────────
+  const aerTotN  = aymanAerRows.reduce((s, r) => s + (r.volume || 0), 0);
+  const aerTotN1 = aymanAerN1Rows.reduce((s, r) => s + (r.volume || 0), 0);
+  const aerByClient = aggregateBy(aymanAerRows, (r) => r.destinataire);
+  const aerClients = [...aerByClient.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, aerTotN) }));
+  const aerByMerch = aggregateBy(aymanAerRows, (r) => r.marchandise);
+  const aerMerch = [...aerByMerch.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([name, vol]) => ({ name, vol: round(vol), pct: pdmOf(vol, aerTotN) }));
+  const aerByMonth   = aggregateBy(aymanAerRows, (r) => r.mois);
+  const aerByMonthN1 = aggregateBy(aymanAerN1Rows, (r) => r.mois);
+  const aerEvolution = MONTHS_FR_B.filter((m) => aerByMonth.has(m)).map((m) => ({
+    mois: m, vol: round(aerByMonth.get(m)), vol_n1: round(aerByMonthN1.get(m) || 0),
+  }));
+
   const totN = aymanTimTotal;
   const totN1 = periodN1.reduce((s, r) => s + (r.volume || 0), 0);
 
@@ -777,6 +801,14 @@ function buildAymanDatasets(sources, period) {
     timTotalN: round(totN),
     timTotalN1: round(totN1),
     timGrowthPct: totN1 > 0 ? Math.round(((totN - totN1) / totN1) * 1000) / 10 : null,
+    // ── Volet aérien (tonnes) — jamais additionné au volet maritime ──────
+    aerTotalN: round(aerTotN),
+    aerTotalN1: round(aerTotN1),
+    aerGrowthPct: aerTotN1 > 0
+      ? Math.round(((aerTotN - aerTotN1) / aerTotN1) * 1000) / 10 : null,
+    aerClients: aerClients,
+    aerMarchandises: aerMerch,
+    aerEvolution: aerEvolution,
   };
 }
 _ctx.buildAymanDatasets = buildAymanDatasets;
