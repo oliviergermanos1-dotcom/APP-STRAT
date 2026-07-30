@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260729d');
+  _worker = new Worker('./parser-worker.js?v=20260729h');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -286,6 +286,80 @@ function initFilterWatch() {
   refreshFilterDirtyBanner();
 }
 
+// ─── CONTRÔLE QUALITÉ DES FICHIERS ───────────────────────────────────────
+// Trois pièges rencontrés en production, tous découverts APRÈS génération :
+//   · un fichier nommé tim_2024 dont les 45 497 lignes portaient l'année 2004 ;
+//   · des exports N et N-1 de périmètres différents (124 767 vs 45 497 lignes),
+//     rendant toute comparaison N-1 trompeuse ;
+//   · des périodes N et N-1 qui se chevauchent.
+// Ces contrôles s'exécutent au chargement et s'affichent sur la tuile.
+function qualiteFichier(metier, scope) {
+  const meta = state.statcomMeta[`${metier}|${scope}`];
+  if (!meta) return null;
+  const cov = meta.coverage || null;
+  const alertes = [];
+  const anneesFichier = String(meta.filename || '').match(/20\d{2}/g) || [];
+  const cN = cov && cov.n ? cov.n : null;
+  const anneeData = cN && cN.min ? cN.min.slice(0, 4) : null;
+
+  if (anneesFichier.length && anneeData && !anneesFichier.includes(anneeData)) {
+    alertes.push({
+      niveau: 'grave',
+      texte: `Le nom du fichier annonce ${anneesFichier.join('/')} mais les données portent ${anneeData}`,
+    });
+  }
+  // Colonne Transitaire vide : défaut le plus grave, car il ne se voit
+  // sur aucun total — les volumes restent justes, seules les analyses
+  // par acteur deviennent silencieusement vides.
+  if (cov && cov.transitaires === 0 && meta.keptCount > 0) {
+    alertes.push({
+      niveau: 'grave',
+      texte: 'Colonne Transitaire VIDE — classements concurrents, PDM, ' +
+             'nouveaux entrants et décrochages clients seront inopérants sur ce fichier',
+    });
+  }
+  // Volume N vs N-1 : un écart supérieur à 2× signale des exports de
+  // périmètres différents, pas une évolution de marché.
+  if (scope === 'n') {
+    const m1 = state.statcomMeta[`${metier}|n1`];
+    if (m1 && m1.keptCount > 0 && meta.keptCount > 0) {
+      const ratio = meta.keptCount / m1.keptCount;
+      if (ratio > 2 || ratio < 0.5) {
+        alertes.push({
+          niveau: 'grave',
+          texte: `Volume ${ratio > 1 ? ratio.toFixed(1) + '× supérieur' : (1 / ratio).toFixed(1) + '× inférieur'} au fichier N-1 ` +
+                 `(${meta.keptCount.toLocaleString('fr-FR')} vs ${m1.keptCount.toLocaleString('fr-FR')} lignes) — ` +
+                 `périmètres d'export probablement différents, comparaison N-1 peu fiable`,
+        });
+      }
+    }
+  }
+  // Chevauchement N / N-1
+  if (scope === 'n1') {
+    const mN = state.statcomMeta[`${metier}|n`];
+    const cN1 = cov && cov.n ? cov.n : null;
+    const covN = mN && mN.coverage && mN.coverage.n ? mN.coverage.n : null;
+    if (covN && cN1 && covN.min && cN1.max && cN1.max >= covN.min) {
+      alertes.push({ niveau: 'moyen', texte: `Chevauchement avec la période N (${covN.min} → ${covN.max})` });
+    }
+  }
+  return { couverture: cN, alertes, lignes: meta.keptCount };
+}
+
+function badgeQualite(metier, scope) {
+  const q = qualiteFichier(metier, scope);
+  if (!q) return '';
+  const cov = q.couverture;
+  const periode = cov && cov.min ? `${cov.min} → ${cov.max}` : 'période indéterminée';
+  const grave = q.alertes.some((a) => a.niveau === 'grave');
+  const couleur = grave ? 'text-aglred' : (q.alertes.length ? 'text-aglorange' : 'text-gray-600');
+  let html = `<div class="${couleur} text-[10px] mt-1">${grave ? '⛔' : (q.alertes.length ? '⚠' : '✓')} couverture ${periode}</div>`;
+  for (const a of q.alertes) {
+    html += `<div class="text-[10px] mt-0.5 ${a.niveau === 'grave' ? 'text-aglred font-semibold' : 'text-aglorange'}">↳ ${a.texte}</div>`;
+  }
+  return html;
+}
+
 async function handleStatcomUpload(metier, scope, file) {
   const key = `${metier}|${scope}`;
   const tile = document.querySelector(`[data-tile="${key}"]`);
@@ -315,6 +389,7 @@ async function handleStatcomUpload(metier, scope, file) {
       schema: reply.metadata.schema,
       unit: reply.metadata.unit,
       filters: filterOpts,
+      coverage: reply.metadata.coverage || null,
     };
     saveState();
     renderDatasets();
@@ -446,6 +521,7 @@ function renderDatasets() {
                       ? ` · hors-CI ${meta.dropped.geo}`
                       : ''}
                 </div>` : ''}
+                ${badgeQualite(m.code, scope)}
                 ${!hasMem ? '<div class="text-[10px] text-aglorange mt-1 italic">Rows perdus au refresh — re-uploader pour générer live</div>' : ''}
                 <div class="mt-2 flex gap-3">
                   <button class="text-aglred text-[10px] hover:underline" data-remove="${m.code}|${scope}">retirer</button>
@@ -942,6 +1018,63 @@ function parsePeriod() {
   };
 }
 
+// ─── SYNTHÈSE TEXTE COPIABLE ─────────────────────────────────────────────
+// Les highlights vivent sur une slide, mais le besoin du lundi matin c'est
+// de les coller dans un mail. On mémorise les derniers signaux générés et
+// on propose une mise en forme texte.
+let _derniersHighlights = null;
+let _derniereEtude = null;
+
+function construireSynthese() {
+  if (!_derniersHighlights || !_derniersHighlights.length) return null;
+  const l = [];
+  l.push(`ÉTUDE DE MARCHÉ — ${_derniereEtude || ''}`);
+  l.push('');
+  l.push(`${_derniersHighlights.length} point(s) d'attention détecté(s) sur la période :`);
+  l.push('');
+  _derniersHighlights.forEach((h, i) => {
+    l.push(`${i + 1}. [${h.metier}] ${h.titre}`);
+    if (h.detail) l.push(`   ${h.detail}`);
+    if (h.action) l.push(`   → ${h.action}`);
+    l.push('');
+  });
+  l.push('---');
+  l.push('Signaux calculés sur les fichiers STATCOM de la période, classés par ampleur ' +
+         'du volume en jeu et brutalité de la variation.');
+  return l.join('\n');
+}
+
+async function copierSynthese() {
+  const txt = construireSynthese();
+  const btn = document.getElementById('synth-btn');
+  if (!txt) {
+    alert("Aucune synthèse disponible : générez d'abord un PPTX, les signaux seront alors mémorisés.");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(txt);
+    if (btn) { const o = btn.textContent; btn.textContent = '✓ Copié'; setTimeout(() => { btn.textContent = o; }, 2000); }
+  } catch (e) {
+    // Presse-papier refusé (contexte non sécurisé) : on affiche le texte à copier
+    const w = window.open('', '_blank');
+    if (w) { w.document.write('<pre style="font:13px monospace;padding:20px">' +
+      txt.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]) + '</pre>'); }
+    else alert(txt);
+  }
+}
+
+function majSynthese(datasets, libellePeriode) {
+  const d = (datasets || []).find((x) => x.metier === 'PREDICTION' && x.datasetType === 'highlights');
+  _derniersHighlights = d ? (d.rows || []) : null;
+  _derniereEtude = libellePeriode || null;
+  const btn = document.getElementById('synth-btn');
+  if (btn) {
+    btn.disabled = !(_derniersHighlights && _derniersHighlights.length);
+    btn.textContent = btn.disabled ? 'Synthèse indisponible'
+      : `📋 Copier la synthèse (${_derniersHighlights.length} signaux)`;
+  }
+}
+
 // ─── GENERATION ──────────────────────────────────────────────────────────────
 async function generatePptx() {
   const btn = document.getElementById('generate-btn');
@@ -1099,6 +1232,7 @@ async function generatePptx() {
         if (!suite) throw new Error('Génération annulée — corrigez la période ou les fichiers.');
       }
 
+      majSynthese(allDatasets, state.study.periodLabel);
       btn.textContent = 'Composition du PPTX…';
     }
 
@@ -1127,8 +1261,8 @@ async function generatePptx() {
     }
     btn.textContent = 'Chargement assets visuels…';
     const [coverB64, logoB64] = await Promise.all([
-      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260729d')),
-      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260729d')),
+      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260729h')),
+      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260729h')),
     ]);
 
     const study = {
@@ -1225,6 +1359,8 @@ async function boot() {
   setPeriodControls(state.study);
   document.getElementById('generate-btn').addEventListener('click', generatePptx);
   document.getElementById('reset-btn').addEventListener('click', resetAll);
+  const synthBtn = document.getElementById('synth-btn');
+  if (synthBtn) synthBtn.addEventListener('click', copierSynthese);
   const saveBtn = document.getElementById('save-btn');
   if (saveBtn) saveBtn.addEventListener('click', saveSession);
 
