@@ -373,7 +373,7 @@ _ctx.buildDatasets = buildDatasets;
 // (poids in tonnes) instead of TEU. AGL's maritime role is consignataire,
 // so PDM AGL on any dimension = share of tonnage where consignataire = AGL.
 function isAglConsignataire(name) {
-  const n = String(name || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const n = String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().trim();
   return /^agl\b|africa global/.test(n);
 }
@@ -599,7 +599,7 @@ _ctx.buildDsmDatasets = buildDsmDatasets;
 // provided by Olivier (mining docx). A TIM row is "mining" when its
 // normalised destinataire contains one of these appellations.
 function normMatch(s) {
-  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 const MINING_APPELLATIONS = [
@@ -898,7 +898,7 @@ function buildSectorProspects(sources, period) {
       const pRows = period ? src.keptN.filter((r) => inPeriod(r, period)) : src.keptN;
       const ck = clientKeyForMetier(src.metier);
       for (const r of pRows) {
-        const m = String(r.marchandise || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+        const m = String(r.marchandise || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         if (!re.test(m)) continue;
         totalVol += r.volume || 0;
         totalLines += 1;
@@ -1069,3 +1069,243 @@ _ctx.buildDsmReport = buildDsmReport;
 _ctx.inPeriodDsm   = (r, period) => inPeriod(r, period);
 _ctx.inPeriodDsmN1 = (r, period) => (period && period.compare === false)
   ? false : inPeriod(r, shiftPeriodToN1(period));
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OPPORTUNITÉS & HIGHLIGHTS — moteur prédictif
+// ═══════════════════════════════════════════════════════════════════════════
+// Renversement de logique par rapport à buildSectorProspects() : les 12
+// secteurs PND servaient de FILTRE, ce qui rendait invisibles 42 % du volume
+// (dont 15 988 TEU de RIZ, premier produit d'importation du pays, raté par
+// un détail d'expression régulière). On part désormais du marché réel — donc
+// 100 % du volume — et le secteur PND devient une ÉTIQUETTE posée après coup.
+// Un libellé non reconnu perd son tag, plus son flux.
+//
+// UNITÉS : chaque métier garde la sienne (TEU maritime, tonnes aérien). Rien
+// n'est jamais cumulé entre métiers — les signaux portent leur unité.
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _PND_SECTEURS = null;
+function setPndSecteurs(list) { _PND_SECTEURS = Array.isArray(list) ? list : null; }
+_ctx.setPndSecteurs = setPndSecteurs;
+
+function _pndTag(marchandise) {
+  if (!_PND_SECTEURS) return null;
+  const m = normMatch(marchandise);
+  if (!m) return null;
+  for (const sec of _PND_SECTEURS) {
+    for (const kw of (sec.motsCles || [])) {
+      try { if (new RegExp(kw, 'i').test(m)) return { nom: sec.nom, pnd: !!sec.pnd }; }
+      catch (_) { if (m.includes(String(kw).toLowerCase())) return { nom: sec.nom, pnd: !!sec.pnd }; }
+    }
+  }
+  return null;
+}
+
+// Seuil de significativité : un mouvement doit franchir À LA FOIS un plancher
+// absolu (50 dans l'unité du métier) et un plancher relatif (0,1 % du marché).
+// Sans le relatif, 50 t d'aérien (≈1 % d'un marché de 5 600 t) et 50 TEU de
+// TIM (0,01 % de 473 000) auraient le même poids, ce qui est faux.
+function _significatif(vol, marche) {
+  return Math.abs(vol) >= 50 && (marche <= 0 || Math.abs(vol) >= marche * 0.001);
+}
+
+/**
+ * Opportunités commerciales, approche ascendante.
+ * @param {Array} sources [{ metier, unit, keptN, keptN1 }]
+ */
+function buildOpportunities(sources, period) {
+  const out = [];
+  for (const src of sources) {
+    const rN  = period ? (src.keptN || []).filter((r) => inPeriod(r, period)) : (src.keptN || []);
+    const rN1 = (period && period.compare === false) ? []
+      : (src.keptN1 || []).filter((r) => inPeriod(r, shiftPeriodToN1(period)));
+    if (!rN.length) continue;
+    const ck = clientKeyForMetier(src.metier);
+    const marche = rN.reduce((s, r) => s + (r.volume || 0), 0);
+    const par = new Map();
+    for (const r of rN) {
+      const k = String(r.marchandise || '—').trim();
+      let a = par.get(k);
+      if (!a) { a = { tot: 0, agl: 0, cl: new Map() }; par.set(k, a); }
+      a.tot += r.volume || 0;
+      if (isAglB(r.transitaire)) a.agl += r.volume || 0;
+      else {
+        const c = String(r[ck] || '').trim();
+        if (c) a.cl.set(c, (a.cl.get(c) || 0) + (r.volume || 0));
+      }
+    }
+    const n1 = aggregateBy(rN1, (r) => String(r.marchandise || '—').trim());
+    for (const [nom, a] of par.entries()) {
+      const aCapter = a.tot - a.agl;
+      if (!_significatif(aCapter, marche)) continue;
+      const pdm = a.tot > 0 ? Math.round((a.agl / a.tot) * 1000) / 10 : 0;
+      const vN1 = n1.get(nom) || 0;
+      out.push({
+        metier: src.metier, unit: src.unit,
+        marchandise: nom,
+        marche: Math.round(a.tot),
+        agl: Math.round(a.agl),
+        pdm,
+        aCapter: Math.round(aCapter),
+        partMarche: marche > 0 ? Math.round((a.tot / marche) * 1000) / 10 : 0,
+        croissancePct: vN1 > 0 ? Math.round(((a.tot - vN1) / vN1) * 1000) / 10 : null,
+        secteur: _pndTag(nom),
+        prospects: [...a.cl.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3)
+          .map(([n, v]) => ({ nom: n, vol: Math.round(v) })),
+      });
+    }
+  }
+  // Priorité : volume à capter, pondéré par la faiblesse de la PDM actuelle.
+  out.sort((a, b) => (b.aCapter * (1 - b.pdm / 100)) - (a.aCapter * (1 - a.pdm / 100)));
+  return out;
+}
+_ctx.buildOpportunities = buildOpportunities;
+
+/**
+ * HIGHLIGHTS — signaux à porter en CODIR, recalculés à chaque génération.
+ *
+ * Cinq familles, chacune notée puis classées entre elles :
+ *   1. Client AGL en décrochage      (perte de volume vs N-1)
+ *   2. Concurrent en progression     (gain de PDM sur un métier)
+ *   3. Marchandise émergente         (absente N-1, significative en N)
+ *   4. Opportunité majeure           (gros volume, PDM AGL faible)
+ *   5. Perte de vitesse intra-période (2ᵈᵉ moitié vs 1ʳᵉ moitié de N)
+ *
+ * Le score croise l'AMPLEUR (volume en jeu, rapporté au marché du métier)
+ * et la BRUTALITÉ (variation relative). Un client qui passe de 10 à 5 chute
+ * de 50 % mais ne pèse rien : il ne remonte pas. Un client qui perd 15 % de
+ * 8 000 TEU remonte.
+ */
+function buildHighlights(sources, period) {
+  const sig = [];
+  const push = (o) => { if (o && o.score > 0) sig.push(o); };
+
+  for (const src of sources) {
+    const unit = src.unit || 'TEU';
+    const rN  = period ? (src.keptN || []).filter((r) => inPeriod(r, period)) : (src.keptN || []);
+    const rN1 = (period && period.compare === false) ? []
+      : (src.keptN1 || []).filter((r) => inPeriod(r, shiftPeriodToN1(period)));
+    if (!rN.length) continue;
+    const marche   = rN.reduce((s, r) => s + (r.volume || 0), 0);
+    const marcheN1 = rN1.reduce((s, r) => s + (r.volume || 0), 0);
+    const ck = clientKeyForMetier(src.metier);
+    const aglN  = rN.filter((r) => isAglB(r.transitaire));
+    const aglN1 = rN1.filter((r) => isAglB(r.transitaire));
+    const base = { metier: src.metier, unit };
+    const ampleur = (v) => (marche > 0 ? Math.min(1, Math.abs(v) / (marche * 0.05)) : 0);
+    // Sans N-1 exploitable, tout concurrent « gagnerait » sa PDM entière et
+    // toute marchandise serait « nouvelle » : on n'émet alors que les signaux
+    // calculables sur la seule période N (opportunités, momentum).
+    const aN1 = marcheN1 > 0 && rN1.length > 0;
+
+    // ── 1. Clients AGL en décrochage ────────────────────────────────────
+    const cN = aggregateBy(aglN, (r) => r[ck]);
+    const cN1 = aggregateBy(aglN1, (r) => r[ck]);
+    for (const [nom, v1] of (aN1 ? cN1.entries() : [])) {
+      const v = cN.get(nom) || 0;
+      const perte = v1 - v;
+      if (!_significatif(perte, marche) || perte <= 0) continue;
+      const chute = v1 > 0 ? perte / v1 : 0;
+      if (chute < 0.25) continue;
+      push({ ...base, type: 'client_decrochage',
+        titre: `${String(nom).slice(0, 30)} — ${Math.round(chute * 100)} % de volume perdu`,
+        detail: `${fmtNum(v1)} → ${fmtNum(v)} ${unit} (${fmtNum(-perte)})`,
+        action: v === 0 ? 'Client perdu — reconquête à arbitrer' : 'Rendez-vous de rétention à programmer',
+        score: Math.round((ampleur(perte) * 0.65 + chute * 0.35) * 100) });
+    }
+
+    // ── 2. Concurrents en progression ───────────────────────────────────
+    const tN = aggregateBy(rN, (r) => r.transitaire);
+    const tN1 = aggregateBy(rN1, (r) => r.transitaire);
+    for (const [nom, v] of (aN1 ? tN.entries() : [])) {
+      if (isAglB(nom)) continue;
+      const v1 = tN1.get(nom) || 0;
+      const gain = v - v1;
+      if (!_significatif(gain, marche) || gain <= 0) continue;
+      const pdm  = marche > 0 ? (v / marche) * 100 : 0;
+      const pdm1 = marcheN1 > 0 ? (v1 / marcheN1) * 100 : 0;
+      const dPts = pdm - pdm1;
+      if (dPts < 1.0) continue;
+      push({ ...base, type: 'concurrent_progression',
+        titre: `${String(nom).slice(0, 30)} gagne ${dPts.toFixed(1).replace('.', ',')} pt de PDM`,
+        detail: `${pdm1.toFixed(1)} % → ${pdm.toFixed(1)} % · +${fmtNum(gain)} ${unit}`,
+        action: 'Analyser les comptes captés et la politique tarifaire',
+        score: Math.round((ampleur(gain) * 0.55 + Math.min(1, dPts / 5) * 0.45) * 100) });
+    }
+
+    // ── 3. Marchandises émergentes ──────────────────────────────────────
+    const mN = aggregateBy(rN, (r) => r.marchandise);
+    const mN1 = aggregateBy(rN1, (r) => r.marchandise);
+    if (aN1) {
+      for (const [nom, v] of mN.entries()) {
+        const v1 = mN1.get(nom) || 0;
+        if (v1 > v * 0.1) continue;              // pas vraiment nouveau
+        if (!_significatif(v, marche)) continue;
+        const aglPart = aglN.filter((r) => r.marchandise === nom)
+          .reduce((s, r) => s + (r.volume || 0), 0);
+        push({ ...base, type: 'marchandise_emergente',
+          titre: `${String(nom).slice(0, 30)} — segment nouveau (${fmtNum(v)} ${unit})`,
+          detail: `absent en N-1 · PDM AGL ${(v > 0 ? (aglPart / v) * 100 : 0).toFixed(1)} %`,
+          action: aglPart < v * 0.15 ? 'Segment à investir — AGL quasi absent'
+                                     : 'Position à consolider',
+          score: Math.round(ampleur(v) * 78) });
+      }
+    }
+
+    // ── 4. Opportunités majeures (volume non capté) ─────────────────────
+    for (const [nom, v] of mN.entries()) {
+      const aglPart = aglN.filter((r) => r.marchandise === nom)
+        .reduce((s, r) => s + (r.volume || 0), 0);
+      const aCapter = v - aglPart;
+      const pdm = v > 0 ? (aglPart / v) * 100 : 0;
+      if (pdm > 8 || !_significatif(aCapter, marche)) continue;
+      if (aCapter < marche * 0.02) continue;     // au moins 2 % du marché
+      push({ ...base, type: 'opportunite',
+        titre: `${String(nom).slice(0, 30)} — ${fmtNum(aCapter)} ${unit} hors AGL`,
+        detail: `marché ${fmtNum(v)} ${unit} · PDM AGL ${pdm.toFixed(1)} %`,
+        action: 'Cibler les chargeurs du segment',
+        score: Math.round(ampleur(aCapter) * 72) });
+    }
+
+    // ── 5. Perte de vitesse intra-période ───────────────────────────────
+    if (period && (period.endMonth - period.startMonth) >= 3) {
+      const mid = Math.floor((period.startMonth + period.endMonth) / 2);
+      const idx = (r) => MONTHS_FR_B.indexOf(r.mois) + 1;
+      const h1 = aglN.filter((r) => idx(r) <= mid).reduce((s, r) => s + (r.volume || 0), 0);
+      const h2 = aglN.filter((r) => idx(r) > mid).reduce((s, r) => s + (r.volume || 0), 0);
+      const d = h2 - h1;
+      if (_significatif(d, marche) && h1 > 0 && Math.abs(d / h1) >= 0.15) {
+        const baisse = d < 0;
+        push({ ...base, type: 'momentum',
+          titre: `AGL ${src.metier} — ${baisse ? 'ralentissement' : 'accélération'} en 2ᵈᵉ moitié de période`,
+          detail: `${fmtNum(h1)} → ${fmtNum(h2)} ${unit} (${(d / h1 * 100).toFixed(0)} %)`,
+          action: baisse ? 'Identifier la cause du décrochage récent'
+                         : 'Sécuriser la dynamique sur le prochain trimestre',
+          score: Math.round((ampleur(d) * 0.6 + Math.min(1, Math.abs(d / h1)) * 0.4) * 92) });
+      }
+    }
+  }
+
+  // Un seul signal par type et par métier : sans cela une famille prolifique
+  // (les opportunités, souvent nombreuses) monopoliserait la slide.
+  // Deux dédoublonnages : un signal par famille et par métier (sinon une
+  // famille prolifique monopolise la slide), et un seul signal par SUJET
+  // (une même marchandise ressortait en « segment émergent » ET en
+  // « opportunité », ce qui gaspille une ligne sur huit).
+  const vusType = new Set();
+  const vusSujet = new Set();
+  return sig.sort((a, b) => b.score - a.score).filter((x) => {
+    const kt = `${x.type}|${x.metier}`;
+    const sujet = String(x.titre || '').split('—')[0].trim().toLowerCase();
+    const ks = `${sujet}|${x.metier}`;
+    if (vusType.has(kt) || vusSujet.has(ks)) return false;
+    vusType.add(kt); vusSujet.add(ks);
+    return true;
+  }).slice(0, 8);
+}
+function fmtNum(v) {
+  const n = Math.round(Math.abs(v));
+  const s = String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return (v < 0 ? '−' : '') + s;
+}
+_ctx.buildHighlights = buildHighlights;
