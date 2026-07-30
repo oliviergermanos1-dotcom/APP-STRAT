@@ -265,6 +265,30 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
 
   const market = kept.reduce((s, r) => s + r.volume, 0);
 
+  // Couverture temporelle réelle du fichier — sert au contrôle qualité
+  // affiché sur la tuile, AVANT toute génération.
+  let _mn = null, _mx = null;
+  for (const r of kept) {
+    const mi = MONTHS_FR.indexOf(r.mois) + 1;
+    if (!mi || !r.annee) continue;
+    const ym = r.annee * 100 + mi;
+    if (_mn === null || ym < _mn) _mn = ym;
+    if (_mx === null || ym > _mx) _mx = ym;
+  }
+  const _fmtYm = (v) => (v === null ? null
+    : `${Math.floor(v / 100)}-${String(v % 100).padStart(2, '0')}`);
+  // Transitaires distincts : un export où la colonne est vide rend TOUTE
+  // analyse concurrentielle impossible (classements, PDM, nouveaux
+  // entrants, décrochages clients). Cas vécu : un fichier N-1 de 45 497
+  // lignes sans un seul transitaire renseigné — le défaut n'a été
+  // découvert qu'après plusieurs générations.
+  const _tr = new Set();
+  for (const r of kept) { if (r.transitaire) _tr.add(r.transitaire); }
+  const coverage = {
+    n: { min: _fmtYm(_mn), max: _fmtYm(_mx) },
+    transitaires: _tr.size,
+  };
+
   return {
     filename,
     schema: sch.schema,
@@ -273,6 +297,7 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
     keptCount: kept.length,
     dropped,
     market,
+    coverage,
     kept,
   };
 }
