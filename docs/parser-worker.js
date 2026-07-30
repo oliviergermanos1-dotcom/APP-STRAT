@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260729a');
-importScripts('./dataset-builder.js?v=20260729a');
+importScripts('./statcom-parser.js?v=20260729b');
+importScripts('./dataset-builder.js?v=20260729b');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
@@ -131,6 +131,27 @@ self.onmessage = (event) => {
 
       // MINING focus — TIM rows restricted to mining destinataires, then a
       // standard TIM-like analysis (metier label 'MINING').
+      // Focus minier AÉRIEN — étude distincte du maritime, en tonnes.
+      // Même détection de destinataire minier, base AER Import.
+      if (msg.miningAer && msg.miningAer.nKey) {
+        const aN = cache.get(msg.miningAer.nKey);
+        const aN1 = msg.miningAer.n1Key ? cache.get(msg.miningAer.n1Key) : null;
+        if (aN) {
+          const kN  = aN.kept.filter((r) => self.isMiningDestinataire(r.destinataire));
+          const kN1 = aN1 ? aN1.kept.filter((r) => self.isMiningDestinataire(r.destinataire)) : null;
+          // Aucun minier en aérien sur la période : on n'émet aucun dataset,
+          // les slides correspondantes seront masquées plutôt que vides.
+          if (kN.length > 0) {
+            const b = self.buildDatasets({
+              keptN: kN, keptN1: kN1, period, metier: 'MININGAER', filename: aN.filename });
+            reports.MININGAER = { market: b.market, aglVolume: b.aglVolume, aglPdm: b.aglPdm };
+            for (const ds of b.datasets) {
+              allDatasets.push({ metier: 'MININGAER', datasetType: ds.datasetType, rows: ds.rows });
+            }
+          }
+        }
+      }
+
       if (msg.mining && msg.mining.nKey) {
         const cN = cache.get(msg.mining.nKey);
         const cN1 = msg.mining.n1Key ? cache.get(msg.mining.n1Key) : null;
