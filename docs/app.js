@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260729b');
+  _worker = new Worker('./parser-worker.js?v=20260729d');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -1127,8 +1127,8 @@ async function generatePptx() {
     }
     btn.textContent = 'Chargement assets visuels…';
     const [coverB64, logoB64] = await Promise.all([
-      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260729b')),
-      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260729b')),
+      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260729d')),
+      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260729d')),
     ]);
 
     const study = {
@@ -1227,6 +1227,17 @@ async function boot() {
   document.getElementById('reset-btn').addEventListener('click', resetAll);
   const saveBtn = document.getElementById('save-btn');
   if (saveBtn) saveBtn.addEventListener('click', saveSession);
+
+  // Référentiel sectoriel PND — éditable dans data/pnd_sectors.json, sans
+  // toucher au code. Sert à ÉTIQUETER les opportunités détectées ; un
+  // libellé non reconnu garde son volume, il perd seulement son étiquette.
+  try {
+    const pn = await fetch('./data/pnd_sectors.json?v=' + (window.APP_VERSION || ''));
+    if (pn.ok) {
+      const j = await pn.json();
+      await callWorker({ kind: 'pnd', secteurs: j.secteurs || [] });
+    }
+  } catch (e) { console.warn('Référentiel PND non chargé', e); }
 
   // Authored préconisations (rédigées par l'analyste à partir des documents).
   try {
