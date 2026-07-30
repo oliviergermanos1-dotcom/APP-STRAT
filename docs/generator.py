@@ -2185,7 +2185,7 @@ def build_mining_overview(prs, study, code='MINING'):
     titre, unite, source, pg = MINING_VARIANTES[code]
     live = build_overview_data(study, code)
     build_metier_overview(
-        prs, study, code, titre, f'{pg}-1',
+        prs, study, code, titre, f'{pg}-1', unit=unite,
         fallback_sub='Clients miniers traités par AGL  |  Or, Manganèse, Nickel, Lithium',
         fallback_kpis=[
             {'label': f'Marché minier ({unite})', 'value': f'— {unite}', 'sub': source},
@@ -2205,7 +2205,7 @@ def build_mining_overview(prs, study, code='MINING'):
 def build_mining_concurrents(prs, study, code='MINING'):
     titre, unite, source, pg = MINING_VARIANTES[code]
     build_metier_concurrents(
-        prs, study, code, titre, f'{pg}-2',
+        prs, study, code, titre, f'{pg}-2', unit=unite,
         fallback_rows=[['#1', 'AFRICA GLOBAL LOGISTICS', '—', '—'],
                        ['#2', '—', '—', '—']],
         fallback_segs=[{'label': 'Mat. Miniers', 'vol': '— TEU', 'pdm': 0}])
@@ -3142,6 +3142,152 @@ def build_prediction_prospects(prs, study):
     add_insight_box(s, 0.15, 6.55, 13.00, 0.60, '🎯', lines, bg=EYELLOW)
 
 
+
+# ══════════════════════════════════════════════════════════════════════════
+# PRÉDICTIF — Highlights et Opportunités
+# ══════════════════════════════════════════════════════════════════════════
+
+_HL_STYLE = {
+    'client_decrochage':      ('⚠', RED,    'RISQUE CLIENT'),
+    'concurrent_progression': ('🏁', ORANGE, 'PRESSION CONCURRENTIELLE'),
+    'marchandise_emergente':  ('✦', BLUE2,  'SEGMENT ÉMERGENT'),
+    'opportunite':            ('◎', GREEN,  'OPPORTUNITÉ'),
+    'momentum':               ('📈', NAVY,   'DYNAMIQUE AGL'),
+}
+
+
+def build_prediction_highlights(prs, study):
+    """Points d'attention du mois, recalculés à chaque génération.
+
+    Remplace un discours figé par des signaux mesurés sur les fichiers de
+    la période : décrochages clients, gains de PDM concurrents, segments
+    émergents, volumes non captés, ruptures de rythme intra-période."""
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    lbl = study.get('periodLabel') or ''
+    ds = find_dataset(study, 'PREDICTION', 'highlights')
+    hl = (ds or {}).get('rows') or []
+    add_header(s, 'PRÉDICTION – POINTS D\'ATTENTION DU MOIS',
+               f"Signaux détectés sur les données de la période  |  {lbl}")
+    add_footer(s, f"Africa Global Logistics – Étude de Marché {lbl}  |  p.highlights")
+
+    if not hl:
+        add_insight_box(s, 0.15, 1.6, 12.95, 1.4, 'ℹ',
+                        ["Aucun signal significatif détecté sur cette période.",
+                         "Un signal doit peser au moins 50 unités ET 0,1 % du marché de son "
+                         "métier — ce double seuil écarte les micro-variations sans enjeu.",
+                         "Charger les fichiers N-1 active la détection des décrochages et "
+                         "des gains de parts de marché."])
+        return
+
+    n = min(len(hl), 8)
+    # 2 colonnes : lecture confortable jusqu'à 8 signaux.
+    cols, gap = 2, 0.14
+    card_w = (13.0 - gap) / cols
+    lignes = (n + cols - 1) // cols
+    card_h = min(1.28, (5.55 / lignes) - 0.08)
+    y0 = 1.42
+
+    for i, h in enumerate(hl[:n]):
+        r, c = divmod(i, cols)
+        x = 0.15 + c * (card_w + gap)
+        y = y0 + r * (card_h + 0.08)
+        ico, col, fam = _HL_STYLE.get(h.get('type'), ('•', DGRAY, 'SIGNAL'))
+        _rect(s, _in(x), _in(y), _in(card_w), _in(card_h),
+              fill=WHITE, line=col, line_width=1.1)
+        _rect(s, _in(x), _in(y), _in(0.055), _in(card_h), fill=col)
+        # Bandeau : famille + métier + score
+        _txt(s, _in(x + 0.16), _in(y + 0.06), _in(card_w - 0.9), _in(0.20),
+             f"{ico}  {fam}  ·  {h.get('metier', '')}", size=7.5, bold=True,
+             color=col, wrap=False)
+        _txt(s, _in(x + card_w - 0.78), _in(y + 0.06), _in(0.66), _in(0.20),
+             f"score {h.get('score', 0)}", size=7, color=MGRAY,
+             align='right', wrap=False)
+        _txt(s, _in(x + 0.16), _in(y + 0.28), _in(card_w - 0.28), _in(0.34),
+             _fit_text(h.get('titre', ''), card_w - 0.30, pt=10), size=10,
+             bold=True, color=NAVY, wrap=False)
+        _txt(s, _in(x + 0.16), _in(y + 0.62), _in(card_w - 0.28), _in(0.22),
+             str(h.get('detail', ''))[:74], size=8, color=DGRAY, wrap=False)
+        _txt(s, _in(x + 0.16), _in(y + card_h - 0.30), _in(card_w - 0.28), _in(0.24),
+             '→ ' + str(h.get('action', ''))[:70], size=8, bold=True,
+             color=col, wrap=False)
+
+    _txt(s, _in(0.15), _in(7.0), _in(12.9), _in(0.18),
+         "Signaux classés par ampleur (volume en jeu rapporté au marché du métier) croisée "
+         "avec la brutalité de la variation. Un signal par famille et par métier.",
+         size=7, color=MGRAY, wrap=False)
+
+
+def build_prediction_opportunites(prs, study):
+    """Opportunités commerciales — approche ascendante.
+
+    Part du marché réel (100 % du volume) et non d'une grille sectorielle :
+    l'ancienne slide PND filtrait sur 12 secteurs et rendait invisibles 42 %
+    du volume, dont le riz. Le secteur PND devient une ÉTIQUETTE."""
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    lbl = study.get('periodLabel') or ''
+    ds = find_dataset(study, 'PREDICTION', 'opportunites')
+    opp = (ds or {}).get('rows') or []
+    add_header(s, 'PRÉDICTION – OPPORTUNITÉS COMMERCIALES',
+               f"Segments à fort volume où AGL est peu présent  |  {lbl}")
+    add_footer(s, f"Africa Global Logistics – Étude de Marché {lbl}  |  p.opportunites")
+
+    if not opp:
+        add_insight_box(s, 0.15, 1.6, 12.95, 1.4, 'ℹ',
+                        ["Charger les fichiers STATCOM pour activer la détection "
+                         "d'opportunités : elle identifie les marchandises à fort volume "
+                         "sur lesquelles AGL détient une part faible, avec les chargeurs "
+                         "ou destinataires à démarcher."])
+        return
+
+    top = opp[:12]
+    heads = ['Marchandise', 'Métier', 'Marché', 'PDM AGL', 'À capter', 'Secteur', 'Prospects à démarcher']
+    props = [0.19, 0.05, 0.09, 0.07, 0.09, 0.17, 0.34]
+    w = 12.9
+    colw = [w * p for p in props]
+    aligns = ['left', 'center', 'right', 'right', 'right', 'left', 'left']
+    row_h = min(0.40, 5.3 / (len(top) + 1))
+    fs = max(6.5, round(9.0 * (row_h / 0.40), 1))
+    y = 1.45
+
+    _rect(s, _in(0.15), _in(y), _in(w), _in(row_h), fill=NAVY)
+    cx = 0.15
+    for i, h in enumerate(heads):
+        _txt(s, _in(cx + 0.04), _in(y + 0.03), _in(colw[i] - 0.06), _in(row_h - 0.06),
+             h, size=fs, bold=True, color=WHITE, align=aligns[i],
+             valign='middle', wrap=False)
+        cx += colw[i]
+
+    for i, o in enumerate(top):
+        ry = y + row_h * (i + 1)
+        _rect(s, _in(0.15), _in(ry), _in(w), _in(row_h),
+              fill=(WHITE if i % 2 == 0 else EROW), line=LINE_GR, line_width=0.25)
+        sec = o.get('secteur') or {}
+        sec_txt = ('★ ' if sec.get('pnd') else '') + str(sec.get('nom', '—'))[:24] if sec else '—'
+        cells = [
+            _fit_text(o.get('marchandise', ''), colw[0], pt=fs),
+            o.get('metier', ''),
+            fmt_int(o.get('marche') or 0),
+            f"{o.get('pdm', 0)}%",
+            fmt_int(o.get('aCapter') or 0),
+            sec_txt,
+            ' · '.join(p.get('nom', '')[:22] for p in (o.get('prospects') or [])[:2]),
+        ]
+        cx2 = 0.15
+        for k, c in enumerate(cells):
+            col = DGRAY
+            if k == 4: col = GREEN
+            elif k == 5 and sec.get('pnd'): col = NAVY
+            _txt(s, _in(cx2 + 0.04), _in(ry + 0.03), _in(colw[k] - 0.06), _in(row_h - 0.06),
+                 str(c), size=fs, bold=(k == 4), color=col,
+                 align=aligns[k], valign='middle', wrap=False)
+            cx2 += colw[k]
+
+    tot = sum(float(o.get('aCapter') or 0) for o in opp)
+    _txt(s, _in(0.15), _in(6.95), _in(12.9), _in(0.22),
+         f"★ = secteur prioritaire du Plan National de Développement.  "
+         f"Volume total adressable identifié : {fmt_int(tot)} (toutes unités, non cumulables entre métiers).",
+         size=7.5, color=MGRAY, wrap=False)
+
 def build_prediction_preconisations(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     pred = study.get('prediction') or {}
@@ -3432,8 +3578,8 @@ BLOCK_SEQUENCE = [
     # Masqué automatiquement si aucun destinataire minier en aérien.
     'mining_aer_overview', 'mining_aer_concurrents', 'mining_aer_clientele',
     'sep_ayman', 'ayman_overview', 'ayman_overview_aer', 'ayman_detail',
-    'sep_predictions', 'prediction_signaux',
-    'prediction_newsletter_prospects', 'prediction_prospects',
+    'sep_predictions', 'prediction_highlights', 'prediction_signaux',
+    'prediction_newsletter_prospects', 'prediction_opportunites', 'prediction_prospects',
     'prediction_preconisations',
     'sep_cx', 'sep_analyse_client',
 ]
@@ -3635,6 +3781,8 @@ def dispatch_block(prs, study, key):
     if key == 'ayman_overview':          build_ayman_overview(prs, study); return
     if key == 'ayman_detail':            build_ayman_detail(prs, study); return
 
+    if key == 'prediction_highlights':      build_prediction_highlights(prs, study); return
+    if key == 'prediction_opportunites':    build_prediction_opportunites(prs, study); return
     if key == 'prediction_signaux':         build_prediction_signaux(prs, study); return
     if key == 'prediction_newsletter_prospects':
         build_prediction_newsletter_prospects(prs, study); return
