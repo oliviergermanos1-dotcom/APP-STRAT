@@ -1,0 +1,179 @@
+{
+  "_commentaire": "Référentiel sectoriel — Plan National de Développement CI 2026-2030. Éditable sans toucher au code. Les mots-clés sont des expressions régulières appliquées au libellé marchandise normalisé (sans accents, insensible à la casse). Ils servent désormais à ÉTIQUETER les opportunités détectées, plus à les filtrer : un libellé non reconnu conserve son volume, il perd seulement son étiquette sectorielle.",
+  "_maj": "2026-07-30",
+  "secteurs": [
+    {
+      "nom": "Agro-industrie (cacao, anacarde, hévéa)",
+      "pnd": true,
+      "motsCles": [
+        "cacao",
+        "feve.*cacao",
+        "anacarde",
+        "cajou",
+        "hevea",
+        "hévéa",
+        "caoutchouc",
+        "palmier",
+        "huile palme",
+        "karite",
+        "karité"
+      ]
+    },
+    {
+      "nom": "Coton & textile",
+      "pnd": true,
+      "motsCles": [
+        "coton",
+        "fibre.*coton",
+        "tissu",
+        "textile",
+        "habillement"
+      ]
+    },
+    {
+      "nom": "Mines & métaux (or, manganèse, fer)",
+      "pnd": true,
+      "motsCles": [
+        "or\\b",
+        "gold",
+        "manganese",
+        "minerai",
+        "mining",
+        "minier",
+        "fer\\b",
+        "acier",
+        "nickel",
+        "lithium",
+        "bauxite"
+      ]
+    },
+    {
+      "nom": "Pétrole / hydrocarbures / gaz",
+      "pnd": true,
+      "motsCles": [
+        "petrole",
+        "pétrole",
+        "hydrocarbure",
+        "fuel",
+        "gaz\\b",
+        "lpg",
+        "gpl",
+        "huile.*moteur"
+      ]
+    },
+    {
+      "nom": "BTP & ciment",
+      "pnd": true,
+      "motsCles": [
+        "ciment",
+        "clinker",
+        "gypse",
+        "beton",
+        "béton",
+        "materiel.*construction",
+        "matériaux.*construction",
+        "carreau",
+        "céramique"
+      ]
+    },
+    {
+      "nom": "Industrie pharma & santé",
+      "pnd": true,
+      "motsCles": [
+        "medicament",
+        "médicament",
+        "pharma",
+        "vaccin",
+        "hopital",
+        "hôpital",
+        "sante",
+        "santé",
+        "soin"
+      ]
+    },
+    {
+      "nom": "Agro-alimentaire (riz, blé, sucre, lait)",
+      "pnd": true,
+      "motsCles": [
+        "riz\\b",
+        "rice",
+        "ble\\b",
+        "blé",
+        "farine",
+        "sucre",
+        "lait",
+        "huile alimentaire",
+        "boisson"
+      ]
+    },
+    {
+      "nom": "Automobile (véhicules, RoRo)",
+      "pnd": true,
+      "motsCles": [
+        "vehicule",
+        "véhicule",
+        "voiture",
+        "automobile",
+        "roro",
+        "moto\\b",
+        "occasion",
+        "tracteur"
+      ]
+    },
+    {
+      "nom": "Pêche & aquaculture",
+      "pnd": true,
+      "motsCles": [
+        "poisson",
+        "pêche",
+        "peche",
+        "congele",
+        "congelé",
+        "produits.*mer",
+        "crevette",
+        "thon"
+      ]
+    },
+    {
+      "nom": "Chimie & engrais",
+      "pnd": true,
+      "motsCles": [
+        "engrais",
+        "fertilisant",
+        "urea",
+        "urée",
+        "chimi",
+        "herbicide",
+        "insecticide",
+        "pesticide"
+      ]
+    },
+    {
+      "nom": "Emballages & papier",
+      "pnd": false,
+      "motsCles": [
+        "emballage",
+        "papier",
+        "derives.*papier",
+        "carton",
+        "plastique",
+        "pvc",
+        "polyethylene",
+        "polyéthylène"
+      ]
+    },
+    {
+      "nom": "Électroménager / électronique",
+      "pnd": false,
+      "motsCles": [
+        "appareil.*electromenager",
+        "electromenager",
+        "électroménager",
+        "electronique",
+        "électronique",
+        "smartphone",
+        "téléphone"
+      ]
+    }
+  ]
+}
