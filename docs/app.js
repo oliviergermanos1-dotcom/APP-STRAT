@@ -141,7 +141,7 @@ const _pending = new Map(); // id → { resolve, reject, onProgress }
 
 function getWorker() {
   if (_worker) return _worker;
-  _worker = new Worker('./parser-worker.js?v=20260729a');
+  _worker = new Worker('./parser-worker.js?v=20260729b');
   _worker.onmessage = (e) => {
     const msg = e.data;
     const p = _pending.get(msg.id);
@@ -185,6 +185,7 @@ function workerBuild(metierKeys, period, extras) {
   return callWorker({
     kind: 'build', metierKeys, period,
     dsm: e.dsm || null, mining: e.mining || null, ayman: e.ayman || null,
+    miningAer: e.miningAer || null,
     dsmReport: e.dsmReport || null,
   });
 }
@@ -975,6 +976,11 @@ async function generatePptx() {
       ? { nKey: 'TIM|n', n1Key: workerKeys.has('TIM|n1') ? 'TIM|n1' : null }
       : null;
     const mining = timRef;
+    // Focus minier AÉRIEN : étude distincte, base AER Import, en tonnes.
+    // Jamais cumulée au maritime — deux jeux de chiffres séparés.
+    const miningAer = workerKeys.has('AER|n')
+      ? { nKey: 'AER|n', n1Key: workerKeys.has('AER|n1') ? 'AER|n1' : null }
+      : null;
 
     // ── PÉRIMÈTRE DSM : TIM + HINTERLAND IMPORT ──────────────────────────
     // Le DSM couvre l'ensemble de l'import maritime débarqué à Abidjan et
@@ -1015,7 +1021,7 @@ async function generatePptx() {
     let allDatasets = [];
     if (Object.keys(metierKeys).length > 0 || dsm) {
       btn.textContent = 'Agrégation des données…';
-      const buildResult = await workerBuild(metierKeys, period, { dsm, mining, ayman, dsmReport });
+      const buildResult = await workerBuild(metierKeys, period, { dsm, mining, miningAer, ayman, dsmReport });
       allDatasets = buildResult.datasets;
 
       // ── GARDE-FOU PÉRIODE ↔ DONNÉES ──────────────────────────────────
@@ -1121,8 +1127,8 @@ async function generatePptx() {
     }
     btn.textContent = 'Chargement assets visuels…';
     const [coverB64, logoB64] = await Promise.all([
-      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260729a')),
-      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260729a')),
+      fetchAsBase64('./cover.jpg.png?v=' + (window.APP_VERSION || '20260729b')),
+      fetchAsBase64('./agl_logo.png?v=' + (window.APP_VERSION || '20260729b')),
     ]);
 
     const study = {
