@@ -2170,14 +2170,26 @@ def build_dsm_nouveaux(prs, study):
 
 
 # ────────── Mining (3 slides — uses generic builders with MINING data) ──────────
-def build_mining_overview(prs, study):
-    live = build_overview_data(study, 'MINING')
+# Le focus minier existe en DEUX études strictement séparées : maritime
+# (base TIM, en TEU) et aérien (base AER Import, en tonnes). Les volumes ne
+# sont JAMAIS cumulés — un TEU et une tonne ne s'additionnent pas, et les
+# ordres de grandeur diffèrent d'un facteur ~100. Chaque étude porte donc
+# son unité en clair dans l'en-tête.
+MINING_VARIANTES = {
+    'MINING':    ('FOCUS MINIER', 'TEU', 'Maritime (TIM)',      'mining'),
+    'MININGAER': ('FOCUS MINIER AÉRIEN', 'T', 'Aérien Import',   'mining-aer'),
+}
+
+
+def build_mining_overview(prs, study, code='MINING'):
+    titre, unite, source, pg = MINING_VARIANTES[code]
+    live = build_overview_data(study, code)
     build_metier_overview(
-        prs, study, 'MINING', 'FOCUS MINIER', 'mining-1',
+        prs, study, code, titre, f'{pg}-1',
         fallback_sub='Clients miniers traités par AGL  |  Or, Manganèse, Nickel, Lithium',
         fallback_kpis=[
-            {'label': 'Marché minier', 'value': '— TEU', 'sub': 'période'},
-            {'label': 'Volume AGL', 'value': '— TEU', 'sub': 'période'},
+            {'label': f'Marché minier ({unite})', 'value': f'— {unite}', 'sub': source},
+            {'label': f'Volume AGL ({unite})', 'value': f'— {unite}', 'sub': source},
             {'label': 'PDM AGL', 'value': '—', 'sub': '—', 'color': GREEN, 'big': True},
             {'label': 'Écart vs #2', 'value': '—', 'sub': 'TEU', 'color': BLUE2},
             {'label': 'TOP 4', 'value': '—', 'sub': 'leaders', 'color': BLUE2},
@@ -2190,22 +2202,25 @@ def build_mining_overview(prs, study):
         fallback_pdm=(['Janvier', 'Février', 'Mars', 'Avril', 'Mai'], [0, 0, 0, 0, 0], 0))
 
 
-def build_mining_concurrents(prs, study):
+def build_mining_concurrents(prs, study, code='MINING'):
+    titre, unite, source, pg = MINING_VARIANTES[code]
     build_metier_concurrents(
-        prs, study, 'MINING', 'FOCUS MINIER', 'mining-2',
+        prs, study, code, titre, f'{pg}-2',
         fallback_rows=[['#1', 'AFRICA GLOBAL LOGISTICS', '—', '—'],
                        ['#2', '—', '—', '—']],
         fallback_segs=[{'label': 'Mat. Miniers', 'vol': '— TEU', 'pdm': 0}])
 
 
-def build_mining_clientele(prs, study):
+def build_mining_clientele(prs, study, code='MINING'):
+    titre, unite, source, pg = MINING_VARIANTES[code]
     s = prs.slides.add_slide(prs.slide_layouts[6])
-    liveC = build_clientele_data(study, 'MINING')
-    liveN = build_nouveaux_full_data(study, 'MINING')
-    liveConc = build_concurrents_data(study, 'MINING')
-    add_header(s, 'FOCUS MINIER – CLIENTÈLE & PDM AGL',
-               'Top clients miniers (marché) — PDM AGL  |  Top marchandises')
-    add_footer(s, 'Africa Global Logistics – Étude de Marché 2026  |  p.mining-3')
+    liveC = build_clientele_data(study, code)
+    liveN = build_nouveaux_full_data(study, code)
+    liveConc = build_concurrents_data(study, code)
+    add_header(s, f'{titre} – CLIENTÈLE & PDM AGL',
+               f'{source} — en {unite}  |  Top clients miniers  |  Top marchandises')
+    add_footer(s, f"Africa Global Logistics – Étude de Marché "
+                  f"{study.get('periodLabel') or ''}  |  p.{pg}-3")
     if liveC or liveN:
         _txt(s, _in(0.25), _in(1.2), _in(6.5), _in(0.28),
              'Top 20 clients miniers (marché) — part AGL',
@@ -2351,6 +2366,61 @@ def build_ayman_overview(prs, study):
     else:
         add_insight_box(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
                         ['Uploader STATCOM (TIM + AER) pour activer l\'analyse AYIMAN.'])
+
+
+
+def build_ayman_overview_aer(prs, study):
+    """Vue d'ensemble AYIMAN — volet AÉRIEN IMPORT, en tonnes.
+
+    Étude strictement distincte du volet maritime : on ne cumule jamais
+    des TEU et des tonnes. Les deux slides se lisent séparément."""
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    live = build_ayman_focus_data(study)
+    lbl = study.get('periodLabel') or ''
+    aer_n = (live or {}).get('aerTotalN') or 0
+    add_header(s, 'FOCUS AYIMAN – AÉRIEN IMPORT',
+               (f"AYIMAN {fmt_int(aer_n)} T sur la période  |  {lbl}"
+                if live else 'Uploader STATCOM AER pour activer ce focus'))
+    add_footer(s, f"Africa Global Logistics – Étude de Marché {lbl}  |  p.ayiman-2")
+    if not live or not aer_n:
+        add_insight_box(s, 0.15, 1.6, 12.9, 1.2, 'ℹ',
+                        ["Aucun volume AYIMAN détecté sur l'aérien import pour cette période."])
+        return
+    g = live.get('aerGrowthPct')
+    kpis = [
+        {'label': 'AYIMAN AÉRIEN (N)', 'value': fmt_int(aer_n), 'sub': 'tonnes — AER Import',
+         'color': GREEN, 'big': True},
+        {'label': 'AYIMAN AÉRIEN N-1', 'value': fmt_int(live.get('aerTotalN1') or 0),
+         'sub': 'tonnes'},
+        {'label': 'Évolution N-1', 'value': (_var_txt(g, '') or '—'),
+         'sub': 'vs période comparée', 'color': _var_color(g)},
+        {'label': 'Clients AYIMAN', 'value': str(len(live.get('aerClients') or [])),
+         'sub': 'destinataires aériens'},
+    ]
+    add_kpi_bar(s, kpis, y=1.45)
+
+    evol = live.get('aerEvolution') or []
+    if evol:
+        _txt(s, _in(0.25), _in(2.75), _in(6.3), _in(0.26),
+             ('Évolution mensuelle AYIMAN aérien (T) — N vs N-1'
+              if study.get('comparisonYear') else 'Évolution mensuelle AYIMAN aérien (T)'),
+             size=10.5, bold=True, color=DGRAY)
+        labels = [str(e.get('mois', ''))[:4] for e in evol]
+        series = [{'name': 'AYIMAN N', 'labels': labels,
+                   'values': [int(round(e.get('vol', 0))) for e in evol]}]
+        if any(e.get('vol_n1') for e in evol):
+            series.append({'name': 'AYIMAN N-1', 'labels': labels,
+                           'values': [int(round(e.get('vol_n1', 0))) for e in evol]})
+        add_bar_chart(s, 0.15, 3.02, 6.45, 3.95, series,
+                      [ORANGE, RGBColor(0xF5, 0xC2, 0x9F)])
+
+    rows = [[str(c.get('name', ''))[:34], fmt_int(c.get('vol') or 0),
+             fmt_pdm(c.get('pct') or 0)] for c in (live.get('aerClients') or [])[:10]]
+    if rows:
+        _txt(s, _in(6.95), _in(2.75), _in(6.2), _in(0.26),
+             'Top clients AYIMAN — aérien import', size=10.5, bold=True, color=DGRAY)
+        add_rank_table(s, 6.85, 3.02, 6.30,
+                       ['Destinataire', 'Tonnes', '% AYIMAN'], rows, max_h=3.95)
 
 
 def build_ayman_detail(prs, study):
@@ -3358,7 +3428,10 @@ BLOCK_SEQUENCE = [
     'DSMREP_import_armateurs', 'DSMREP_import_manutentionnaires', 'DSMREP_import_consignataires',
     'DSMREP_export_armateurs', 'DSMREP_export_manutentionnaires', 'DSMREP_export_consignataires',
     'sep_divers', 'sep_mining', 'mining_overview', 'mining_concurrents', 'mining_clientele',
-    'sep_ayman', 'ayman_overview', 'ayman_detail',
+    # Focus minier AÉRIEN — regroupé par métier, après le maritime.
+    # Masqué automatiquement si aucun destinataire minier en aérien.
+    'mining_aer_overview', 'mining_aer_concurrents', 'mining_aer_clientele',
+    'sep_ayman', 'ayman_overview', 'ayman_overview_aer', 'ayman_detail',
     'sep_predictions', 'prediction_signaux',
     'prediction_newsletter_prospects', 'prediction_prospects',
     'prediction_preconisations',
@@ -3552,6 +3625,10 @@ def dispatch_block(prs, study, key):
         build_dsm_rep_tables(prs, study, sens, dim, titre, pg); return
 
     if key == 'mining_overview':         build_mining_overview(prs, study); return
+    if key == 'mining_aer_overview':     build_mining_overview(prs, study, 'MININGAER'); return
+    if key == 'mining_aer_concurrents':  build_mining_concurrents(prs, study, 'MININGAER'); return
+    if key == 'mining_aer_clientele':    build_mining_clientele(prs, study, 'MININGAER'); return
+    if key == 'ayman_overview_aer':      build_ayman_overview_aer(prs, study); return
     if key == 'mining_concurrents':      build_mining_concurrents(prs, study); return
     if key == 'mining_clientele':        build_mining_clientele(prs, study); return
 
@@ -3600,8 +3677,12 @@ def build(study_json: str) -> bytes:
     # 'DSM_consignataires_pol' est listé explicitement : sa clé ne contient
     # aucun des mots-clés, alors qu'elle rend bien « DSM – NOUVEAUX ENTRANTS ».
     _cmp_only = {'DSM_consignataires_pol'}
+    # Focus minier aérien : masqué si aucun destinataire minier n'apparaît
+    # dans l'AER Import sur la période (le worker n'émet alors aucun dataset).
+    _has_mining_aer = find_dataset(study, 'MININGAER', 'concurrents') is not None
     _sequence = [k for k in BLOCK_SEQUENCE
-                 if not (_no_cmp and ('nouveaux' in k or 'chargeurs' in k or k in _cmp_only))]
+                 if not (_no_cmp and ('nouveaux' in k or 'chargeurs' in k or k in _cmp_only))
+                 and not (k.startswith('mining_aer_') and not _has_mining_aer)]
 
     for key in _sequence:
         try:
