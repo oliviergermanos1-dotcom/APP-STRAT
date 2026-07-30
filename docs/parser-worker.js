@@ -12,14 +12,24 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260729b');
-importScripts('./dataset-builder.js?v=20260729b');
+importScripts('./statcom-parser.js?v=20260729d');
+importScripts('./dataset-builder.js?v=20260729d');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
 
 function reply(id, payload) {
   self.postMessage({ id, ...payload });
+}
+
+// Les lignes « Non Apuré » sont conservées au parsing et seulement marquées.
+// Elles sont retirées ICI, uniquement pour les analyses fondées sur le
+// TRANSITAIRE (concurrents, clientèle AGL, segments, mensuel, nouveaux
+// entrants). Le reporting DSM et les focus par armateur les conservent.
+function keptTransit(entry) {
+  if (!entry || !entry.kept) return [];
+  if (!(entry.opts && entry.opts.excludeNonApure)) return entry.kept;
+  return entry.kept.filter((r) => !r.nonApure);
 }
 
 self.onmessage = (event) => {
@@ -34,6 +44,7 @@ self.onmessage = (event) => {
       cache.set(key, {
         metier,
         filename,
+        opts: opts || {},
         kept: r.kept,
         market: r.market,
         schema: r.schema,
@@ -56,6 +67,13 @@ self.onmessage = (event) => {
       return;
     }
 
+    // Référentiel sectoriel PND transmis au démarrage (data/pnd_sectors.json).
+    if (kind === 'pnd') {
+      if (self.setPndSecteurs) self.setPndSecteurs(msg.secteurs || []);
+      reply(id, { ok: true, kind: 'pnd', count: (msg.secteurs || []).length });
+      return;
+    }
+
     if (kind === 'forget') {
       cache.delete(msg.key);
       reply(id, { ok: true, kind: 'forget' });
@@ -73,8 +91,8 @@ self.onmessage = (event) => {
         const cN1 = scopes.n1 ? cache.get(scopes.n1) : null;
         if (!cN) continue;
         const built = self.buildDatasets({
-          keptN: cN.kept,
-          keptN1: cN1 ? cN1.kept : null,
+          keptN: keptTransit(cN),
+          keptN1: cN1 ? keptTransit(cN1) : null,
           period,
           metier,
           filename: cN.filename,
@@ -137,8 +155,8 @@ self.onmessage = (event) => {
         const aN = cache.get(msg.miningAer.nKey);
         const aN1 = msg.miningAer.n1Key ? cache.get(msg.miningAer.n1Key) : null;
         if (aN) {
-          const kN  = aN.kept.filter((r) => self.isMiningDestinataire(r.destinataire));
-          const kN1 = aN1 ? aN1.kept.filter((r) => self.isMiningDestinataire(r.destinataire)) : null;
+          const kN  = keptTransit(aN).filter((r) => self.isMiningDestinataire(r.destinataire));
+          const kN1 = aN1 ? keptTransit(aN1).filter((r) => self.isMiningDestinataire(r.destinataire)) : null;
           // Aucun minier en aérien sur la période : on n'émet aucun dataset,
           // les slides correspondantes seront masquées plutôt que vides.
           if (kN.length > 0) {
@@ -146,7 +164,8 @@ self.onmessage = (event) => {
               keptN: kN, keptN1: kN1, period, metier: 'MININGAER', filename: aN.filename });
             reports.MININGAER = { market: b.market, aglVolume: b.aglVolume, aglPdm: b.aglPdm };
             for (const ds of b.datasets) {
-              allDatasets.push({ metier: 'MININGAER', datasetType: ds.datasetType, rows: ds.rows });
+              allDatasets.push({ metier: 'MININGAER', datasetType: ds.datasetType,
+                                 filename: aN.filename, rows: ds.rows });
             }
           }
         }
@@ -156,12 +175,13 @@ self.onmessage = (event) => {
         const cN = cache.get(msg.mining.nKey);
         const cN1 = msg.mining.n1Key ? cache.get(msg.mining.n1Key) : null;
         if (cN) {
-          const keptN = cN.kept.filter((r) => self.isMiningDestinataire(r.destinataire));
-          const keptN1 = cN1 ? cN1.kept.filter((r) => self.isMiningDestinataire(r.destinataire)) : null;
+          const keptN = keptTransit(cN).filter((r) => self.isMiningDestinataire(r.destinataire));
+          const keptN1 = cN1 ? keptTransit(cN1).filter((r) => self.isMiningDestinataire(r.destinataire)) : null;
           const built = self.buildDatasets({ keptN, keptN1, period, metier: 'MINING', filename: cN.filename });
           reports.MINING = { market: built.market, aglVolume: built.aglVolume, aglPdm: built.aglPdm };
           for (const ds of built.datasets) {
-            allDatasets.push({ metier: 'MINING', datasetType: ds.datasetType, rows: ds.rows });
+            allDatasets.push({ metier: 'MINING', datasetType: ds.datasetType,
+                               filename: cN.filename, rows: ds.rows });
           }
         }
       }
@@ -173,7 +193,7 @@ self.onmessage = (event) => {
           const cN = cache.get(a.nKey);
           if (!cN) continue;
           const cN1 = a.n1Key ? cache.get(a.n1Key) : null;
-          sources.push({ metier: a.metier, unit: cN.unit, keptN: cN.kept, keptN1: cN1 ? cN1.kept : null });
+          sources.push({ metier: a.metier, unit: cN.unit, keptN: keptTransit(cN), keptN1: cN1 ? keptTransit(cN1) : null });
         }
         if (sources.length) {
           const ay = self.buildAymanDatasets(sources, period);
@@ -209,13 +229,32 @@ self.onmessage = (event) => {
         }
       }
 
+      // ── PRÉDICTIF : highlights + opportunités ────────────────────────
+      // Alimentés par tous les métiers chargés. Chaque signal porte son
+      // métier et son unité — rien n'est cumulé entre TEU et tonnes.
+      if (self.buildHighlights) {
+        const predSrc = [];
+        for (const [metier, scopes] of Object.entries(metierKeys || {})) {
+          const cN = scopes.n ? cache.get(scopes.n) : null;
+          const cN1 = scopes.n1 ? cache.get(scopes.n1) : null;
+          if (cN) predSrc.push({ metier, unit: cN.unit,
+            keptN: keptTransit(cN), keptN1: cN1 ? keptTransit(cN1) : null });
+        }
+        if (predSrc.length) {
+          allDatasets.push({ metier: 'PREDICTION', datasetType: 'highlights',
+                             rows: self.buildHighlights(predSrc, period) });
+          allDatasets.push({ metier: 'PREDICTION', datasetType: 'opportunites',
+                             rows: self.buildOpportunities(predSrc, period) });
+        }
+      }
+
       // SECTOR PROSPECTS — cross PND/newsletter ↔ STATCOM marchandises.
       // Réutilise toutes les sources STATCOM uploadées pour fournir des
       // exemples concrets de destinataires/chargeurs par secteur prioritaire.
       const prospectSources = [];
       for (const [metier, scopes] of Object.entries(metierKeys || {})) {
         const cN = scopes.n ? cache.get(scopes.n) : null;
-        if (cN) prospectSources.push({ metier, keptN: cN.kept });
+        if (cN) prospectSources.push({ metier, keptN: keptTransit(cN) });
       }
       if (prospectSources.length && self.buildSectorProspects) {
         const prospects = self.buildSectorProspects(prospectSources, period);
