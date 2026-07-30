@@ -49,7 +49,7 @@ const MONTHS_FR = [
 function norm(s) {
   return String(s || '')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
 }
@@ -195,9 +195,16 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
       const ok = sch.qualifTrueValues.some((v) => String(v).toLowerCase() === qs);
       if (!ok) { dropped.nonQualified += 1; continue; }
     }
-    if (o.excludeNonApure && isNonApure(r['Transitaire'])) {
-      dropped.nonApure += 1; continue;
-    }
+    // « Non Apuré » = B/L dont la procédure douanière n'est pas close : le
+    // transitaire n'est pas identifié. On MARQUE la ligne au lieu de la
+    // supprimer, car l'exclusion ne vaut que pour les analyses fondées sur
+    // le TRANSITAIRE (concurrents, clients AGL, parts de marché). Le
+    // reporting DSM raisonne par armateur / manutentionnaire /
+    // consignataire : la marchandise a bien été transportée et manutentionnée,
+    // l'exclure amputait l'export conventionnel de moitié (2,3 M T au lieu
+    // de 4,4 M T face au rapport DSM de référence).
+    const _isNonApure = isNonApure(r['Transitaire']);
+    if (o.excludeNonApure && _isNonApure) dropped.nonApure += 1;
     if (o.excludeSirSmbTransitaire && isSirSmbTransitaire(r['Transitaire'])) {
       dropped.sirSmbTransit += 1; continue;
     }
@@ -236,6 +243,7 @@ function parseStatcomBuffer(buffer, metier, filename, opts = {}) {
       range: String(r['Range'] || '').trim(),
       pays_chargement: String(r['Pays de prise en charge'] || '').trim(),
       pays_livraison: String(r['Pays de livraison'] || '').trim(),
+      nonApure: _isNonApure,
     };
     // DSM fields (maritime only) — Direction Maritime analysis works on the
     // import maritime base aggregated by weight (POIDS_MARCHANDISE, tonnes).
