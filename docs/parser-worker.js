@@ -12,8 +12,8 @@
 // main thread.
 
 importScripts('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-importScripts('./statcom-parser.js?v=20260729d');
-importScripts('./dataset-builder.js?v=20260729d');
+importScripts('./statcom-parser.js?v=20260729h');
+importScripts('./dataset-builder.js?v=20260729h');
 
 // Map<key, { metier, filename, kept, market, schema, unit }>
 const cache = new Map();
@@ -47,6 +47,7 @@ self.onmessage = (event) => {
         opts: opts || {},
         kept: r.kept,
         market: r.market,
+        coverage: r.coverage || null,
         schema: r.schema,
         unit: r.unit,
       });
@@ -56,6 +57,7 @@ self.onmessage = (event) => {
         kind: 'parse',
         metadata: {
           filename: r.filename,
+          coverage: r.coverage || null,
           schema: r.schema,
           unit: r.unit,
           rowCount: r.rowCount,
