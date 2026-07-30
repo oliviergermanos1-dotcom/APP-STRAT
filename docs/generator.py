@@ -1295,6 +1295,17 @@ def build_ayman_focus_data(study):
         'timGrowthPct': a.get('timGrowthPct'),
         # Détail par métier (TIM/HIMP/HEXP/TEM/AER) pour étude complète AYIMAN
         'byMetierDetail': a.get('byMetierDetail') or {},
+        # Volet aérien — étude distincte, en tonnes. Ces champs étaient
+        # calculés côté dataset-builder mais PERDUS ici : cette fonction
+        # recopie une liste fixe de clés, et ils n'y figuraient pas. D'où la
+        # slide 'AÉRIEN IMPORT' annonçant 0 T alors que la slide multi-métiers
+        # affichait bien 32 T pour le même périmètre.
+        'aerTotalN': a.get('aerTotalN') or 0,
+        'aerTotalN1': a.get('aerTotalN1') or 0,
+        'aerGrowthPct': a.get('aerGrowthPct'),
+        'aerClients': a.get('aerClients') or [],
+        'aerMarchandises': a.get('aerMarchandises') or [],
+        'aerEvolution': a.get('aerEvolution') or [],
     }
 
 
@@ -1484,6 +1495,11 @@ def build_sommaire(prs, study):
         # Description
         _txt(s, _in(x + 0.12), _in(y + 1.30), _in(cw - 0.25), _in(1.1),
              desc, size=9.5, color=MGRAY, wrap=True)
+        # Emplacement du renvoi de page. Le sommaire est construit AVANT les
+        # slides qu'il annonce : on pose ici un marqueur que la passe finale
+        # de build() remplacera par le numéro réel, une fois le deck monté.
+        _txt(s, _in(x + 0.12), _in(y + ch - 0.34), _in(cw - 0.25), _in(0.26),
+             f"@@PAGE:{num}@@", size=9, bold=True, color=col, wrap=False)
 
 
 # ────────── TIM (4 slides) ──────────
@@ -2541,25 +2557,36 @@ def build_ayman_detail(prs, study):
 
     # ── Insight bas : synthèse cross-métier ──────────────────────────────
     lines = []
-    # 1. Volume total AYIMAN multi-métier
-    total_all = sum(d.get('vol', 0) for d in detail.values())
-    total_all_n1 = sum(d.get('vol_n1', 0) for d in detail.values())
-    if total_all_n1 > 0:
-        g = ((total_all - total_all_n1) / total_all_n1) * 100
-        arrow = '📈' if g >= 0 else '📉'
-        lines.append(
-            f"{arrow} AYIMAN tous métiers confondus : {fmt_int(total_all)} (vs {fmt_int(total_all_n1)} N-1, "
-            f"{'+' if g >= 0 else ''}{g:.1f} %).".replace('.', ',')
-        )
-    else:
-        lines.append(f"📊 AYIMAN tous métiers confondus : {fmt_int(total_all)} volume cumulé période.")
+    # 1. Volumes AYIMAN par UNITÉ D'ŒUVRE — jamais cumulés entre elles.
+    # L'ancienne version additionnait les TEU maritimes et les tonnes
+    # aériennes en un « volume cumulé » (94 + 32 = 136) dépourvu de sens :
+    # un conteneur et une tonne ne s'ajoutent pas.
+    par_unite = {}
+    for d in detail.values():
+        u = d.get('unit') or '—'
+        acc = par_unite.setdefault(u, [0.0, 0.0])
+        acc[0] += d.get('vol', 0) or 0
+        acc[1] += d.get('vol_n1', 0) or 0
+    frags = []
+    for u, (v, v1) in sorted(par_unite.items(), key=lambda kv: -kv[1][0]):
+        if v1 > 0:
+            g = ((v - v1) / v1) * 100
+            frags.append(f"{fmt_int(v)} {u} ({'+' if g >= 0 else ''}{g:.1f} % vs N-1)"
+                         .replace('.', ','))
+        else:
+            frags.append(f"{fmt_int(v)} {u}")
+    if frags:
+        lines.append('📊 AYIMAN sur la période : ' + '  ·  '.join(frags) +
+                     '  — unités non cumulables.')
 
-    # 2. Métier dominant pour AYIMAN
+    # 2. Métier où AYIMAN pèse le plus — classé sur la PART DE MARCHÉ, pas
+    # sur le volume : comparer 94 TEU à 32 tonnes n'a aucun sens, alors que
+    # deux parts de marché sont comparables entre elles.
     if detail:
-        dom = max(detail.items(), key=lambda kv: kv[1].get('vol', 0))
+        dom = max(detail.items(), key=lambda kv: kv[1].get('pdm', 0) or 0)
         lines.append(
-            f"🎯 Cœur d'activité AYIMAN : {dom[0]} ({fmt_int(dom[1]['vol'])} {dom[1].get('unit', '')}, "
-            f"PDM {dom[1].get('pdm', 0):.1f} %".replace('.', ',') + ")."
+            f"🎯 AYIMAN pèse le plus sur {dom[0]} : PDM {dom[1].get('pdm', 0):.1f} % "
+            f"({fmt_int(dom[1].get('vol', 0))} {dom[1].get('unit', '')}).".replace('.', ',')
         )
 
     # 3. Clients communs AGL↔AYIMAN (verrouillage prioritaire)
@@ -3288,11 +3315,75 @@ def build_prediction_opportunites(prs, study):
          f"Volume total adressable identifié : {fmt_int(tot)} (toutes unités, non cumulables entre métiers).",
          size=7.5, color=MGRAY, wrap=False)
 
+
+def _preco_generees(study):
+    """Préconisations déduites des signaux détectés.
+
+    Le contenu de data/preconisations.json est rédigé à la main : il ne
+    bouge pas d'un mois sur l'autre. On produit ici une base calculée à
+    partir des highlights et des opportunités, que le texte rédigé vient
+    compléter — le jugement de l'analyste reste dans la boucle, mais il
+    part de faits mesurés et non d'une page figée.
+
+    Retourne un dict {secteurs, marchandises, clients, recommandations}
+    ou None si aucun signal exploitable.
+    """
+    hl = (find_dataset(study, 'PREDICTION', 'highlights') or {}).get('rows') or []
+    op = (find_dataset(study, 'PREDICTION', 'opportunites') or {}).get('rows') or []
+    if not hl and not op:
+        return None
+
+    # Secteurs : ceux qui ressortent des opportunités étiquetées PND
+    secs = []
+    for o in op[:25]:
+        sec = o.get('secteur') or {}
+        nom = sec.get('nom')
+        if nom and nom not in secs:
+            secs.append(nom)
+    # Marchandises : les plus gros volumes non captés
+    march = [f"{o.get('marchandise')} ({fmt_int(o.get('aCapter'))} {o.get('unit', '')})"
+             for o in op[:4]]
+    # Clients : prospects nommés sur les tout premiers segments
+    cli = []
+    for o in op[:6]:
+        for pr in (o.get('prospects') or [])[:2]:
+            n = pr.get('nom')
+            if n and n not in cli:
+                cli.append(n)
+    # Recommandations : traduites des signaux, par ordre de score
+    reco = []
+    for h in hl[:4]:
+        t = h.get('type')
+        if t == 'client_decrochage':
+            reco.append(f"Rétention : {h.get('titre', '')}")
+        elif t == 'concurrent_progression':
+            reco.append(f"Riposte concurrentielle : {h.get('titre', '')}")
+        elif t == 'marchandise_emergente':
+            reco.append(f"Investir le segment émergent : {h.get('titre', '')}")
+        elif t == 'opportunite':
+            reco.append(f"Conquête : {h.get('titre', '')}")
+        elif t == 'momentum':
+            reco.append(h.get('action', ''))
+    return {
+        'secteurs': ' · '.join(secs[:5]) if secs else None,
+        'marchandises': ' · '.join(march) if march else None,
+        'clients': ' · '.join(cli[:6]) if cli else None,
+        'recommandations': ' · '.join(r for r in reco if r) if reco else None,
+    }
+
 def build_prediction_preconisations(prs, study):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     pred = study.get('prediction') or {}
-    P = pred.get('preconisations') or {}
+    P = dict(pred.get('preconisations') or {})
     signals = pred.get('signals') or {}
+    # Base calculée sur les signaux détectés : elle PRIME sur le texte
+    # rédigé quand elle existe, car elle reflète la période analysée. Le
+    # texte manuel reste utilisé pour les rubriques non couvertes.
+    _gen = _preco_generees(study)
+    if _gen:
+        for _k, _v in _gen.items():
+            if _v:
+                P[_k] = _v
     sectors = signals.get('sectors') or []
     sub = (f"Horizon {P['horizon']}  |  Lecture stratégique AGL — synthèse cross-sources"
            if P.get('horizon') else
@@ -3444,17 +3535,40 @@ def add_dsm_table(s, x, y, w, h, titre, bloc, unite):
              valign='middle', wrap=False)
         cx += colw[i]
 
-    def ligne(idx, cells, bg, bold=False, color=DGRAY):
+    # Micro-barre dans la colonne PDM : la hiérarchie du marché se lit d'un
+    # coup d'œil sans perdre une seule des 7 colonnes chiffrées. Échelle
+    # relative au leader (et non à 100 %) pour exploiter toute la largeur —
+    # sur un marché où le n°1 pèse 34 %, une échelle absolue produirait des
+    # barres minuscules et illisibles.
+    pdm_max = max([float(r.get('pdmN') or 0) for r in top] or [0]) or 1.0
+
+    def ligne(idx, cells, bg, bold=False, color=DGRAY, pdm_val=None):
         ry = y + row_h * (idx + 1)
         _rect(s, _in(x), _in(ry), _in(w), _in(row_h), fill=bg,
               line=LINE_GR, line_width=0.25)
+        if pdm_val is not None and row_h >= 0.16:
+            # colonne PDM N = index 3
+            bx = x + sum(colw[:3])
+            bw_max = colw[3] - 0.08
+            bh = min(0.075, row_h * 0.30)
+            by = ry + row_h - bh - 0.025
+            _rect(s, _in(bx + 0.04), _in(by), _in(bw_max), _in(bh),
+                  fill=RGBColor(0xE8, 0xEC, 0xF1))
+            frac = max(0.0, min(1.0, float(pdm_val) / pdm_max))
+            if frac > 0.01:
+                _rect(s, _in(bx + 0.04), _in(by), _in(bw_max * frac), _in(bh),
+                      fill=(GOLD if bold else NAVY))
         cx2 = x
         for i, c in enumerate(cells):
             col = color
             if i == 7 and isinstance(c, str) and c not in ('—',):
                 col = GREEN if not c.startswith('−') else RED
-            _txt(s, _in(cx2 + 0.03), _in(ry + 0.02), _in(colw[i] - 0.05),
-                 _in(row_h - 0.04), str(c), size=fs, bold=bold, color=col,
+            dy = 0.02
+            hh = row_h - 0.04
+            if i == 3 and pdm_val is not None and row_h >= 0.16:
+                hh = row_h - 0.11   # laisse la place à la barre en pied de cellule
+            _txt(s, _in(cx2 + 0.03), _in(ry + dy), _in(colw[i] - 0.05),
+                 _in(hh), str(c), size=fs, bold=bold, color=col,
                  align=aligns[i], valign='middle', wrap=False)
             cx2 += colw[i]
 
@@ -3468,7 +3582,7 @@ def add_dsm_table(s, x, y, w, h, titre, bloc, unite):
             fmt_int(r.get('valN1') or 0), f"{r.get('pdmN1', 0):.0f}%",
             _fmt_delta(r.get('delta')), _fmt_pct_signed(r.get('deltaPct')),
         ], EHL if est_agl else (WHITE if i % 2 == 0 else EROW), bold=est_agl,
-           color=NAVY if est_agl else DGRAY)
+           color=NAVY if est_agl else DGRAY, pdm_val=r.get('pdmN'))
         i += 1
 
     if reste:
@@ -3539,33 +3653,62 @@ def build_dsm_rep_overview(prs, study, sens, page):
     ]
     add_kpi_bar(s, kpis, y=1.45)
 
+    # ── Concentration du marché ──────────────────────────────────────────
+    # Information qu'aucun tableau ne donne d'un coup d'œil : le marché
+    # est-il oligopolistique ou fragmenté ? Détermine si la conquête passe
+    # par quelques comptes clés ou par un travail de masse.
+    conc = rep.get(f'{sens}_armateurs_teu') or {}
+    crows = conc.get('rows') or []
+    ctot = float((conc.get('total') or {}).get('valN') or 0)
+    if crows and ctot > 0:
+        t3 = sum(float(r.get('valN') or 0) for r in crows[:3])
+        t10 = sum(float(r.get('valN') or 0) for r in crows[3:10])
+        reste = max(0.0, ctot - t3 - t10)
+        segs = [('Top 3', t3, NAVY), ('Rangs 4-10', t10, RGBColor(0x6C, 0x80, 0xA0)),
+                ('Autres (%d)' % max(0, len(crows) - 10), reste, RGBColor(0xC7, 0xD0, 0xDA))]
+        _txt(s, _in(0.25), _in(2.62), _in(6.3), _in(0.22),
+             f"Concentration du marché conteneurs — {len(crows)} armateurs",
+             size=9, bold=True, color=DGRAY, wrap=False)
+        bx, bw_tot = 0.25, 12.6
+        for lab, v, col in segs:
+            frac = v / ctot
+            if frac <= 0.001:
+                continue
+            seg_w = bw_tot * frac
+            _rect(s, _in(bx), _in(2.86), _in(seg_w), _in(0.26), fill=col)
+            if seg_w > 0.85:
+                _txt(s, _in(bx), _in(2.89), _in(seg_w), _in(0.20),
+                     f"{lab}  {frac * 100:.0f} %", size=8, bold=True,
+                     color=WHITE, align='center', wrap=False)
+            bx += seg_w
+
     mens = rep.get(f'{sens}_mensuel') or []
     if mens:
         labels = [str(m.get('mois', ''))[:4] for m in mens]
         has_n1 = any(m.get('teu_n1') or m.get('conv_n1') for m in mens)
-        _txt(s, _in(0.25), _in(2.75), _in(6.3), _in(0.26),
+        _txt(s, _in(0.25), _in(3.24), _in(6.3), _in(0.26),
              'Évolution mensuelle — conteneurs (TEU)', size=10.5, bold=True, color=DGRAY)
         sTeu = [{'name': 'TEU N', 'labels': labels, 'values': [m.get('teu', 0) for m in mens]}]
         if has_n1:
             sTeu.append({'name': 'TEU N-1', 'labels': labels,
                          'values': [m.get('teu_n1', 0) for m in mens]})
-        add_bar_chart(s, 0.15, 3.02, 6.45, 3.95, sTeu,
+        add_bar_chart(s, 0.15, 3.50, 6.45, 3.48, sTeu,
                       [NAVY, RGBColor(0x6C, 0x80, 0xA0)])
-        _txt(s, _in(6.95), _in(2.75), _in(6.2), _in(0.26),
+        _txt(s, _in(6.95), _in(3.24), _in(6.2), _in(0.26),
              'Évolution mensuelle — conventionnel (tonnes)', size=10.5, bold=True, color=DGRAY)
         sConv = [{'name': 'Conv. N', 'labels': labels, 'values': [m.get('conv', 0) for m in mens]}]
         if has_n1:
             sConv.append({'name': 'Conv. N-1', 'labels': labels,
                           'values': [m.get('conv_n1', 0) for m in mens]})
-        add_bar_chart(s, 6.85, 3.02, 6.30, 3.95, sConv,
+        add_bar_chart(s, 6.85, 3.50, 6.30, 3.48, sConv,
                       [GOLD, RGBColor(0xE0, 0xCD, 0x96)])
 
 BLOCK_SEQUENCE = [
     'cover', 'sommaire',
     'sep_TIM', 'TIM_vue_ensemble', 'TIM_concurrents', 'TIM_clientele', 'TIM_nouveaux_entrants',
     'sep_TEM', 'TEM_vue_ensemble', 'TEM_segments_concurrents', 'TEM_clientele', 'TEM_nouveaux_chargeurs',
-    'sep_HIMP', 'HIMP_vue_ensemble', 'HIMP_concurrents', 'HIMP_nouveaux_entrants',
-    'sep_HEXP', 'HEXP_vue_ensemble', 'HEXP_nouveaux_chargeurs',
+    'sep_HIMP', 'HIMP_vue_ensemble', 'HIMP_concurrents', 'HIMP_clientele', 'HIMP_nouveaux_entrants',
+    'sep_HEXP', 'HEXP_vue_ensemble', 'HEXP_concurrents', 'HEXP_clientele', 'HEXP_nouveaux_chargeurs',
     'sep_AER', 'AER_vue_ensemble', 'AER_segments_concurrents', 'AER_clientele', 'AER_nouveaux_entrants',
     # Reporting DSM — format Direction Maritime : 2 vues d'ensemble
     # (import / export) puis 6 slides tableaux TEU + conventionnel.
@@ -3723,16 +3866,30 @@ def dispatch_block(prs, study, key):
     if key == 'HIMP_concurrents':
         build_metier_concurrents(prs, study, 'HIMP', 'HINTERLAND IMPORT', '15',
                                  FALLBACK_HIMP_ROWS, FALLBACK_SEGS); return
+    # Clientèle AGL — HIMP et HEXP n'en avaient pas, alors que le
+    # portefeuille hinterland (Mali, Burkina) est un enjeu commercial
+    # distinct du marché ivoirien.
+    if key == 'HIMP_clientele':
+        build_metier_clientele(prs, study, 'HIMP', 'HINTERLAND IMPORT', '16',
+                               [['—', '—', '—', '—']],
+                               *FALLBACK_MIX); return
     if key == 'HIMP_nouveaux_entrants':
-        build_metier_nouveaux(prs, study, 'HIMP', 'HINTERLAND IMPORT', '16'); return
+        build_metier_nouveaux(prs, study, 'HIMP', 'HINTERLAND IMPORT', '17'); return
 
     if key == 'HEXP_vue_ensemble':
         build_metier_overview(prs, study, 'HEXP', 'HINTERLAND EXPORT', '18',
                               'Marché : 4 294 TEU  |  AGL : 2 840 TEU  |  PDM 66,1% (#1)',
                               FALLBACK_KPIS('HEXP', '4 294', '2 840', '66,1 %', '#1 dominant'),
                               FALLBACK_SERIES(), FALLBACK_PDM); return
+    if key == 'HEXP_concurrents':
+        build_metier_concurrents(prs, study, 'HEXP', 'HINTERLAND EXPORT', '19',
+                                 [['#1', 'AFRICA GLOBAL LOGISTICS', '—', '—']], FALLBACK_SEGS); return
+    if key == 'HEXP_clientele':
+        build_metier_clientele(prs, study, 'HEXP', 'HINTERLAND EXPORT', '20',
+                               [['—', '—', '—', '—']],
+                               *FALLBACK_MIX); return
     if key == 'HEXP_nouveaux_chargeurs':
-        build_metier_nouveaux(prs, study, 'HEXP', 'HINTERLAND EXPORT', '19'); return
+        build_metier_nouveaux(prs, study, 'HEXP', 'HINTERLAND EXPORT', '21'); return
 
     if key == 'AER_vue_ensemble':
         build_metier_overview(prs, study, 'AER', 'AÉRIEN IMPORT', '21',
@@ -3851,6 +4008,34 @@ def build(study_json: str) -> bytes:
                 _add_logo_to_slide(slide, logo_bytes)
         except Exception:
             pass
+
+    # ── Renvois de page du sommaire ─────────────────────────────────────
+    # Les séparateurs de section portent leur code ('01'…'10') en gros. On
+    # repère la position réelle de chacun puis on remplace les marqueurs
+    # @@PAGE:nn@@ posés dans le sommaire. Sans cela le sommaire annoncerait
+    # des sections sans dire où les trouver — inutile sur un deck de 50 pages.
+    try:
+        pages = {}
+        for _i, _sl in enumerate(prs.slides, start=1):
+            _txts = [sh.text_frame.text.strip() for sh in _sl.shapes
+                     if sh.has_text_frame and sh.text_frame.text.strip()]
+            if not _txts:
+                continue
+            _code = _txts[0].strip()
+            if re.fullmatch(r'\d{2}', _code) and _code not in pages:
+                pages[_code] = _i
+        for _sl in prs.slides:
+            for _sh in _sl.shapes:
+                if not _sh.has_text_frame:
+                    continue
+                for _pa in _sh.text_frame.paragraphs:
+                    for _run in _pa.runs:
+                        _m = re.fullmatch(r'@@PAGE:(\d+)@@', _run.text.strip())
+                        if _m:
+                            _pg = pages.get(_m.group(1))
+                            _run.text = (f"→ page {_pg}" if _pg else '')
+    except Exception:
+        pass
 
     # ── Renumérotation des pieds de page ────────────────────────────────
     # Les numéros de page sont écrits en dur dans chaque builder (p.4, p.5…).

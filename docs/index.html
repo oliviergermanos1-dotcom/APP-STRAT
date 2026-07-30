@@ -308,6 +308,10 @@
         <button id="save-btn" class="px-6 py-3 bg-gold text-navy rounded font-bold hover:bg-gold/90 transition disabled:opacity-50">
           💾 Sauvegarder la session
         </button>
+        <button id="synth-btn" type="button" disabled
+          class="px-4 py-2 rounded border border-gray-300 text-sm text-gray-700 hover:border-gold disabled:opacity-40 disabled:cursor-not-allowed">
+          Synthèse indisponible
+        </button>
       </div>
       <p id="save-status" class="text-[11px] text-gray-500 mt-2"></p>
       <div class="mt-4 text-xs text-gray-500">
@@ -346,11 +350,11 @@
   <!-- generator.js (pptxgenjs) is no longer loaded — Python (Pyodide) handles
        the base deck. data-adapter.js is also obsolete (port lives in
        generator.py). blocks.js stays for the JS-side merge logic only. -->
-  <script src="./blocks.js?v=20260729d"></script>
-  <script src="./prediction.js?v=20260729d"></script>
-  <script src="./pptx-merge.js?v=20260729d"></script>
-  <script src="./py-generator.js?v=20260729d"></script>
-  <script src="./app.js?v=20260729d"></script>
+  <script src="./blocks.js?v=20260729h"></script>
+  <script src="./prediction.js?v=20260729h"></script>
+  <script src="./pptx-merge.js?v=20260729h"></script>
+  <script src="./py-generator.js?v=20260729h"></script>
+  <script src="./app.js?v=20260729h"></script>
 
   <!-- Indicateur de version : extrait le cache-bust de l'URL d'app.js et
        l'affiche dans le badge du header. Permet à Olivier de vérifier d'un
