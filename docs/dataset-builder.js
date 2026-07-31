@@ -602,20 +602,48 @@ function normMatch(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
+// ── REFERENTIEL MINIER — liste arretee par la Direction Marketing ─────────
+// Le focus minier ne repose PAS sur le libelle marchandise (un excavateur
+// n'est pas du minerai) mais sur l'IDENTITE du destinataire ou chargeur.
+// Liste validee metier : 16 comptes import Cote d'Ivoire, 14 comptes
+// hinterland (11 Burkina Faso, 3 Mali).
+//
+// Chaque appellation est verifiee contre les libelles STATCOM reels pour
+// eviter les homonymies :
+//   · 'samsung' seul attrapait SAMSUNG ELECTRONICS et THAI SAMSUNG
+//     (~1 900 TEU d'electronique) -> restreint a 'samsung c and t',
+//     branche ingenierie du groupe, active sur les projets miniers en CI.
+//   · 'semafo' seul attrape SEMAFORT SA, entite distincte -> 'semafo b'.
+//   · 'minex' attrapait MINEXA FRANCE -> on vise le nom complet
+//     'mines et exploitation en afrique', conserve a la demande metier.
 const MINING_APPELLATIONS = [
-  'agbaou gold operation', 'bonikro gold mine', 'ste des mines de lafigue',
-  'ste des mines d ity', 'k1 mining', 'bureau veritas cote d ivoire',
-  'corica mining service', 'roxgold sango', '3g mining', 'cmb abidjan',
-  'equatorial engineering cote d ivoire',
-  'mines et exploitation en afrique de l ouest', 'minex wa',
-  'epiroc cote d ivoire', 'societe miniere de la lobo',
-  'societe miniere de lafigue',
+  // Import Cote d'Ivoire
+  'agbaou gold operation', 'bonikro', 'societe miniere de lafigue',
+  'ste des mines de lafigue', 'mines d ity', 'k1 mining', 'bureau veritas',
+  'corica', 'roxgold', 'endeavour aviation', '3g mining',
+  'compagnie miniere du baf', 'cmb abidjan', 'equatorial engineering',
+  'exploration and mining suppli', 'epiroc', 'samsung c and t',
+  'societe miniere de la lobo', 'mines de la lobo',
+  // Conserve a la demande de la Direction. 'minex' seul captait MINEXA
+  // FRANCE : on vise donc le nom complet.
+  'mines et exploitation en afrique',
+  // Hinterland — Burkina Faso
+  'aums burkina', 'somisa', 'hounde gold', 'orezone', 'byrnecut',
+  'essakane', 'burkina mining comp', 'wahgnion', 'semafo b', 'toega',
+  'underground mining service',
+  // Hinterland — Mali
+  'somisy', 'toubani',
 ].map(normMatch);
 
 function isMiningDestinataire(name) {
   const n = normMatch(name);
   if (!n) return false;
-  return MINING_APPELLATIONS.some((a) => n.includes(a) || a.includes(n));
+  // Inclusion inverse limitee aux appellations d'au moins 6 caracteres :
+  // sans ce garde-fou, un destinataire nomme 'MINES' matcherait
+  // 'ste des mines d ity'.
+  return MINING_APPELLATIONS.some(
+    (a) => n.includes(a) || (n.length >= 6 && a.includes(n)),
+  );
 }
 _ctx.isMiningDestinataire = isMiningDestinataire;
 
