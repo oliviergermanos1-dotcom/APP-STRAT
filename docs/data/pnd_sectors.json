@@ -1,5 +1,5 @@
 {
-  "_commentaire": "Référentiel sectoriel — Plan National de Développement CI 2026-2030. Éditable sans toucher au code. Les mots-clés sont des expressions régulières appliquées au libellé marchandise normalisé (sans accents, insensible à la casse). Ils servent désormais à ÉTIQUETER les opportunités détectées, plus à les filtrer : un libellé non reconnu conserve son volume, il perd seulement son étiquette sectorielle.",
+  "_commentaire": "Référentiel sectoriel — Plan National de Développement CI 2026-2030. Éditable sans toucher au code. Les mots-clés sont des expressions régulières appliquées au libellé marchandise normalisé (sans accents, insensible à la casse). Ils servent désormais à ÉTIQUETER les opportunités détectées, plus à les filtrer : un libellé non reconnu conserve son volume, il perd seulement son étiquette sectorielle. ATTENTION : un mot-clé du type 'or\\\\b' ne borne QUE la fin du mot et attrape donc EXCAVATOR ; 'urea' attrape ARTICLES DE BUREAU, 'rice' attrape DENTIFRICE, 'ble\\\\b' attrape COUCHE JETABLE. Pour un mot court, toujours borner des DEUX côtés : '\\\\bor\\\\b'.",
   "_maj": "2026-07-30",
   "secteurs": [
     {
@@ -34,13 +34,13 @@
       "nom": "Mines & métaux (or, manganèse, fer)",
       "pnd": true,
       "motsCles": [
-        "or\\b",
+        "\\bor\\b",
         "gold",
         "manganese",
         "minerai",
         "mining",
         "minier",
-        "fer\\b",
+        "\\bfers?\\b",
         "acier",
         "nickel",
         "lithium",
@@ -55,7 +55,7 @@
         "pétrole",
         "hydrocarbure",
         "fuel",
-        "gaz\\b",
+        "\\bgaz\\b",
         "lpg",
         "gpl",
         "huile.*moteur"
@@ -95,13 +95,13 @@
       "nom": "Agro-alimentaire (riz, blé, sucre, lait)",
       "pnd": true,
       "motsCles": [
-        "riz\\b",
-        "rice",
-        "ble\\b",
+        "\\briz\\b",
+        "\\brice\\b",
+        "\\bble\\b",
         "blé",
         "farine",
-        "sucre",
-        "lait",
+        "\\bsucres?\\b",
+        "\\blait\\b",
         "huile alimentaire",
         "boisson"
       ]
@@ -115,7 +115,7 @@
         "voiture",
         "automobile",
         "roro",
-        "moto\\b",
+        "\\bmotos?\\b",
         "occasion",
         "tracteur"
       ]
@@ -127,6 +127,8 @@
         "poisson",
         "pêche",
         "peche",
+        "congele",
+        "congelé",
         "produits.*mer",
         "crevette",
         "thon"
@@ -138,7 +140,7 @@
       "motsCles": [
         "engrais",
         "fertilisant",
-        "urea",
+        "\\burea\\b",
         "urée",
         "chimi",
         "herbicide",
